@@ -534,7 +534,6 @@ async function deductInventoryStockAtomic(
   if (!item) {
     throw new Error(`قطعة المخزون غير موجودة أو تم حذفها: ${itemNameForError ?? inventoryItemId}`);
   }
-
   const affectedCount = await tx.$executeRaw`
     UPDATE "InventoryItem"
     SET "quantity" = "quantity" - ${quantityToDeduct},

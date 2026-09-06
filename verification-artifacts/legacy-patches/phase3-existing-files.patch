@@ -1,0 +1,83 @@
+*** Begin Patch
+*** Update File: prisma/schema.prisma
+@@
+ model PurchaseItem {
+@@
+   importedSourceText         String?
++  importSourceId             String?   @db.Uuid
++  importRowKey               String?   @db.VarChar(120)
++  importedPurchaseUnit       String?   @db.VarChar(80)
+@@
+   @@index([shopId, newItemBarcode])
++  @@index([shopId, importSourceId])
+ }
++
++// Private source files/text used only to prepare purchase drafts. No public URL is stored.
++model PurchaseImportSource {
++  id                   String   @id @default(uuid()) @db.Uuid
++  shopId               String   @db.Uuid
++  purchaseInvoiceId    String   @db.Uuid
++  createdByUserId      String?  @db.Uuid
++  sourceType           String   @db.VarChar(20)
++  fileName             String?
++  mimeType             String?  @db.VarChar(120)
++  fileSize             Int?
++  pageCount            Int?
++  fileData             Bytes?
++  textContent          String?
++  contentSha256        String   @db.Char(64)
++  status               String   @default("UPLOADED") @db.VarChar(24)
++  extractionVersion    Int      @default(1)
++  extractionProvider   String?  @db.VarChar(80)
++  extractedData        Json?
++  safeErrorCode        String?  @db.VarChar(80)
++  safeErrorMessage     String?
++  attemptCount         Int      @default(0)
++  lastAttemptAt        DateTime?
++  createdAt            DateTime @default(now())
++  updatedAt            DateTime @updatedAt
++
++  @@unique([shopId, purchaseInvoiceId, contentSha256, extractionVersion])
++  @@index([shopId, purchaseInvoiceId, createdAt])
++  @@index([shopId, status, lastAttemptAt])
++}
++
++model PurchaseImportExtractionAttempt {
++  id         String    @id @default(uuid()) @db.Uuid
++  shopId     String    @db.Uuid
++  sourceId   String    @db.Uuid
++  requestKey String    @db.VarChar(120)
++  provider   String    @db.VarChar(80)
++  status     String    @default("STARTED") @db.VarChar(24)
++  createdAt  DateTime  @default(now())
++  finishedAt DateTime?
++
++  @@unique([shopId, requestKey])
++  @@index([shopId, createdAt])
++}
++
++model SupplierItemAlias {
++  id                String    @id @default(uuid()) @db.Uuid
++  shopId            String    @db.Uuid
++  supplierId        String    @db.Uuid
++  inventoryItemId   String    @db.Uuid
++  aliasText         String
++  normalizedAlias   String
++  barcodeSnapshot   String?
++  createdByUserId   String?   @db.Uuid
++  createdAt         DateTime  @default(now())
++  updatedAt         DateTime  @updatedAt
++  deletedAt         DateTime?
++
++  @@index([shopId, supplierId, inventoryItemId])
++  @@index([shopId, supplierId, normalizedAlias])
++}
+*** End Patch
+
+*** Begin Patch
+*** Update File: package.json
+@@
+-    "entitlement:test:integration": "tsx scripts/test-subscription-integration.ts"
++    "entitlement:test:integration": "tsx scripts/test-subscription-integration.ts",
++    "purchases:document-test": "tsx scripts/test-purchase-document-import.ts"
+*** End Patch

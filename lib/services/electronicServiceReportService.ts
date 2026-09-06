@@ -113,7 +113,7 @@ export async function getElectronicServiceReport(shopId: string, filters: Electr
         COUNT(*)::int AS "operationCount", COALESCE(SUM(tx."providerCost"),0) AS "providerCost",
         COALESCE(SUM(tx."customerCharge"),0) AS "customerCharge", COALESCE(SUM(tx."profit"),0) AS "profit"
       FROM "ElectronicServiceTransaction" tx WHERE ${where}
-      GROUP BY DATE((tx."createdAt" AT TIME ZONE 'UTC') AT TIME ZONE ${filters.timeZone})
+      GROUP BY 1
       ORDER BY "day" DESC LIMIT 62
     `),
     prisma.$queryRaw<Array<{ reconciliationCount: number; netDifference: Prisma.Decimal; absoluteDifference: Prisma.Decimal }>>(Prisma.sql`

@@ -29,7 +29,6 @@ import {
   DashboardStatCard,
   type DashboardTone,
 } from "@/components/dashboard/masar-dashboard-ui";
-import { DashboardUpdatesSection } from "@/components/dashboard/dashboard-updates-section";
 import { MasarJourney } from "@/components/dashboard/masar-journey";
 import { MasarWaveBackground } from "@/components/dashboard/masar-wave-background";
 import { DomainAnnouncement } from "@/components/dashboard/domain-announcement";
@@ -171,8 +170,6 @@ export default async function DashboardPage() {
           </div>
         </DashboardSection>
       ) : null}
-
-      <DashboardUpdatesSection />
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-3">

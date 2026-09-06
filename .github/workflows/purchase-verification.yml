@@ -1,18 +1,18 @@
-name: Purchase preview bootstrap verification
+name: Purchase verification (no deploy)
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - preview/purchase-receiving
-  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  verify-and-materialize:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17
@@ -48,31 +48,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply local verification payload
-        id: payload
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -f .preview-verification-payload.tar.gz ]]; then
-            tar -xzf .preview-verification-payload.tar.gz
-            rm .preview-verification-payload.tar.gz
-            echo "applied=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "applied=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
-      - name: Generate real package-lock with npm
-        run: npm install --package-lock-only --ignore-scripts
-
-      - name: Clean install
+      - name: Clean install from committed lockfile
         run: npm ci --ignore-scripts
 
-      - name: Create Supabase-compatible roles in disposable Postgres
+      - name: Create Supabase-compatible DB roles in disposable Postgres
         env:
           PGPASSWORD: postgres
         run: |
@@ -86,32 +70,25 @@ jobs:
           npx prisma validate
           npx prisma generate
 
-      - name: Apply migrations only to disposable CI PostgreSQL
+      - name: Apply migrations only to disposable CI Postgres
         run: npx prisma migrate deploy
 
       - name: TypeScript
         run: npx tsc --noEmit
 
-      - name: Purchase checks
+      - name: Purchase no-dependency safeguards
         run: |
           node scripts/test-purchase-openai-static.cjs
           node scripts/test-purchase-document-security.cjs
           node scripts/test-purchase-receiving-phase4-static.cjs
           node scripts/test-purchase-receiving-lifecycle.cjs
           node scripts/test-purchase-legacy-cost-compat-static.cjs
+
+      - name: Purchase parser tests with real dependencies
+        run: |
           npm run purchases:test
           npm run purchases:document-test
+          node --import tsx scripts/test-purchase-cost-rounding.ts
 
       - name: Full application build
         run: npm run build
-
-      - name: Materialize verified source on preview branch
-        if: steps.payload.outputs.applied == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "chore(preview): materialize verified purchase preview"
-          git push origin "HEAD:${GITHUB_REF_NAME}"

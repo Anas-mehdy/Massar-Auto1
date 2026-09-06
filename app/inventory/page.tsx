@@ -1,4 +1,4 @@
-import { Eye, FolderOpen, PackagePlus, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Eye, FolderOpen, PackagePlus, Pencil, Plus, ReceiptText, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { DatabaseUnavailable } from "@/components/database-unavailable";
@@ -73,7 +73,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
       <PageHeader
         title="المخزون"
         description="تصفح المستودع حسب التصنيف وراقب القطع والكميات والتنبيهات"
-        actions={<Button asChild className="font-semibold shadow-sm"><Link href={categoryId ? `/inventory/new?categoryId=${categoryId}` : "/inventory/new"}><Plus className="ml-1.5 h-4 w-4" aria-hidden="true" />إضافة قطعة جديدة</Link></Button>}
+        actions={<div className="flex flex-wrap gap-2">{canManage && <Button asChild variant="outline" className="font-black"><Link href="/inventory/purchases/new"><ReceiptText className="ml-1.5 h-4 w-4" aria-hidden="true" />استلام بضاعة</Link></Button>}<Button asChild className="font-semibold shadow-sm"><Link href={categoryId ? `/inventory/new?categoryId=${categoryId}` : "/inventory/new"}><Plus className="ml-1.5 h-4 w-4" aria-hidden="true" />إضافة قطعة جديدة</Link></Button></div>}
       />
 
       {params.deleted && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700">تم حذف قطعة المخزون بنجاح مع الاحتفاظ بحركاتها السابقة.</div>}

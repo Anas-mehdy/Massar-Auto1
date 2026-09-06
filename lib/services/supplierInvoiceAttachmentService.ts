@@ -1,5 +1,6 @@
 import { InventoryMovementType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { money as accountingMoney, movingWeightedAverage } from "@/lib/purchase-costing";
 
 export type SupplierInvoiceAttachmentInput = {
   fileName: string;
@@ -83,11 +84,13 @@ export async function receiveStockWithInvoice(
   }
 
   return prisma.$transaction(async (tx) => {
-    const item = await tx.inventoryItem.findFirst({
-      where: { id: inventoryItemId, shopId, deletedAt: null },
-      select: { id: true, quantity: true, unitCost: true },
-    });
+    const itemRows = await tx.$queryRaw<Array<{ id: string; quantity: number; unitCost: Prisma.Decimal | null }>>`
+      SELECT "id", "quantity", "unitCost" FROM "InventoryItem"
+      WHERE "id"=${inventoryItemId}::uuid AND "shopId"=${shopId}::uuid AND "deletedAt" IS NULL FOR UPDATE
+    `;
+    const item = itemRows[0];
     if (!item) throw new Error("قطعة المخزون غير موجودة.");
+    if (item.quantity < 0) throw new Error("لا يمكن إضافة مخزون فوق رصيد سالب ضمن سياسة المتوسط المرجح.");
 
     const supplierId = input.supplierId?.trim() || null;
     if (supplierId) {
@@ -99,15 +102,24 @@ export async function receiveStockWithInvoice(
     }
 
     const suppliedUnitCost = decimalOrNull(input.unitCost);
-    const updatedItem = await tx.inventoryItem.update({
-      where: { id: inventoryItemId },
-      data: {
-        quantity: { increment: input.quantity },
-        ...(suppliedUnitCost ? { unitCost: suppliedUnitCost } : {}),
-        version: { increment: 1 },
-      },
-      select: { id: true, quantity: true, unitCost: true },
-    });
+    if (!suppliedUnitCost && item.unitCost === null) {
+      throw new Error("تكلفة الوحدات المستلمة غير معروفة، ومتوسط الصنف الحالي غير معروف. أدخل تكلفة الاستلام صراحةً.");
+    }
+    const inboundUnitCost = suppliedUnitCost ?? item.unitCost!;
+    const nextAverage = suppliedUnitCost
+      ? movingWeightedAverage({
+          currentQuantity: item.quantity,
+          currentAverageCost: item.unitCost,
+          receivedQuantity: input.quantity,
+          receivedCapitalizedValue: accountingMoney(suppliedUnitCost.mul(input.quantity)),
+        })
+      : item.unitCost!;
+    const nextQuantity = item.quantity + input.quantity;
+    await tx.$executeRaw`
+      UPDATE "InventoryItem" SET "quantity"=${nextQuantity}, "unitCost"=${nextAverage}, "version"="version"+1, "updatedAt"=NOW()
+      WHERE "id"=${inventoryItemId}::uuid AND "shopId"=${shopId}::uuid
+    `;
+    const updatedItem = { id: inventoryItemId, quantity: nextQuantity, unitCost: nextAverage };
 
     const movement = await tx.inventoryMovement.create({
       data: {
@@ -117,7 +129,7 @@ export async function receiveStockWithInvoice(
         type: InventoryMovementType.STOCK_IN,
         quantityChange: input.quantity,
         quantityAfter: updatedItem.quantity,
-        unitCostSnapshot: suppliedUnitCost ?? item.unitCost,
+        unitCostSnapshot: inboundUnitCost,
         note: input.note?.trim() || null,
       },
       select: { id: true },

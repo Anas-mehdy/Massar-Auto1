@@ -15,6 +15,8 @@ export type CashDrawerMovementType =
   | "INSTALLMENT_PAYMENT"
   | "INSTALLMENT_DOWN_PAYMENT"
   | "DEBT_PAYMENT"
+  | "PURCHASE_PAYMENT"
+  | "SUPPLIER_REFUND"
   | "CHANGE_RETURN";
 
 export type CashDrawerSourceType =
@@ -24,6 +26,8 @@ export type CashDrawerSourceType =
   | "INSTALLMENT"
   | "INSTALLMENT_DOWN_PAYMENT"
   | "DEBT"
+  | "PURCHASE"
+  | "SUPPLIER_RETURN"
   | "CASH_DRAWER_TRANSFER"
   | "MANUAL";
 
