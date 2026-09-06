@@ -70,8 +70,23 @@ jobs:
           npx prisma validate
           npx prisma generate
 
-      - name: Apply migrations only to disposable CI Postgres
-        run: npx prisma migrate deploy
+      # The historical migration chain cannot reconstruct main (Shop.currency is
+      # absent before the subscription migration). Test the purchase upgrade from
+      # the pinned pre-purchase Prisma schema, without changing legacy migrations.
+      - name: Apply purchase migrations over main schema in disposable CI Postgres
+        shell: bash
+        run: |
+          set -euo pipefail
+          ci_schema_dir="$RUNNER_TEMP/massar-purchase-ci/prisma"
+          mkdir -p "$ci_schema_dir/migrations/00000000000000_main_schema_baseline"
+          git show 2b3d5bc049eaaeedd92e4834150a7fd2b619b53d:prisma/schema.prisma > "$ci_schema_dir/main.prisma"
+          npx prisma migrate diff --from-empty --to-schema-datamodel "$ci_schema_dir/main.prisma" --script > "$ci_schema_dir/migrations/00000000000000_main_schema_baseline/migration.sql"
+          cp prisma/schema.prisma "$ci_schema_dir/schema.prisma"
+          cp prisma/migrations/migration_lock.toml "$ci_schema_dir/migrations/migration_lock.toml"
+          for migration in prisma/migrations/20260906*; do
+            cp -R "$migration" "$ci_schema_dir/migrations/"
+          done
+          npx prisma migrate deploy --schema "$ci_schema_dir/schema.prisma"
 
       - name: TypeScript
         run: npx tsc --noEmit
