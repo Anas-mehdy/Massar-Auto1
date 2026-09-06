@@ -83,6 +83,9 @@ jobs:
           npx prisma migrate diff --from-empty --to-schema-datamodel "$ci_schema_dir/main.prisma" --script > "$ci_schema_dir/migrations/00000000000000_main_schema_baseline/migration.sql"
           cp prisma/schema.prisma "$ci_schema_dir/schema.prisma"
           cp prisma/migrations/migration_lock.toml "$ci_schema_dir/migrations/migration_lock.toml"
+          # InventoryCategory is managed by SQL and absent from Prisma models.
+          cp -R prisma/migrations/20260831003500_add_inventory_categories_phase1 "$ci_schema_dir/migrations/"
+          cp -R prisma/migrations/20260901184500_add_financial_transfers "$ci_schema_dir/migrations/"
           for migration in prisma/migrations/20260906*; do
             cp -R "$migration" "$ci_schema_dir/migrations/"
           done
