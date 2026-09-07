@@ -145,18 +145,18 @@ export function TransferForm({ wallets, customers, currency, returnTo }: { walle
       <p className="mt-2 text-[9px] font-bold leading-4 text-slate-400">المضافة تُحصّل فوق المبلغ، والمخصومة تقلل صافي ما يستلمه العميل.</p>
     </div> : <input type="hidden" name="commissionMode" value="NONE" />}
 
-    {isCustomerOperation && !isDeferred ? <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/70 via-white to-cyan-50/50 p-3.5">
+    {isCustomerOperation && !isDeferred ? <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/70 via-white to-cyan-50/50 p-3.5 dark:border-slate-700 dark:from-slate-950 dark:via-slate-950 dark:to-indigo-950/40">
       <div className="mb-3 flex items-start gap-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700"><ArrowLeftRight className="h-4 w-4" /></span>
-        <div><div className="text-[11px] font-black text-slate-800">{settlementTitle}</div><div className="mt-0.5 text-[9px] font-bold leading-4 text-slate-400">سيُسجّل الطرف المقابل من العملية آلياً حتى تتطابق أرصدة الدرج والمحافظ.</div></div>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300"><ArrowLeftRight className="h-4 w-4" /></span>
+        <div><div className="text-[11px] font-black text-slate-800 dark:text-slate-100">{settlementTitle}</div><div className="mt-0.5 text-[9px] font-bold leading-4 text-slate-400 dark:text-slate-400">سيُسجّل الطرف المقابل من العملية آلياً حتى تتطابق أرصدة الدرج والمحافظ.</div></div>
       </div>
       <input type="hidden" name="settlementType" value={settlementType} />
       <div className="grid grid-cols-2 gap-2">
-        <button type="button" onClick={() => setSettlementType("CASH_DRAWER")} className={`rounded-xl border p-3 text-right transition ${settlementType === "CASH_DRAWER" ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white text-slate-600"}`}>
+        <button type="button" onClick={() => setSettlementType("CASH_DRAWER")} className={`rounded-xl border p-3 text-right transition ${settlementType === "CASH_DRAWER" ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-700/80 dark:bg-emerald-950/50 dark:text-emerald-200" : "border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"}`}>
           <div className="flex items-center gap-2"><Banknote className="h-4 w-4" /><span className="text-[10px] font-black">نقدي — الدرج</span></div>
           <p className="mt-1 text-[9px] font-semibold opacity-65">{isCustomerDeposit ? "إضافة المبلغ المستلم إلى الدرج" : "خصم المبلغ المسلّم من الدرج"}</p>
         </button>
-        <button type="button" onClick={() => setSettlementType("WALLET")} className={`rounded-xl border p-3 text-right transition ${settlementType === "WALLET" ? "border-indigo-300 bg-indigo-50 text-indigo-800" : "border-slate-200 bg-white text-slate-600"}`}>
+        <button type="button" onClick={() => setSettlementType("WALLET")} className={`rounded-xl border p-3 text-right transition ${settlementType === "WALLET" ? "border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-700/80 dark:bg-indigo-950/55 dark:text-indigo-200" : "border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"}`}>
           <div className="flex items-center gap-2"><WalletCards className="h-4 w-4" /><span className="text-[10px] font-black">محفظة أخرى</span></div>
           <p className="mt-1 text-[9px] font-semibold opacity-65">مثل InstaPay أو أي محفظة مسجلة</p>
         </button>
@@ -168,7 +168,7 @@ export function TransferForm({ wallets, customers, currency, returnTo }: { walle
           {wallets.filter((item) => item.id !== walletId).map((item) => <option key={item.id} value={item.id}>{item.name} — {money(item.balance)}</option>)}
         </select>
       </div> : <input type="hidden" name="settlementWalletId" value="" />}
-      <div className="mt-3 rounded-xl border border-indigo-100 bg-white/80 px-3 py-2 text-[9px] font-bold text-indigo-700">أثر التسوية المتوقع: {settlementDirection} {money(summary.settlementAmount)} {settlementType === "CASH_DRAWER" ? (isCustomerDeposit ? "إلى الدرج" : "من الدرج") : `${isCustomerDeposit ? "إلى" : "من"} ${settlementWallet?.name || "المحفظة المختارة"}`}.</div>
+      <div className="mt-3 rounded-xl border border-indigo-100 bg-white/80 px-3 py-2 text-[9px] font-bold text-indigo-700 dark:border-indigo-900/80 dark:bg-slate-900/90 dark:text-indigo-200">أثر التسوية المتوقع: {settlementDirection} {money(summary.settlementAmount)} {settlementType === "CASH_DRAWER" ? (isCustomerDeposit ? "إلى الدرج" : "من الدرج") : `${isCustomerDeposit ? "إلى" : "من"} ${settlementWallet?.name || "المحفظة المختارة"}`}.</div>
     </div> : null}
 
     <div>
