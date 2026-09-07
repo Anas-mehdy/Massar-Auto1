@@ -43,7 +43,7 @@ export default async function InvoiceDetailsLayout({
 
   return (
     <div className="space-y-5">
-      <section className="rounded-2xl border border-amber-200/80 bg-gradient-to-l from-amber-50/70 via-white to-white p-4 shadow-sm">
+      <section className="no-print rounded-2xl border border-amber-200/80 bg-gradient-to-l from-amber-50/70 via-white to-white p-4 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 ring-1 ring-amber-200">
