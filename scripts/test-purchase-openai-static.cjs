@@ -32,6 +32,7 @@ assert.match(service, /PURCHASE_AI_SHOP_DAILY_LIMIT", 6/);
 assert.match(service, /PURCHASE_AI_FEATURE_BUDGET_USD", 5/);
 assert.match(service, /PURCHASE_AI_FAILED_ATTEMPTS_PER_USER_DAY/);
 assert.match(service, /pg_advisory_xact_lock/);
+assert.match(service, /pg_advisory_xact_lock\([^)]*::integer[^)]*::integer\)/);
 assert.match(service, /TransactionIsolationLevel\.Serializable/);
 assert.match(service, /quotaCharged/);
 assert.match(service, /budgetReservedUsd/);

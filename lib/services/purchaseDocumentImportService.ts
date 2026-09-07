@@ -489,7 +489,9 @@ export async function extractSource(shopId: string, userId: string, sourceId: st
 
   const reservation: ReservedExtraction = await prisma.$transaction(async (tx) => {
     // One short advisory lock serializes quota/budget reservation only, not the outbound provider call.
-    await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(${PURCHASE_AI_BUDGET_LOCK_A}, ${PURCHASE_AI_BUDGET_LOCK_B})`);
+    // Prisma binds JavaScript integers as int8. PostgreSQL's two-key advisory
+    // lock overload accepts int4,int4, so cast both constants explicitly.
+    await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(${PURCHASE_AI_BUDGET_LOCK_A}::integer, ${PURCHASE_AI_BUDGET_LOCK_B}::integer)`);
     const locked = await tx.$queryRaw<Array<{ status: string; extractedData: unknown; activeExtractionAttemptId: string | null }>>(Prisma.sql`
       SELECT "status", "extractedData", "activeExtractionAttemptId"
       FROM "PurchaseImportSource"

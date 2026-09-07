@@ -30,7 +30,9 @@ async function main() {
     globalThis.fetch = async () => { calls++; throw new Error('Network forbidden in quota test'); };
     prisma.$queryRaw = query as typeof prisma.$queryRaw;
     prisma.$transaction = (async (run: (tx: unknown)=>Promise<unknown>) => run({$queryRaw:query,$executeRaw:async (sql:{sql:string})=>{
-      assert.match(sql.sql,/pg_advisory_xact_lock/); locked=true; return 1;
+      assert.match(sql.sql,/pg_advisory_xact_lock/);
+      assert.equal((sql.sql.match(/::integer/g) || []).length, 2);
+      locked=true; return 1;
     }})) as typeof prisma.$transaction;
     const quota = await getAiQuotaStatus('shop','user');
     assert.equal(quota.user.limit,3);
