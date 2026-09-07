@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - preview/purchase-receiving
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
