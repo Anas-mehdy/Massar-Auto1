@@ -1,0 +1,187 @@
+*** Begin Patch
+*** Update File: prisma/schema.prisma
+@@
+ model Supplier {
+@@
+ }
++
++// Purchase receiving is intentionally separate from customer Invoice/Payment.
++// Supplier payables are represented by PurchaseInvoice.balanceDue in this phase.
++model PurchaseInvoice {
++  id                    String    @id @default(uuid()) @db.Uuid
++  shopId                String    @db.Uuid
++  supplierId            String?   @db.Uuid
++  supplierNameSnapshot  String?
++  createdByUserId       String?   @db.Uuid
++  supplierInvoiceNumber String?
++  invoiceDate           DateTime  @default(now())
++  notes                 String?
++  currency              String    @db.VarChar(3)
++  status                String    @default("DRAFT") @db.VarChar(20)
++  subtotal              Decimal   @default(0) @db.Decimal(14, 2)
++  discountTotal         Decimal   @default(0) @db.Decimal(14, 2)
++  extraCostsTotal       Decimal   @default(0) @db.Decimal(14, 2)
++  total                 Decimal   @default(0) @db.Decimal(14, 2)
++  amountPaid            Decimal   @default(0) @db.Decimal(14, 2)
++  balanceDue            Decimal   @default(0) @db.Decimal(14, 2)
++  paymentMethod         String?   @db.VarChar(30)
++  paymentSourceName     String?
++  paymentReference      String?
++  postingKey            String?   @db.VarChar(80)
++  postedAt              DateTime?
++  createdAt             DateTime  @default(now())
++  updatedAt             DateTime  @updatedAt
++  deletedAt             DateTime?
++  version               Int       @default(1)
++
++  @@index([shopId, invoiceDate])
++  @@index([shopId, status, updatedAt])
++  @@index([shopId, supplierId, invoiceDate])
++  @@index([shopId, supplierId, supplierInvoiceNumber])
++  @@index([shopId, deletedAt])
++}
++
++model PurchaseItem {
++  id                         String    @id @default(uuid()) @db.Uuid
++  shopId                     String    @db.Uuid
++  purchaseInvoiceId          String    @db.Uuid
++  inventoryItemId            String?   @db.Uuid
++  newItemName                String?
++  newItemSku                 String?
++  newItemBarcode             String?
++  newItemCategoryId          String?   @db.Uuid
++  newItemCategory            String?
++  newItemDescription         String?
++  importedSourceText         String?
++  matchReviewRequired        Boolean   @default(false)
++  compatibilityGroupIds      String[]  @default([]) @db.Uuid
++  compatibilityReviewNeeded  Boolean   @default(false)
++  updateSalePrice            Boolean   @default(false)
++  orderedQuantity            Int
++  // Kept separately now so partial receiving can be added later without schema redesign.
++  receivedQuantity           Int       @default(0)
++  unitCost                   Decimal   @db.Decimal(14, 2)
++  salePriceSnapshot          Decimal?  @db.Decimal(14, 2)
++  salePriceBeforeSnapshot    Decimal?  @db.Decimal(14, 2)
++  lineTotal                  Decimal   @db.Decimal(14, 2)
++  sortOrder                  Int       @default(0)
++  createdAt                  DateTime  @default(now())
++  updatedAt                  DateTime  @updatedAt
++
++  @@index([shopId, purchaseInvoiceId, sortOrder])
++  @@index([shopId, inventoryItemId])
++  @@index([shopId, matchReviewRequired, purchaseInvoiceId])
++  @@index([shopId, newItemBarcode])
++}
++
++model PurchasePayment {
++  id                String    @id @default(uuid()) @db.Uuid
++  shopId            String    @db.Uuid
++  purchaseInvoiceId String    @db.Uuid
++  createdByUserId   String?   @db.Uuid
++  method            String    @db.VarChar(30)
++  sourceName        String?
++  amount            Decimal   @db.Decimal(14, 2)
++  reference         String?
++  note              String?
++  paidAt            DateTime  @default(now())
++  createdAt         DateTime  @default(now())
++
++  @@index([shopId, purchaseInvoiceId, paidAt])
++}
+@@
+ model InventoryItem {
+@@
+   sku               String?
++  barcode           String?
+   category          String?
+@@
+   reorderLevel      Int       @default(0)
++  compatibilityReviewNeeded Boolean @default(false)
+@@
+   @@index([shopId, sku])
++  @@index([shopId, barcode])
++  @@index([shopId, compatibilityReviewNeeded, updatedAt])
+@@
+ model InventoryMovement {
+@@
+   saleId            String?               @db.Uuid
+   saleItemId        String?               @db.Uuid
++  supplierId        String?               @db.Uuid
++  purchaseInvoiceId String?               @db.Uuid
++  purchaseItemId    String?               @db.Uuid
+@@
+   @@index([shopId, saleId])
+   @@index([shopId, saleItemId])
++  @@index([shopId, supplierId, createdAt])
++  @@index([shopId, purchaseInvoiceId])
++  @@index([shopId, purchaseItemId])
+*** Update File: app/inventory/page.tsx
+@@
+-import { Eye, FolderOpen, PackagePlus, Pencil, Plus, Search, Trash2 } from "lucide-react";
++import { Eye, FolderOpen, PackagePlus, Pencil, Plus, ReceiptText, Search, Trash2 } from "lucide-react";
+@@
+       <PageHeader
+         title="المخزون"
+         description="تصفح المستودع حسب التصنيف وراقب القطع والكميات والتنبيهات"
+-        actions={<Button asChild className="font-semibold shadow-sm"><Link href={categoryId ? `/inventory/new?categoryId=${categoryId}` : "/inventory/new"}><Plus className="ml-1.5 h-4 w-4" aria-hidden="true" />إضافة قطعة جديدة</Link></Button>}
++        actions={<div className="flex flex-wrap gap-2">
++          {canManage && <Button asChild variant="outline" className="font-black"><Link href="/inventory/purchases/new"><ReceiptText className="ml-1.5 h-4 w-4" aria-hidden="true" />استلام بضاعة</Link></Button>}
++          <Button asChild className="font-semibold shadow-sm"><Link href={categoryId ? `/inventory/new?categoryId=${categoryId}` : "/inventory/new"}><Plus className="ml-1.5 h-4 w-4" aria-hidden="true" />إضافة قطعة جديدة</Link></Button>
++        </div>}
+       />
+*** Update File: components/app-nav.tsx
+@@
+   Receipt,
++  ReceiptText,
+@@
+     key: "inventory", label: "المخزون", icon: Boxes, tone: "amber", children: [
+       { href: "/inventory", label: "المستودع", icon: Boxes, description: "القطع والكميات والحركات والتوالف" },
++      { href: "/inventory/purchases", label: "استلام بضاعة", icon: ReceiptText, description: "فواتير المشتريات واستلام عدة أصناف دفعة واحدة", badge: "جديد" },
+       { href: "/compatibility", label: "التوافقات", icon: Cpu, description: "دليل توافق القطع والأجهزة" },
+*** Update File: lib/services/cashDrawerService.ts
+@@
+ export type CashDrawerMovementType =
+@@
+   | "DEBT_PAYMENT"
++  | "PURCHASE_PAYMENT"
+   | "CHANGE_RETURN";
+@@
+ export type CashDrawerSourceType =
+@@
+   | "DEBT"
++  | "PURCHASE"
+   | "CASH_DRAWER_TRANSFER"
+*** Update File: lib/cash-drawer-presentation.ts
+@@
+     case "DEBT_PAYMENT": return "تحصيل دين";
++    case "PURCHASE_PAYMENT": return "دفع فاتورة شراء";
+@@
+   if (movement.sourceType === "DEBT" && movement.customerId) return `/debts/${movement.customerId}`;
++  if (movement.sourceType === "PURCHASE" && movement.sourceId) return `/inventory/purchases/${movement.sourceId}`;
+@@
+   if (sourceType === "DEBT") return "فتح دفتر الدين";
++  if (sourceType === "PURCHASE") return "فتح فاتورة الشراء";
+@@
+   if (sourceType === "DEBT") return "دفتر دين";
++  if (sourceType === "PURCHASE") return "فاتورة شراء";
+*** Update File: lib/services/inventoryService.ts
+@@
+     await tx.inventoryCompatibilityGroup.deleteMany({ where: { inventoryItemId } });
+     if (compatibilityGroupIds.length > 0) {
+       await tx.inventoryCompatibilityGroup.createMany({
+         data: compatibilityGroupIds.map((candidateGroupId) => ({ inventoryItemId, candidateGroupId })),
+       });
++      // A user explicitly confirmed at least one compatibility through the existing
++      // compatibility guide, so a purchase-created "complete later" marker is resolved.
++      await tx.inventoryItem.update({
++        where: { id: inventoryItemId },
++        data: { compatibilityReviewNeeded: false },
++      });
+     }
+*** Update File: package.json
+@@
+     "installments:test": "tsx scripts/test-installment-schedule.ts",
++    "purchases:test": "tsx scripts/test-purchase-import.ts",
+     "entitlement:test": "tsx scripts/test-entitlement-service.ts",
+*** End Patch

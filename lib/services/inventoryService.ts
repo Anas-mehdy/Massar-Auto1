@@ -301,6 +301,9 @@ export async function updateInventoryItemDetails(
         description: emptyToNull(input.description),
         unitCost: decimalOrNull(input.unitCost),
         unitPrice: decimalOrZero(input.unitPrice),
+        // Reaching this explicit item-edit flow means the user intentionally set the
+        // selling price; zero is therefore a valid deliberate price, not "unset".
+        salePriceConfigured: true,
         reorderLevel: integerOrZero(input.reorderLevel),
         version: { increment: 1 },
       },
@@ -317,6 +320,10 @@ export async function updateInventoryItemDetails(
       await tx.inventoryCompatibilityGroup.createMany({
         data: compatibilityGroupIds.map((candidateGroupId) => ({ inventoryItemId, candidateGroupId })),
       });
+      await tx.inventoryItem.update({
+        where: { id: inventoryItemId },
+        data: { compatibilityReviewNeeded: false },
+      });
     }
 
     return item;
@@ -330,61 +337,29 @@ export async function addStock(
   input: AddStockInput,
 ) {
   const quantityToAdd = integerOrZero(input.quantity);
-  if (quantityToAdd <= 0) {
-    throw new Error("الكمية يجب أن تكون أكبر من صفر.");
-  }
+  if (quantityToAdd <= 0) throw new Error("الكمية يجب أن تكون أكبر من صفر.");
 
   return prisma.$transaction(async (tx) => {
-    const item = await tx.inventoryItem.findFirst({
-      where: { id: inventoryItemId, shopId, deletedAt: null },
-      select: { id: true, quantity: true, unitCost: true },
-    });
-    if (!item) throw new Error("قطعة المخزون غير موجودة.");
+    const rows = await tx.$queryRaw<Array<{ id: string; quantity: number; unitCost: Prisma.Decimal | null }>>`
+      SELECT "id","quantity","unitCost" FROM "InventoryItem"
+      WHERE "id"=${inventoryItemId}::uuid AND "shopId"=${shopId}::uuid AND "deletedAt" IS NULL FOR UPDATE
+    `;
+    const item=rows[0];
+    if(!item) throw new Error("قطعة المخزون غير موجودة.");
+    if(item.quantity<0) throw new Error("لا يمكن الإضافة فوق مخزون سالب. صحح الرصيد أولاً.");
+    // This legacy quick-add flow carries no purchase cost. Preserve the current
+    // average as-is (including NULL) rather than inventing a zero cost.
 
-    const supplierId = emptyToNull(input.supplierId);
-    if (supplierId) {
-      const supplier = await tx.supplier.findFirst({
-        where: { id: supplierId, shopId, deletedAt: null },
-        select: { id: true },
-      });
-      if (!supplier) {
-        throw new Error("المورد المحدد غير موجود أو لا ينتمي إلى هذا المتجر.");
-      }
+    const supplierId=emptyToNull(input.supplierId);
+    if(supplierId){
+      const supplier=await tx.supplier.findFirst({where:{id:supplierId,shopId,deletedAt:null},select:{id:true}});
+      if(!supplier) throw new Error("المورد المحدد غير موجود أو لا ينتمي إلى هذا المتجر.");
     }
-
-    const updatedItem = await tx.inventoryItem.update({
-      where: { id: inventoryItemId },
-      data: {
-        quantity: { increment: quantityToAdd },
-        version: { increment: 1 },
-      },
-    });
-
-    const movement = await tx.inventoryMovement.create({
-      data: {
-        shopId,
-        inventoryItemId,
-        createdByUserId,
-        type: InventoryMovementType.STOCK_IN,
-        quantityChange: quantityToAdd,
-        quantityAfter: updatedItem.quantity,
-        unitCostSnapshot: item.unitCost,
-        note: emptyToNull(input.note),
-      },
-      select: { id: true },
-    });
-
-    if (supplierId) {
-      await tx.$executeRaw`
-        UPDATE "InventoryMovement"
-        SET "supplierId" = ${supplierId}::uuid
-        WHERE "id" = ${movement.id}::uuid
-          AND "shopId" = ${shopId}::uuid
-      `;
-    }
-
+    const updatedItem=await tx.inventoryItem.update({where:{id:inventoryItemId},data:{quantity:{increment:quantityToAdd},version:{increment:1}}});
+    const movement=await tx.inventoryMovement.create({data:{shopId,inventoryItemId,createdByUserId,type:InventoryMovementType.STOCK_IN,quantityChange:quantityToAdd,quantityAfter:updatedItem.quantity,unitCostSnapshot:item.unitCost,note:emptyToNull(input.note)},select:{id:true}});
+    if(supplierId) await tx.$executeRaw`UPDATE "InventoryMovement" SET "supplierId"=${supplierId}::uuid WHERE "id"=${movement.id}::uuid AND "shopId"=${shopId}::uuid`;
     return updatedItem;
-  });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 export async function adjustStock(
@@ -394,30 +369,22 @@ export async function adjustStock(
   input: AdjustStockInput,
 ) {
   const newQuantity = integerOrZero(input.newQuantity);
-  const item = await prisma.inventoryItem.findFirst({ where: { id: inventoryItemId, shopId, deletedAt: null } });
-  if (!item) throw new Error("قطعة المخزون غير موجودة.");
-  const quantityChange = newQuantity - item.quantity;
-  if (quantityChange === 0) return item;
-
-  const [updatedItem] = await prisma.$transaction([
-    prisma.inventoryItem.update({
-      where: { id: inventoryItemId },
-      data: { quantity: newQuantity, version: { increment: 1 } },
-    }),
-    prisma.inventoryMovement.create({
-      data: {
-        shopId,
-        inventoryItemId,
-        createdByUserId,
-        type: InventoryMovementType.ADJUSTMENT,
-        quantityChange,
-        quantityAfter: newQuantity,
-        unitCostSnapshot: item.unitCost,
-        note: emptyToNull(input.note),
-      },
-    }),
-  ]);
-  return updatedItem;
+  if(newQuantity<0) throw new Error("المخزون السالب غير مسموح.");
+  return prisma.$transaction(async(tx)=>{
+    const rows=await tx.$queryRaw<Array<{id:string;quantity:number;unitCost:Prisma.Decimal|null}>>`
+      SELECT "id","quantity","unitCost" FROM "InventoryItem" WHERE "id"=${inventoryItemId}::uuid AND "shopId"=${shopId}::uuid AND "deletedAt" IS NULL FOR UPDATE
+    `;
+    const item=rows[0];
+    if(!item) throw new Error("قطعة المخزون غير موجودة.");
+    if(item.quantity<0) throw new Error("الرصيد الحالي سالب. صححه بمسار مخصص قبل أي حركة أخرى.");
+    const quantityChange=newQuantity-item.quantity;
+    if(quantityChange===0) return tx.inventoryItem.findUniqueOrThrow({where:{id:inventoryItemId}});
+    const updatedItem=await tx.inventoryItem.update({where:{id:inventoryItemId},data:{quantity:newQuantity,version:{increment:1}}});
+    await tx.inventoryMovement.create({data:{shopId,inventoryItemId,createdByUserId,type:InventoryMovementType.ADJUSTMENT,quantityChange,quantityAfter:newQuantity,unitCostSnapshot:item.unitCost,note:emptyToNull(input.note)}});
+    // Quantity-only adjustments are valued at the current average, so average cost
+    // remains unchanged for both increases and decreases.
+    return updatedItem;
+  },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});
 }
 
 export async function softDeleteInventoryItem(shopId: string, inventoryItemId: string) {

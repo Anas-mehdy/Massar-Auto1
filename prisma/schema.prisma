@@ -480,6 +480,296 @@ model Supplier {
   @@index([shopId, deletedAt])
 }
 
+// Purchase receiving is intentionally separate from customer Invoice/Payment.
+// Supplier payables are represented by PurchaseInvoice.balanceDue.
+// The handwritten SQL migrations remain authoritative for database FKs/RLS;
+// these Prisma models mirror the physical tables so validate/generate/types stay aligned.
+model PurchaseInvoice {
+  id                    String    @id @default(uuid()) @db.Uuid
+  shopId                String    @db.Uuid
+  supplierId            String?   @db.Uuid
+  supplierNameSnapshot  String?
+  createdByUserId       String?   @db.Uuid
+  supplierInvoiceNumber String?
+  invoiceDate           DateTime  @default(now())
+  notes                 String?
+  currency              String    @db.VarChar(3)
+  status                String    @default("DRAFT") @db.VarChar(20)
+  subtotal              Decimal   @default(0) @db.Decimal(14, 2)
+  discountTotal         Decimal   @default(0) @db.Decimal(14, 2)
+  extraCostsTotal       Decimal   @default(0) @db.Decimal(14, 2)
+  total                 Decimal   @default(0) @db.Decimal(14, 2)
+  amountPaid            Decimal   @default(0) @db.Decimal(14, 2)
+  returnAdjustmentTotal Decimal   @default(0) @db.Decimal(14, 2)
+  balanceDue            Decimal   @default(0) @db.Decimal(14, 2)
+  paymentMethod         String?   @db.VarChar(30)
+  paymentAccountType    String?   @db.VarChar(20)
+  paymentWalletId       String?   @db.Uuid
+  paymentSourceName     String?
+  paymentReference      String?
+  postingKey            String?   @db.VarChar(80)
+  postingFingerprint    String?   @db.Char(64)
+  costAllocatedAt       DateTime?
+  postedAt              DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+  version               Int       @default(1)
+
+  @@unique([shopId, postingKey])
+  @@index([shopId, invoiceDate])
+  @@index([shopId, status, updatedAt])
+  @@index([shopId, supplierId, invoiceDate])
+  @@index([shopId, supplierId, supplierInvoiceNumber])
+  @@index([shopId, deletedAt])
+}
+
+model PurchaseItem {
+  id                         String    @id @default(uuid()) @db.Uuid
+  shopId                     String    @db.Uuid
+  purchaseInvoiceId          String    @db.Uuid
+  inventoryItemId            String?   @db.Uuid
+  newItemName                String?
+  newItemSku                 String?
+  newItemBarcode             String?
+  newItemCategoryId          String?   @db.Uuid
+  newItemCategory            String?
+  newItemDescription         String?
+  importedSourceText         String?
+  importSourceId             String?   @db.Uuid
+  importRowKey               String?   @db.VarChar(120)
+  importedPurchaseUnit       String?   @db.VarChar(80)
+  matchReviewRequired        Boolean   @default(false)
+  compatibilityGroupIds      String[]  @default([]) @db.Uuid
+  compatibilityReviewNeeded  Boolean   @default(false)
+  updateSalePrice            Boolean   @default(false)
+  orderedQuantity            Int
+  receivedQuantity           Int       @default(0)
+  returnedQuantity           Int       @default(0)
+  unitCost                   Decimal   @db.Decimal(18, 6)
+  manualExtraCostAllocation  Decimal?  @db.Decimal(14, 2)
+  discountAllocation         Decimal?  @db.Decimal(14, 2)
+  netMerchandiseValue        Decimal?  @db.Decimal(14, 2)
+  netUnitCost                Decimal?  @db.Decimal(18, 6)
+  extraCostAllocation        Decimal?  @db.Decimal(14, 2)
+  capitalizedLineValue       Decimal?  @db.Decimal(14, 2)
+  capitalizedUnitCost        Decimal?  @db.Decimal(18, 6)
+  receivedCapitalizedValue   Decimal   @default(0) @db.Decimal(14, 2)
+  receivedNetMerchandiseValue Decimal  @default(0) @db.Decimal(14, 2)
+  returnedNetMerchandiseValue Decimal  @default(0) @db.Decimal(14, 2)
+  salePriceSnapshot          Decimal?  @db.Decimal(14, 2)
+  salePriceBeforeSnapshot    Decimal?  @db.Decimal(14, 2)
+  lineTotal                  Decimal   @db.Decimal(14, 2)
+  sortOrder                  Int       @default(0)
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  @@index([shopId, purchaseInvoiceId, sortOrder])
+  @@index([shopId, inventoryItemId])
+  @@index([shopId, matchReviewRequired, purchaseInvoiceId])
+  @@index([shopId, newItemBarcode])
+  @@index([shopId, importSourceId])
+}
+
+model PurchasePayment {
+  id                String    @id @default(uuid()) @db.Uuid
+  shopId            String    @db.Uuid
+  purchaseInvoiceId String    @db.Uuid
+  createdByUserId   String?   @db.Uuid
+  method            String    @db.VarChar(30)
+  sourceName        String?
+  amount            Decimal   @db.Decimal(14, 2)
+  reference         String?
+  note              String?
+  paidAt            DateTime  @default(now())
+  requestKey        String?   @db.VarChar(120)
+  requestFingerprint String?  @db.Char(64)
+  accountType       String?   @db.VarChar(20)
+  walletId          String?   @db.Uuid
+  createdAt         DateTime  @default(now())
+
+  @@unique([shopId, requestKey])
+  @@index([shopId, purchaseInvoiceId, paidAt])
+}
+
+model PurchaseReceipt {
+  id                String   @id @default(uuid()) @db.Uuid
+  shopId            String   @db.Uuid
+  purchaseInvoiceId String   @db.Uuid
+  createdByUserId   String?  @db.Uuid
+  requestKey        String   @db.VarChar(120)
+  requestFingerprint String? @db.Char(64)
+  receivedAt        DateTime @default(now())
+  reference         String?
+  note              String?
+  createdAt         DateTime @default(now())
+
+  @@unique([shopId, requestKey])
+  @@index([shopId, purchaseInvoiceId, receivedAt])
+}
+
+model PurchaseReceiptItem {
+  id                String   @id @default(uuid()) @db.Uuid
+  shopId            String   @db.Uuid
+  purchaseReceiptId String   @db.Uuid
+  purchaseItemId    String   @db.Uuid
+  inventoryItemId   String   @db.Uuid
+  quantity          Int
+  unitCostSnapshot  Decimal  @db.Decimal(18, 6)
+  netMerchandiseValue Decimal @db.Decimal(14, 2)
+  capitalizedValue  Decimal  @db.Decimal(14, 2)
+  createdAt         DateTime @default(now())
+
+  @@unique([purchaseReceiptId, purchaseItemId])
+  @@index([shopId, purchaseItemId])
+}
+
+model SupplierReturn {
+  id                String   @id @default(uuid()) @db.Uuid
+  shopId            String   @db.Uuid
+  purchaseInvoiceId String   @db.Uuid
+  supplierId        String?  @db.Uuid
+  createdByUserId   String?  @db.Uuid
+  requestKey        String   @db.VarChar(120)
+  requestFingerprint String? @db.Char(64)
+  reason            String
+  reference         String?
+  returnedAt        DateTime @default(now())
+  baseSettlementValue Decimal @default(0) @db.Decimal(14, 2)
+  inventoryValue    Decimal  @default(0) @db.Decimal(14, 2)
+  shippingRefundValue Decimal @default(0) @db.Decimal(14, 2)
+  settlementAdjustmentValue Decimal @default(0) @db.Decimal(14, 2)
+  settlementAdjustmentReason String?
+  settlementAdjustedByUserId String? @db.Uuid
+  totalValue        Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt         DateTime @default(now())
+
+  @@unique([shopId, requestKey])
+  @@index([shopId, purchaseInvoiceId, returnedAt])
+}
+
+model SupplierReturnItem {
+  id               String   @id @default(uuid()) @db.Uuid
+  shopId           String   @db.Uuid
+  supplierReturnId String   @db.Uuid
+  purchaseItemId   String   @db.Uuid
+  inventoryItemId  String   @db.Uuid
+  quantity         Int
+  unitCostSnapshot Decimal  @db.Decimal(18, 6)
+  inventoryValue   Decimal  @db.Decimal(14, 2)
+  netMerchandiseValue Decimal @db.Decimal(14, 2)
+  lineTotal        Decimal  @db.Decimal(14, 2)
+  createdAt        DateTime @default(now())
+
+  @@unique([supplierReturnId, purchaseItemId])
+  @@index([shopId, purchaseItemId])
+}
+
+model SupplierReturnSettlement {
+  id                String   @id @default(uuid()) @db.Uuid
+  shopId            String   @db.Uuid
+  supplierReturnId  String   @db.Uuid
+  purchaseInvoiceId String   @db.Uuid
+  supplierId        String?  @db.Uuid
+  createdByUserId   String?  @db.Uuid
+  requestKey        String   @db.VarChar(120)
+  requestFingerprint String? @db.Char(64)
+  type              String   @db.VarChar(30)
+  amount            Decimal  @db.Decimal(14, 2)
+  accountType       String?  @db.VarChar(20)
+  walletId          String?  @db.Uuid
+  sourceName        String?
+  reference         String?
+  note              String?
+  settledAt         DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  @@unique([shopId, requestKey])
+  @@index([shopId, supplierReturnId, settledAt])
+  @@index([shopId, supplierId, type, settledAt])
+}
+
+// Private source files/text used only to prepare purchase drafts. No public URL is stored.
+model PurchaseImportSource {
+  id                   String   @id @default(uuid()) @db.Uuid
+  shopId               String   @db.Uuid
+  purchaseInvoiceId    String   @db.Uuid
+  createdByUserId      String?  @db.Uuid
+  sourceType           String   @db.VarChar(20)
+  fileName             String?
+  mimeType             String?  @db.VarChar(120)
+  fileSize             Int?
+  pageCount            Int?
+  fileData             Bytes?
+  textContent          String?
+  contentSha256        String   @db.Char(64)
+  status               String   @default("UPLOADED") @db.VarChar(24)
+  extractionVersion    Int      @default(1)
+  extractionProvider   String?  @db.VarChar(80)
+  extractedData        Json?
+  safeErrorCode        String?  @db.VarChar(80)
+  safeErrorMessage     String?
+  attemptCount         Int      @default(0)
+  lastAttemptAt        DateTime?
+  activeExtractionAttemptId String? @db.Uuid
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([shopId, purchaseInvoiceId, contentSha256, extractionVersion])
+  @@index([shopId, purchaseInvoiceId, createdAt])
+  @@index([shopId, status, lastAttemptAt])
+}
+
+model PurchaseImportExtractionAttempt {
+  id                   String    @id @default(uuid()) @db.Uuid
+  shopId               String    @db.Uuid
+  sourceId             String    @db.Uuid
+  requestKey           String    @db.VarChar(120)
+  requestFingerprint   String?   @db.Char(64)
+  provider             String    @db.VarChar(80)
+  status               String    @default("STARTED") @db.VarChar(24)
+  createdByUserId      String?   @db.Uuid
+  usageDay             DateTime? @db.Date
+  usageTimezone        String?   @db.VarChar(64)
+  quotaCharged         Boolean   @default(false)
+  quotaReleasedAt      DateTime?
+  providerContactedAt  DateTime?
+  model                String?   @db.VarChar(80)
+  budgetReservedUsd    Decimal   @default(0) @db.Decimal(12, 6)
+  actualCostUsd        Decimal?  @db.Decimal(12, 6)
+  inputTokens          Int?
+  cachedInputTokens    Int?
+  outputTokens         Int?
+  providerResponseId   String?   @db.VarChar(160)
+  failureKind          String?   @db.VarChar(40)
+  createdAt            DateTime  @default(now())
+  finishedAt           DateTime?
+
+  @@unique([shopId, requestKey])
+  @@index([shopId, createdAt])
+  @@index([createdByUserId, usageDay, quotaCharged])
+  @@index([shopId, usageDay, quotaCharged])
+  @@index([shopId, createdByUserId, usageDay, status])
+  @@index([provider, createdAt])
+}
+
+model SupplierItemAlias {
+  id              String    @id @default(uuid()) @db.Uuid
+  shopId          String    @db.Uuid
+  supplierId      String    @db.Uuid
+  inventoryItemId String    @db.Uuid
+  aliasText       String
+  normalizedAlias String
+  barcodeSnapshot String?
+  createdByUserId String?   @db.Uuid
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  @@index([shopId, supplierId, inventoryItemId])
+  @@index([shopId, supplierId, normalizedAlias])
+}
+
 model RepairOrder {
   id                String       @id @default(uuid()) @db.Uuid
   shopId            String       @db.Uuid
@@ -563,7 +853,7 @@ model RepairOrderItem {
   clientGeneratedId String?
   partName          String
   quantity          Int       @default(1)
-  unitCost          Decimal?  @db.Decimal(12, 2)
+  unitCost          Decimal?  @db.Decimal(18, 6)
   unitPrice          Decimal?  @db.Decimal(12, 2)
   supplierName      String?
   notes             String?
@@ -616,13 +906,16 @@ model InventoryItem {
   partId            String?   @db.Uuid
   clientGeneratedId String?
   sku               String?
+  barcode           String?
   category          String?
   name              String
   description       String?
-  unitCost          Decimal?  @db.Decimal(12, 2)
+  unitCost          Decimal?  @db.Decimal(18, 6)
   unitPrice          Decimal   @db.Decimal(12, 2)
+  salePriceConfigured Boolean  @default(true)
   quantity          Int       @default(0)
   reorderLevel      Int       @default(0)
+  compatibilityReviewNeeded Boolean @default(false)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   deletedAt         DateTime?
@@ -637,6 +930,8 @@ model InventoryItem {
 
   @@unique([shopId, clientGeneratedId])
   @@index([shopId, sku])
+  @@index([shopId, barcode])
+  @@index([shopId, compatibilityReviewNeeded, updatedAt])
   @@index([shopId, partId])
   @@index([partId])
   @@index([shopId, name])
@@ -652,12 +947,19 @@ model InventoryMovement {
   repairOrderItemId String?               @db.Uuid
   saleId            String?               @db.Uuid
   saleItemId        String?               @db.Uuid
+  supplierId        String?               @db.Uuid
+  purchaseInvoiceId String?               @db.Uuid
+  purchaseItemId    String?               @db.Uuid
+  purchaseReceiptId String?               @db.Uuid
+  purchaseReceiptItemId String?            @db.Uuid
+  supplierReturnId  String?               @db.Uuid
+  supplierReturnItemId String?             @db.Uuid
   createdByUserId   String?               @db.Uuid
   clientGeneratedId String?
   type              InventoryMovementType
   quantityChange    Int
   quantityAfter     Int?
-  unitCostSnapshot  Decimal?              @db.Decimal(12, 2)
+  unitCostSnapshot  Decimal?              @db.Decimal(18, 6)
   note              String?
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
@@ -677,6 +979,11 @@ model InventoryMovement {
   @@index([shopId, repairOrderItemId])
   @@index([shopId, saleId])
   @@index([shopId, saleItemId])
+  @@index([shopId, supplierId, createdAt])
+  @@index([shopId, purchaseInvoiceId])
+  @@index([shopId, purchaseItemId])
+  @@index([shopId, purchaseReceiptId])
+  @@index([shopId, supplierReturnId])
   @@index([shopId, createdByUserId])
   @@index([shopId, updatedAt])
   @@index([shopId, deletedAt])

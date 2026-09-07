@@ -1,0 +1,117 @@
+name: Purchase verification (no deploy)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - preview/purchase-receiving
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: massar_purchase_verify
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d massar_purchase_verify"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/massar_purchase_verify?schema=public
+      OPENAI_API_KEY: ""
+      PURCHASE_AI_MODEL: gpt-4.1-mini
+      PURCHASE_AI_SHOP_DAILY_LIMIT: "6"
+      PURCHASE_AI_FEATURE_BUDGET_USD: "5"
+      PURCHASE_AI_MAX_OUTPUT_TOKENS: "8000"
+      PURCHASE_AI_PDF_DETAIL: high
+      PURCHASE_IMPORT_MAX_FILE_MB: "4"
+      PURCHASE_IMPORT_MAX_PDF_PAGES: "3"
+      PURCHASE_IMPORT_EXTRACTING_STALE_MINUTES: "5"
+      NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ""
+      NEXT_PUBLIC_POSTHOG_HOST: ""
+      GROWTH_LIFECYCLE_EMAILS_ENABLED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Clean install from committed lockfile
+        run: npm ci --ignore-scripts
+
+      - name: Create Supabase-compatible DB roles in disposable Postgres
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -d massar_purchase_verify -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          SQL
+
+      - name: Prisma validate and generate
+        run: |
+          npx prisma validate
+          npx prisma generate
+
+      # The historical migration chain cannot reconstruct main (Shop.currency is
+      # absent before the subscription migration). Test the purchase upgrade from
+      # the pinned pre-purchase Prisma schema, without changing legacy migrations.
+      - name: Apply purchase migrations over main schema in disposable CI Postgres
+        shell: bash
+        run: |
+          set -euo pipefail
+          ci_schema_dir="$RUNNER_TEMP/massar-purchase-ci/prisma"
+          mkdir -p "$ci_schema_dir/migrations/00000000000000_main_schema_baseline"
+          git show 2b3d5bc049eaaeedd92e4834150a7fd2b619b53d:prisma/schema.prisma > "$ci_schema_dir/main.prisma"
+          npx prisma migrate diff --from-empty --to-schema-datamodel "$ci_schema_dir/main.prisma" --script > "$ci_schema_dir/migrations/00000000000000_main_schema_baseline/migration.sql"
+          cp prisma/schema.prisma "$ci_schema_dir/schema.prisma"
+          cp prisma/migrations/migration_lock.toml "$ci_schema_dir/migrations/migration_lock.toml"
+          # InventoryCategory is managed by SQL and absent from Prisma models.
+          cp -R prisma/migrations/20260831003500_add_inventory_categories_phase1 "$ci_schema_dir/migrations/"
+          cp -R prisma/migrations/20260901184500_add_financial_transfers "$ci_schema_dir/migrations/"
+          for migration in prisma/migrations/20260906* prisma/migrations/20260907120000_purchase_initial_payment_account; do
+            cp -R "$migration" "$ci_schema_dir/migrations/"
+          done
+          npx prisma migrate deploy --schema "$ci_schema_dir/schema.prisma"
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: Purchase no-dependency safeguards
+        run: |
+          node scripts/test-purchase-openai-static.cjs
+          node scripts/test-purchase-document-security.cjs
+          node scripts/test-purchase-receiving-phase4-static.cjs
+          node scripts/test-purchase-receiving-lifecycle.cjs
+          node scripts/test-purchase-legacy-cost-compat-static.cjs
+
+      - name: Purchase parser tests with real dependencies
+        run: |
+          npm run purchases:test
+          npm run purchases:document-test
+          node --import tsx scripts/test-purchase-cost-rounding.ts
+          node --import tsx scripts/test-purchase-excel-template.ts
+          node --import tsx scripts/test-purchase-ai-quota.ts
+
+      - name: Full application build
+        run: npm run build

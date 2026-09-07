@@ -18,6 +18,7 @@ import {
   LayoutDashboard,
   MoreHorizontal,
   Receipt,
+  ReceiptText,
   Settings,
   ShieldCheck,
   ShoppingCart,
@@ -131,6 +132,7 @@ export const navSections: NavSection[] = [
   {
     key: "inventory", label: "المخزون", icon: Boxes, tone: "amber", children: [
       { href: "/inventory", label: "المستودع", icon: Boxes, description: "القطع والكميات والحركات والتوالف" },
+      { href: "/inventory/purchases", label: "استلام بضاعة", icon: ReceiptText, description: "فواتير المشتريات والاستلام والمرتجعات", badge: "جديد" },
       { href: "/compatibility", label: "التوافقات", icon: Cpu, description: "دليل توافق القطع والأجهزة" },
       { href: "/suppliers", label: "الموردون", icon: Truck, description: "الموردون والمشتريات وقطع الغيار" },
     ],

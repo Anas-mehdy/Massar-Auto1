@@ -12,7 +12,7 @@ import {
 } from "@/lib/financial-transfer-presentation";
 import { formatCurrency } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
-import { financialTransferService } from "@/lib/services/financialTransferService";
+import { financialTransferService, type TransferDetailsRow } from "@/lib/services/financialTransferService";
 import { WalletActivationSuccess } from "../_activation-success";
 import { formatDateTimeInTimeZone, getShopTimeZone } from "@/lib/shop-timezone";
 
@@ -21,6 +21,18 @@ export const dynamic = "force-dynamic";
 function cleanNotes(value: string | null) {
   if (!value) return "—";
   return value.replace(/\s*\[(?:INSTALLMENT-PAYMENT|INSTALLMENT-DOWN|DEBT-PAYMENT):[0-9a-f-]+\]\s*/gi, "").trim() || "—";
+}
+
+function settlementLabel(transfer: TransferDetailsRow) {
+  if (transfer.settlementType === "DEBT") return "آجل — دفتر ديون العميل";
+  if (transfer.settlementType === "CASH_DRAWER") {
+    return transfer.operationType === "CUSTOMER_DEPOSIT" ? "نقدي — استلام في الدرج" : "نقدي — صرف من الدرج";
+  }
+  if (transfer.settlementType === "WALLET") {
+    const walletName = transfer.settlementWalletName || "محفظة أخرى";
+    return transfer.operationType === "CUSTOMER_DEPOSIT" ? `استلام على ${walletName}` : `صرف من ${walletName}`;
+  }
+  return transfer.isDeferred ? "آجل — مرتبط بدفتر الديون" : "فوري — حركة قديمة بدون تسوية مرتبطة";
 }
 
 export default async function TransferDetailsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ onboarding?: string }> }) {
@@ -55,6 +67,7 @@ export default async function TransferDetailsPage({ params, searchParams }: { pa
   const customerName = transferCustomerDisplayName(transfer);
   const walletIncreases = transfer.operationType === "CUSTOMER_WITHDRAWAL" || transfer.operationType === "WALLET_TOPUP";
   const walletDelta = `${walletIncreases ? "+" : "−"} ${formatCurrency(transfer.walletAmount, context.currency)}`;
+  const settlementAmount = transfer.settlementAmount == null ? "—" : formatCurrency(transfer.settlementAmount, context.currency);
 
   return (
     <div className="mx-auto max-w-5xl space-y-6" dir="rtl">
@@ -68,11 +81,7 @@ export default async function TransferDetailsPage({ params, searchParams }: { pa
       </div>
 
       {query.onboarding === "1" && onboardingWallet ? (
-        <WalletActivationSuccess
-          walletName={onboardingWallet.name}
-          currentBalance={Number(onboardingWallet.currentBalance)}
-          currency={context.currency}
-        />
+        <WalletActivationSuccess walletName={onboardingWallet.name} currentBalance={Number(onboardingWallet.currentBalance)} currency={context.currency} />
       ) : null}
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -93,6 +102,11 @@ export default async function TransferDetailsPage({ params, searchParams }: { pa
           <Info label="هاتف العميل" value={transfer.customerPhone || "—"} numeric />
           <Info label="طريقة التنفيذ" value={transfer.isDeferred ? "آجل — مرتبط بدفتر الديون" : "فوري"} />
           <Info label="حالة العمولة" value={commissionLabel(transfer.commissionMode)} />
+          <Info label="تسوية المقابل" value={settlementLabel(transfer)} />
+          <Info label="مبلغ التسوية" value={settlementAmount} />
+          <Info label="محفظة التسوية" value={transfer.settlementWalletName || "—"} />
+          <Info label="حركة المحفظة المرتبطة" value={transfer.settlementTransferId || "—"} numeric />
+          <Info label="حركة الدرج المرتبطة" value={transfer.settlementCashMovementId || "—"} numeric />
           <Info label="نفذها" value={transfer.createdByName || "غير معروف"} />
           <Info label="وقت العملية" value={formatDateTimeInTimeZone(transfer.createdAt, timeZone)} />
           <Info label="المنطقة الزمنية" value={timeZone} numeric />
