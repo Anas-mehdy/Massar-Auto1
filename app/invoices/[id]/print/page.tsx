@@ -38,7 +38,7 @@ export default async function InvoicePrintPage({ params }: InvoicePrintPageProps
   const currency = shop.currency || "SAR";
 
   return (
-    <div className="min-h-screen bg-slate-100 py-8 px-4 flex justify-center selection:bg-none">
+    <div className="min-h-screen bg-slate-100 py-8 px-4 flex items-start justify-center selection:bg-none print:min-h-0 print:py-0 print:px-0">
       {/* Floating Action Bar */}
       <PrintActions backUrl={`/invoices/${invoice.id}`} />
 
