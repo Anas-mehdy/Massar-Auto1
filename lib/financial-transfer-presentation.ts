@@ -14,6 +14,7 @@ export function transferSourceLabel(sourceType: FinancialTransferSourceType, ope
   if (sourceType === "DEBT") return "تحصيل دين";
   if (sourceType === "CASH_DRAWER_TRANSFER") return operationType === "WALLET_TOPUP" ? "تحويل من الدرج" : "تحويل إلى الدرج";
   if (sourceType === "CUSTOMER_TRANSFER") return operationType === "CUSTOMER_DEPOSIT" ? "إيداع للعميل" : "سحب للعميل";
+  if (sourceType === "CUSTOMER_TRANSFER_SETTLEMENT") return operationType === "WALLET_TOPUP" ? "تسوية إيداع للعميل" : "تسوية سحب للعميل";
   return operationType === "WALLET_TOPUP" ? "شحن محفظة يدوي" : "سحب يدوي من المحفظة";
 }
 
@@ -23,6 +24,7 @@ export function transferSourceHref(transfer: Pick<TransferRow, "sourceType" | "s
   if (transfer.sourceType === "INVOICE") return transfer.sourceId ? `/invoices/${transfer.sourceId}` : null;
   if (transfer.sourceType === "INSTALLMENT" || transfer.sourceType === "INSTALLMENT_DOWN_PAYMENT") return transfer.sourceId ? `/installments/${transfer.sourceId}` : null;
   if (transfer.sourceType === "DEBT") return transfer.customerId ? `/debts/${transfer.customerId}` : null;
+  if (transfer.sourceType === "CUSTOMER_TRANSFER_SETTLEMENT") return transfer.sourceId ? `/transfers/${transfer.sourceId}` : null;
   return null;
 }
 
@@ -32,6 +34,7 @@ export function transferSourceLinkLabel(sourceType: FinancialTransferSourceType)
   if (sourceType === "INVOICE") return "فتح الفاتورة";
   if (sourceType === "INSTALLMENT" || sourceType === "INSTALLMENT_DOWN_PAYMENT") return "فتح خطة الأقساط";
   if (sourceType === "DEBT") return "فتح دفتر الدين";
+  if (sourceType === "CUSTOMER_TRANSFER_SETTLEMENT") return "فتح العملية الأصلية";
   return "فتح المصدر";
 }
 
