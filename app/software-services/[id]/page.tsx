@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowRight, FileText, Printer, Smartphone, Trash2 } from "lucide-react";
+import { ArrowRight, FileText, Smartphone, Tag, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { getCurrentShopContext } from "@/lib/current-shop";
@@ -35,8 +35,15 @@ export default async function SoftwareServiceDetailsPage({ params, searchParams 
         </div>
         <div className="flex flex-wrap gap-2">
           {sale.deviceKept ? (
-            <Button asChild variant="outline" className="rounded-xl font-bold">
-              <Link href={`/software-services/${sale.id}/sticker`} target="_blank"><Printer className="ml-1.5 h-4 w-4" />طباعة ملصق الجهاز</Link>
+            <Button
+              asChild
+              variant="outline"
+              className="rounded-xl border-teal-300 bg-teal-50/30 font-bold text-teal-950 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-900"
+            >
+              <Link href={`/software-services/${sale.id}/sticker`} target="_blank">
+                <Tag className="ml-1.5 h-4 w-4 shrink-0 text-teal-600" aria-hidden="true" />
+                طباعة ستيكر الهاتف (50×30 مم)
+              </Link>
             </Button>
           ) : null}
           <Button asChild className="rounded-xl font-bold">
