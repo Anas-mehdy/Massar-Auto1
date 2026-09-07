@@ -3,9 +3,7 @@
 import {
   AlertTriangle,
   Check,
-  ChevronDown,
   CircleDollarSign,
-  Layers3,
   Link2,
   Loader2,
   PackagePlus,
@@ -36,7 +34,6 @@ import {
 } from "./actions";
 
 type SupplierOption = { id: string; name: string; phone: string | null };
-type PaymentSource = { id: string; name: string };
 type CategoryOption = { id: string; name: string; itemCount: number };
 type InventoryResult = Awaited<ReturnType<typeof searchPurchaseInventoryAction>>[number];
 type PaymentMethodValue = "CASH" | "CARD" | "BANK_TRANSFER" | "OTHER";
@@ -82,6 +79,8 @@ type InitialDraft = {
   extraCostsTotal: string;
   amountPaid: string;
   paymentMethod: PaymentMethodValue | null;
+  paymentAccountType: "DRAWER" | "WALLET" | "OTHER" | null;
+  paymentWalletId: string | null;
   paymentSourceName: string | null;
   paymentReference: string | null;
   lines: Array<{
@@ -167,13 +166,15 @@ function existingPatch(item: InventoryResult, options: { unitCost?: string; sale
 
 export function PurchaseReceivingForm({
   suppliers: initialSuppliers,
-  paymentSources,
+  wallets,
+  drawerBalance,
   categories,
   currency,
   initialDraft,
 }: {
   suppliers: SupplierOption[];
-  paymentSources: PaymentSource[];
+  wallets: { id: string; name: string; currentBalance: string }[];
+  drawerBalance: string;
   categories: CategoryOption[];
   currency: string;
   initialDraft?: InitialDraft | null;
@@ -183,16 +184,16 @@ export function PurchaseReceivingForm({
   const [draftId, setDraftId] = useState<string | null>(initialDraft?.id ?? null);
   const draftIdRef = useRef<string | null>(initialDraft?.id ?? null);
   const [supplierId, setSupplierId] = useState(initialDraft?.supplierId ?? "");
-  const [guestSupplier, setGuestSupplier] = useState(!initialDraft?.supplierId && Boolean(initialDraft?.supplierNameSnapshot));
-  const [guestSupplierName, setGuestSupplierName] = useState(initialDraft?.supplierNameSnapshot ?? "");
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState(initialDraft?.supplierInvoiceNumber ?? "");
   const [invoiceDate, setInvoiceDate] = useState(isoDateInput(initialDraft?.invoiceDate));
   const [notes, setNotes] = useState(initialDraft?.notes ?? "");
   const [discountTotal, setDiscountTotal] = useState(initialDraft?.discountTotal ?? "0");
   const [extraCostsTotal, setExtraCostsTotal] = useState(initialDraft?.extraCostsTotal ?? "0");
   const [amountPaid, setAmountPaid] = useState(initialDraft?.amountPaid ?? "0");
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodValue>(initialDraft?.paymentMethod ?? "CASH");
-  const [paymentSourceName, setPaymentSourceName] = useState(initialDraft?.paymentSourceName ?? "");
+  const [paymentAccountType, setPaymentAccountType] = useState<"DRAWER" | "WALLET" | "OTHER">(initialDraft?.paymentAccountType ?? (initialDraft?.paymentMethod && initialDraft.paymentMethod !== "CASH" ? "OTHER" : "DRAWER"));
+  const [paymentWalletId, setPaymentWalletId] = useState(initialDraft?.paymentWalletId ?? "");
+  const paymentMethod: PaymentMethodValue = paymentAccountType === "DRAWER" ? "CASH" : paymentAccountType === "WALLET" ? "BANK_TRANSFER" : "OTHER";
+  const paymentSourceName = paymentAccountType === "DRAWER" ? "الدرج النقدي" : paymentAccountType === "WALLET" ? wallets.find(wallet => wallet.id === paymentWalletId)?.name ?? "" : "دفع خارج النظام";
   const [paymentReference, setPaymentReference] = useState(initialDraft?.paymentReference ?? "");
   const [lines, setLines] = useState<FormLine[]>(() => {
     const loaded = (initialDraft?.lines ?? []).map((line) => {
@@ -285,7 +286,7 @@ export function PurchaseReceivingForm({
     const errors: { supplier?: string; discount?: string; amountPaid?: string; lines?: string; matching?: string } = {};
     if (num(discountTotal) > subtotal + 0.009) errors.discount = "الخصم لا يمكن أن يتجاوز مجموع البنود.";
     if (num(amountPaid) > finalTotal + 0.009) errors.amountPaid = "المدفوع لا يمكن أن يتجاوز إجمالي الفاتورة.";
-    if (remaining > 0 && (guestSupplier || !supplierId)) errors.supplier = "اختر مورداً مسجلاً لأن على الفاتورة مبلغاً متبقياً.";
+    if (!supplierId) errors.supplier = "اختر المورد أو أضفه من زر +.";
     const invalidLine = activeLines.find((line) => Math.trunc(num(line.quantity)) <= 0 || num(line.unitCost) < 0 || (!line.inventoryItemId && !line.newItemName.trim()));
     if (invalidLine) errors.lines = "تحقق من الاسم والكمية وتكلفة الوحدة في البنود.";
     if (activeLines.some((line) => line.matchReviewRequired)) errors.matching = "يوجد بند مستورد يحتاج مراجعة المطابقة قبل الاعتماد.";
@@ -296,7 +297,7 @@ export function PurchaseReceivingForm({
       }
     }
     return errors;
-  }, [discountTotal, subtotal, extraCostsTotal, amountPaid, finalTotal, remaining, guestSupplier, supplierId, activeLines]);
+  }, [discountTotal, subtotal, extraCostsTotal, amountPaid, finalTotal, remaining, supplierId, activeLines]);
 
   const markDirty = useCallback(() => {
     if (!mountedRef.current) return;
@@ -308,8 +309,8 @@ export function PurchaseReceivingForm({
   const payload = useCallback(() => ({
     id: draftIdRef.current,
     expectedVersion: draftIdRef.current ? serverVersionRef.current : null,
-    supplierId: guestSupplier ? null : (supplierId || null),
-    supplierNameSnapshot: guestSupplier ? guestSupplierName : null,
+    supplierId: supplierId || null,
+    supplierNameSnapshot: null,
     supplierInvoiceNumber: supplierInvoiceNumber || null,
     invoiceDate,
     notes: notes || null,
@@ -317,6 +318,8 @@ export function PurchaseReceivingForm({
     extraCostsTotal: extraCostsTotal || "0",
     amountPaid: amountPaid || "0",
     paymentMethod,
+    paymentAccountType,
+    paymentWalletId: paymentAccountType === "WALLET" ? paymentWalletId || null : null,
     paymentSourceName: paymentSourceName || null,
     paymentReference: paymentReference || null,
     lines: activeLines.map((line) => ({
@@ -340,7 +343,7 @@ export function PurchaseReceivingForm({
       manualExtraCostAllocation: line.manualExtraCostAllocation.trim() ? line.manualExtraCostAllocation : null,
       salePrice: line.salePrice.trim() ? line.salePrice : null,
     })),
-  }), [supplierId, guestSupplier, guestSupplierName, supplierInvoiceNumber, invoiceDate, notes, discountTotal, extraCostsTotal, amountPaid, paymentMethod, paymentSourceName, paymentReference, activeLines]);
+  }), [supplierId, supplierInvoiceNumber, invoiceDate, notes, discountTotal, extraCostsTotal, amountPaid, paymentMethod, paymentAccountType, paymentWalletId, paymentSourceName, paymentReference, activeLines]);
 
   payloadRef.current = payload;
 
@@ -451,7 +454,7 @@ export function PurchaseReceivingForm({
     if (!result.ok) { setSaveError("error" in result ? result.error : "تعذر إنشاء المورد."); return; }
     setSuppliers((current) => [result.supplier, ...current]);
     setSupplierId(result.supplier.id);
-    setGuestSupplier(false);
+
     setSupplierCreator({ name: "", phone: "" });
     setSupplierCreatorOpen(false);
     markDirty();
@@ -515,7 +518,7 @@ export function PurchaseReceivingForm({
     if (header.invoiceDate && invoiceDate === isoDateInput()) { setInvoiceDate(header.invoiceDate); applied.push("التاريخ"); }
     if (num(discountTotal) === 0 && header.discountTotal !== null) { setDiscountTotal(String(header.discountTotal)); applied.push("الخصم"); }
     if (num(extraCostsTotal) === 0 && header.shippingTotal !== null) { setExtraCostsTotal(String(header.shippingTotal)); applied.push("الشحن/المصاريف"); }
-    if (!supplierId && !guestSupplier && header.supplierName) {
+    if (!supplierId && header.supplierName) {
       const exact = suppliers.find((supplier) => supplier.name.trim().toLocaleLowerCase() === header.supplierName!.trim().toLocaleLowerCase());
       if (exact) { setSupplierId(exact.id); applied.push("المورد"); }
     }
@@ -599,10 +602,9 @@ export function PurchaseReceivingForm({
     if (!activeLines.length) { postingBarrierRef.current = false; setPosting(false); setPostError("أضف بنداً واحداً على الأقل."); return; }
     if (validation.discount || validation.amountPaid || validation.lines || validation.matching || partialReceiptError) { postingBarrierRef.current = false; setPosting(false); setPostError(validation.discount || validation.amountPaid || validation.lines || validation.matching || partialReceiptError || "تحقق من البيانات."); return; }
     if (duplicateNewBarcodes.size) { postingBarrierRef.current = false; setPosting(false); setPostError("يوجد باركود مكرر بين أصناف جديدة. راجع البنود قبل الاعتماد."); return; }
-    if (remaining > 0 && (guestSupplier || !supplierId)) { postingBarrierRef.current = false; setPosting(false); setPostError("اختر مورداً مسجلاً عند وجود مبلغ متبقٍ."); return; }
-    if (guestSupplier && (remaining > 0 || paymentMethod !== "CASH" || Math.abs(num(amountPaid) - finalTotal) > 0.009)) {
-      postingBarrierRef.current = false; setPosting(false); setPostError("الشراء بدون مورد مسجل متاح فقط عند الدفع النقدي الكامل."); return;
-    }
+    if (!supplierId) { postingBarrierRef.current = false; setPosting(false); setPostError("اختر مورداً مسجلاً عند وجود مبلغ متبقٍ."); return; }
+    if (num(amountPaid) > 0 && paymentAccountType === "WALLET" && !paymentWalletId) { postingBarrierRef.current = false; setPosting(false); setPostError("اختر المحفظة التي خرجت منها الدفعة."); return; }
+
     if (duplicate && !window.confirm("يوجد رقم فاتورة مشابه لنفس المورد. هل راجعت الفاتورة وتريد المتابعة بالاعتماد؟")) { postingBarrierRef.current = false; setPosting(false); return; }
     const result = await postPurchaseInvoiceAction({
       purchaseId: id,
@@ -659,15 +661,13 @@ export function PurchaseReceivingForm({
     <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="mb-5 flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-50 text-cyan-700 dark:bg-cyan-950/50 dark:text-cyan-300"><Truck className="h-5 w-5" /></span><div><h2 className="font-black text-slate-900 dark:text-slate-100">بيانات فاتورة المورد</h2><p className="text-xs font-semibold text-slate-500 dark:text-slate-400">المورد يحدد مرة واحدة لكل الاستلام.</p></div></div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <label className="grid gap-1.5 text-xs font-black text-slate-600 dark:text-slate-300">المورد<div className="flex gap-2"><select data-purchase-field value={guestSupplier ? "" : supplierId} disabled={guestSupplier} onKeyDown={enterToNext} onChange={(e) => { setSupplierId(e.target.value); markDirty(); }} className="erp-input min-w-0 flex-1"><option value="">اختر المورد</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}{supplier.phone ? ` — ${supplier.phone}` : ""}</option>)}</select><Button type="button" variant="outline" onClick={() => setSupplierCreatorOpen((v) => !v)} className="shrink-0"><Plus className="h-4 w-4" /></Button></div>{validation.supplier && <span className="text-[10px] font-bold text-rose-600 dark:text-rose-300">{validation.supplier}</span>}</label>
+        <label className="grid gap-1.5 text-xs font-black text-slate-600 dark:text-slate-300">المورد<div className="flex gap-2"><select data-purchase-field value={supplierId} onKeyDown={enterToNext} onChange={(e) => { setSupplierId(e.target.value); markDirty(); }} className="erp-input min-w-0 flex-1"><option value="">اختر المورد</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}{supplier.phone ? ` — ${supplier.phone}` : ""}</option>)}</select><Button type="button" variant="outline" onClick={() => setSupplierCreatorOpen((v) => !v)} className="shrink-0"><Plus className="h-4 w-4" /></Button></div>{validation.supplier && <span className="text-[10px] font-bold text-rose-600 dark:text-rose-300">{validation.supplier}</span>}</label>
         <label className="grid gap-1.5 text-xs font-black text-slate-600 dark:text-slate-300">تاريخ الفاتورة<input data-purchase-field type="date" value={invoiceDate} onKeyDown={enterToNext} onChange={(e) => { setInvoiceDate(e.target.value); markDirty(); }} className="erp-input" /></label>
         <label className="grid gap-1.5 text-xs font-black text-slate-600 dark:text-slate-300">رقم فاتورة المورد <span className="font-semibold text-slate-400">اختياري</span><input data-purchase-field value={supplierInvoiceNumber} onKeyDown={enterToNext} onChange={(e) => { setSupplierInvoiceNumber(e.target.value); markDirty(); }} className="erp-input" placeholder="مثال INV-2451" /></label>
         <label className="grid gap-1.5 text-xs font-black text-slate-600 dark:text-slate-300">العملة<input className="erp-input bg-slate-50 font-numeric dark:bg-slate-950" value={currency} disabled /></label>
       </div>
-      <label className="mt-4 flex items-center gap-2 rounded-xl border border-slate-200 p-3 text-xs font-bold text-slate-600 dark:border-slate-700 dark:text-slate-300"><input type="checkbox" checked={guestSupplier} onChange={(e) => { setGuestSupplier(e.target.checked); if (e.target.checked) setSupplierId(""); markDirty(); }} />شراء نقدي من مورد غير مسجل <span className="font-semibold text-slate-400">— يسمح به عند الدفع الكامل نقداً فقط</span></label>
-      {guestSupplier && <label className="mt-3 grid max-w-md gap-1.5 text-xs font-black text-slate-600 dark:text-slate-300">اسم المورد على الفاتورة <span className="font-semibold text-slate-400">اختياري</span><input data-purchase-field value={guestSupplierName} onKeyDown={enterToNext} onChange={(e) => { setGuestSupplierName(e.target.value); markDirty(); }} className="erp-input" placeholder="مثال: مورد نقدي / اسم المتجر" /></label>}
       {supplierCreatorOpen && <div className="mt-4 grid gap-3 rounded-2xl border border-cyan-200 bg-cyan-50/60 p-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end dark:border-cyan-900 dark:bg-cyan-950/20"><label className="grid gap-1 text-xs font-bold">اسم المورد<input className="erp-input" value={supplierCreator.name} onChange={(e) => setSupplierCreator((v) => ({ ...v, name: e.target.value }))} /></label><label className="grid gap-1 text-xs font-bold">الهاتف <span className="text-slate-400">اختياري</span><input className="erp-input" value={supplierCreator.phone} onChange={(e) => setSupplierCreator((v) => ({ ...v, phone: e.target.value }))} /></label><Button type="button" disabled={supplierCreating || !supplierCreator.name.trim()} onClick={() => void createSupplier()}>{supplierCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : "إنشاء واختيار"}</Button></div>}
-      <label className="mt-4 grid gap-1.5 text-xs font-black text-slate-600 dark:text-slate-300">ملاحظات الفاتورة <span className="font-semibold text-slate-400">اختياري</span><textarea value={notes} onChange={(e) => { setNotes(e.target.value); markDirty(); }} className="erp-input min-h-20 resize-y" /></label>
+      <label className="mt-4 grid gap-1.5 text-xs font-black text-slate-600 dark:text-slate-300"><span>ملاحظات الفاتورة <span className="font-semibold text-slate-400">(اختياري)</span></span><textarea rows={2} value={notes} onChange={(e) => { setNotes(e.target.value); markDirty(); }} className="erp-input min-h-14 resize-y" /></label>
     </section>
 
     <PurchaseBarcodeScanner onScan={handleBarcodeScan} />
@@ -725,7 +725,7 @@ export function PurchaseReceivingForm({
       </div>
 
       <div className="rounded-3xl border border-emerald-200 bg-emerald-50/45 p-5 shadow-sm dark:border-emerald-900/70 dark:bg-emerald-950/20">
-        <div className="flex items-center gap-2"><CircleDollarSign className="h-5 w-5 text-emerald-700" /><div><h2 className="font-black text-slate-900 dark:text-slate-100">مساعد التسعير الجماعي</h2><p className="text-xs font-semibold text-slate-500 dark:text-slate-400">اقتراح «زيادة على التكلفة» فقط. لا يغيّر السعر حتى تضغط تطبيق.</p></div></div>
+        <div className="flex items-center gap-2"><CircleDollarSign className="h-5 w-5 text-emerald-700" /><div><h2 className="font-black text-slate-900 dark:text-slate-100">مساعد التسعير الجماعي</h2><p className="text-xs font-semibold text-slate-500 dark:text-slate-400">حدد الأصناف، ثم اختر نسبة زيادة على التكلفة لمعاينة أسعارها دفعة واحدة. مثال: تكلفة 10 وزيادة 30% تعطي سعر بيع 13. لا تُطبّق المقترحات إلا باختيارك.</p></div></div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="grid gap-1 text-xs font-black text-slate-600 dark:text-slate-300">زيادة على التكلفة %<input type="number" min="0" step="0.1" value={priceIncrease} onChange={(event) => setPriceIncrease(event.target.value)} className="erp-input font-numeric" /></label><label className="grid gap-1 text-xs font-black text-slate-600 dark:text-slate-300">التقريب<select value={priceRounding} onChange={(event) => setPriceRounding(event.target.value as typeof priceRounding)} className="erp-input"><option value="none">بدون تقريب إضافي</option><option value="0.5">لأقرب 0.5</option><option value="1">لأقرب 1</option><option value="5">لأقرب 5</option></select></label></div>
         {pricingPreview.length ? <div className="mt-3 max-h-40 space-y-1 overflow-auto rounded-xl border border-emerald-100 bg-white/80 p-3 text-xs dark:border-emerald-900 dark:bg-slate-950/35">{pricingPreview.map((item) => <div key={item.key} className="flex items-center justify-between gap-3"><span className="truncate font-bold text-slate-600 dark:text-slate-300">{item.label}</span><span className="font-numeric font-black text-emerald-700 dark:text-emerald-300">{money(item.suggested, currency)}</span></div>)}</div> : <p className="mt-3 text-xs font-semibold text-slate-400">حدد بنداً واحداً أو أكثر لمعاينة الأسعار المقترحة.</p>}
         <Button type="button" onClick={applyPricingSuggestions} disabled={!pricingPreview.length} className="mt-3 w-full bg-emerald-700 font-black hover:bg-emerald-800">تطبيق المقترحات على البنود المحددة</Button>
@@ -734,7 +734,24 @@ export function PurchaseReceivingForm({
     </section>
 
     <section className="grid gap-5 xl:grid-cols-[1fr_390px]">
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"><h2 className="font-black text-slate-900 dark:text-slate-100">الدفع والمصدر</h2><div className="mt-4 grid gap-4 sm:grid-cols-2"><label className="grid gap-1.5 text-xs font-black text-slate-600 dark:text-slate-300">المدفوع الآن<input data-purchase-field type="number" min="0" step="0.01" value={amountPaid} onKeyDown={enterToNext} onChange={(e) => { setAmountPaid(e.target.value); markDirty(); }} className="erp-input font-numeric" />{validation.amountPaid && <span className="text-[10px] font-bold text-rose-600 dark:text-rose-300">{validation.amountPaid}</span>}</label><label className="grid gap-1.5 text-xs font-black text-slate-600 dark:text-slate-300">طريقة الدفع<select data-purchase-field value={paymentMethod} onKeyDown={enterToNext} onChange={(e) => { setPaymentMethod(e.target.value as PaymentMethodValue); markDirty(); }} className="erp-input"><option value="CASH">نقدي</option><option value="CARD">بطاقة</option><option value="BANK_TRANSFER">تحويل بنكي</option><option value="OTHER">أخرى</option></select></label><label className="grid gap-1.5 text-xs font-black text-slate-600 dark:text-slate-300">مصدر الدفع <span className="font-semibold text-slate-400">اختياري</span><select data-purchase-field value={paymentSourceName} onKeyDown={enterToNext} onChange={(e) => { setPaymentSourceName(e.target.value); markDirty(); }} className="erp-input"><option value="">غير محدد</option>{paymentSources.map((source) => <option key={source.id} value={source.name}>{source.name}</option>)}</select></label><label className="grid gap-1.5 text-xs font-black text-slate-600 dark:text-slate-300">مرجع الدفع <span className="font-semibold text-slate-400">اختياري</span><input data-purchase-field value={paymentReference} onKeyDown={enterToNext} onChange={(e) => { setPaymentReference(e.target.value); markDirty(); }} className="erp-input" /></label></div>{paymentMethod === "CASH" && num(amountPaid) > 0 && <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">عند الاعتماد تُسجل الدفعة النقدية كخروج من الدرج النقدي. إذا لم يكن رصيد الدرج كافياً يُرفض الاعتماد بالكامل بدون تحديث المخزون.</p>}</div>
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <h2 className="font-black text-slate-900 dark:text-slate-100">الدفع والمصدر</h2>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">ادفع كامل الفاتورة أو جزءاً منها، ويُسجّل الباقي ديناً علينا للمورد.</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={() => { setAmountPaid(finalTotal.toFixed(2)); markDirty(); }}>دفع كامل المبلغ</Button>
+          <Button type="button" variant="outline" onClick={() => { setAmountPaid("0"); markDirty(); }}>كامل المبلغ دين للمورد</Button>
+        </div>
+        <div className="mt-4 grid items-start gap-4 sm:grid-cols-2">
+          <label className="grid gap-1.5 text-xs font-bold">المدفوع الآن<input data-purchase-field type="number" min="0" max={finalTotal} step="0.01" value={amountPaid} onKeyDown={enterToNext} onChange={(e) => { setAmountPaid(e.target.value); markDirty(); }} className="erp-input font-numeric" /><span className="text-slate-500">لدفع جزء من الفاتورة، اكتب المبلغ هنا.</span>{validation.amountPaid && <span className="text-rose-600">{validation.amountPaid}</span>}</label>
+          {num(amountPaid) > 0 && <>
+            <label className="grid gap-1.5 text-xs font-bold">من أين تم الدفع؟<select data-purchase-field value={paymentAccountType} onChange={(e) => { setPaymentAccountType(e.target.value as typeof paymentAccountType); markDirty(); }} className="erp-input"><option value="DRAWER">من الدرج النقدي</option><option value="WALLET">من محفظة</option><option value="OTHER">دفع خارج النظام — بدون خصم</option></select></label>
+            {paymentAccountType === "WALLET" && <label className="grid gap-1.5 text-xs font-bold">المحفظة<select data-purchase-field value={paymentWalletId} onChange={(e) => { setPaymentWalletId(e.target.value); markDirty(); }} className="erp-input"><option value="">اختر المحفظة</option>{wallets.map(wallet => <option key={wallet.id} value={wallet.id}>{wallet.name} — {money(num(wallet.currentBalance), currency)}</option>)}</select>{wallets.length === 0 && <span className="text-amber-700">لا توجد محافظ نشطة. أضف محفظة من صفحة التحويلات.</span>}</label>}
+            <label className="grid gap-1.5 text-xs font-bold">مرجع الدفع (اختياري)<input data-purchase-field value={paymentReference} onChange={(e) => { setPaymentReference(e.target.value); markDirty(); }} className="erp-input" /></label>
+          </>}
+        </div>
+        {num(amountPaid) > 0 && <p className="mt-3 text-xs leading-6 text-slate-500 dark:text-slate-400">{paymentAccountType === "DRAWER" ? `رصيد الدرج الحالي: ${money(num(drawerBalance), currency)}. يُخصم المدفوع وتسجّل الحركة عند الاعتماد.` : paymentAccountType === "WALLET" ? "يُخصم المدفوع من المحفظة المختارة وتسجّل الحركة عند الاعتماد." : "تُسجّل الدفعة وتسدد من الفاتورة، دون تغيير رصيد الدرج أو المحافظ."}</p>}
+        <div aria-live="polite" className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">الدين المتبقي للمورد: {money(remaining, currency)}<p className="mt-1 text-xs font-normal">{remaining > 0 ? "يظهر في صفحة المورد بعد الاعتماد، ويمكن تسديده لاحقاً بالكامل أو على دفعات." : "لا يتبقى دين على هذه الفاتورة."}</p></div>
+      </section>
       <div className="rounded-3xl border border-slate-200 bg-slate-950 p-5 text-white shadow-sm dark:border-slate-700"><h2 className="font-black">ملخص الفاتورة</h2><div className="mt-4 space-y-3 text-sm"><Summary label="مجموع البنود" value={money(subtotal, currency)} /><div><label className="flex items-center justify-between gap-4"><span className="text-slate-300">الخصم</span><input data-purchase-field type="number" min="0" step="0.01" value={discountTotal} onKeyDown={enterToNext} onChange={(e) => { setDiscountTotal(e.target.value); markDirty(); }} className="h-9 w-32 rounded-lg border border-slate-700 bg-slate-900 px-2 text-left font-numeric" /></label>{validation.discount && <div className="mt-1 text-[10px] font-bold text-rose-300">{validation.discount}</div>}</div><label className="flex items-center justify-between gap-4"><span className="text-slate-300">الشحن / مصاريف إضافية</span><input data-purchase-field type="number" min="0" step="0.01" value={extraCostsTotal} onKeyDown={enterToNext} onChange={(e) => { setExtraCostsTotal(e.target.value); markDirty(); }} className="h-9 w-32 rounded-lg border border-slate-700 bg-slate-900 px-2 text-left font-numeric" /></label><div className="border-t border-slate-700 pt-3"><Summary label="الإجمالي النهائي" value={money(finalTotal, currency)} strong /><Summary label="المدفوع" value={money(num(amountPaid), currency)} /><Summary label="المتبقي" value={money(remaining, currency)} strong tone={remaining > 0 ? "amber" : "green"} /></div></div><p className="mt-4 text-[11px] font-semibold leading-5 text-slate-400">عند الاعتماد يُثبت توزيع الخصم والشحن/مصاريف الشراء المباشرة على البنود. متوسط تكلفة المخزون لا يتغير عند الاعتماد، بل فقط عند الاستلام الفعلي وبحسب الكمية المستلمة. الشحن غير مسترد تلقائياً في مرتجع المورد.</p><Button type="button" onClick={() => void postInvoice()} disabled={posting || !activeLines.length} className="mt-5 h-12 w-full rounded-xl bg-emerald-600 font-black hover:bg-emerald-700">{posting ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ الاعتماد…</> : <><Check className="ml-2 h-4 w-4" />{partialReceipt ? "اعتماد وتسجيل الاستلام الجزئي" : "اعتماد واستلام كل البضاعة"}</>}</Button></div>
     </section>
   </div>;
@@ -771,7 +788,7 @@ function PurchaseLineCard({ line, index, currency, categories, showManualExtraAl
       </div>
       <label className="grid gap-1.5 text-xs font-black text-slate-600 dark:text-slate-300">الكمية<input data-purchase-field type="number" min="1" step="1" value={line.quantity} onKeyDown={onEnterNext} onChange={(e) => onPatch({ quantity: e.target.value })} className="erp-input font-numeric" /></label>
       <label className="grid gap-1.5 text-xs font-black text-slate-600 dark:text-slate-300">تكلفة الوحدة<input data-purchase-field type="number" min="0" step="0.01" value={line.unitCost} onKeyDown={onEnterNext} onChange={(e) => onPatch({ unitCost: e.target.value })} className="erp-input font-numeric" /></label>
-      <div className="grid gap-1.5"><label className="grid gap-1 text-xs font-black text-slate-600 dark:text-slate-300">سعر البيع <span className="font-semibold text-slate-400">اختياري</span><input data-purchase-field type="number" min="0" step="0.01" value={line.salePrice} onKeyDown={onEnterNext} onChange={(e) => onPatch({ salePrice: e.target.value })} className="erp-input font-numeric" /></label>{line.mode === "existing" && !line.matchReviewRequired && <label className="flex items-start gap-1.5 text-[9px] font-bold text-slate-500 dark:text-slate-400"><input className="mt-0.5" type="checkbox" checked={line.updateSalePrice} onChange={(event) => onPatch({ updateSalePrice: event.target.checked })} /><span>تحديث سعر بيع الصنف عند الاعتماد</span></label>}</div>
+      <div className="grid gap-1.5"><label className="grid gap-1 text-xs font-black text-slate-600 dark:text-slate-300"><span>سعر البيع <span className="font-semibold text-slate-400">(اختياري)</span></span><input data-purchase-field type="number" min="0" step="0.01" value={line.salePrice} onKeyDown={onEnterNext} onChange={(e) => onPatch({ salePrice: e.target.value })} className="erp-input font-numeric" /></label>{line.mode === "existing" && !line.matchReviewRequired && <label className="flex items-start gap-1.5 text-[9px] font-bold text-slate-500 dark:text-slate-400"><input className="mt-0.5" type="checkbox" checked={line.updateSalePrice} onChange={(event) => onPatch({ updateSalePrice: event.target.checked })} /><span>تحديث سعر بيع الصنف عند الاعتماد</span></label>}</div>
       <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900"><div className="text-[10px] font-bold text-slate-400">إجمالي السطر</div><div className="mt-1 font-numeric text-sm font-black text-slate-900 dark:text-slate-100">{money(total, currency)}</div></div>
     </div>
     {showManualExtraAllocation && !isBlank && <label className="mt-3 grid max-w-xs gap-1 text-[10px] font-black text-amber-800 dark:text-amber-200">توزيع الشحن/مصاريف الشراء على هذا البند<input type="number" min="0" step="0.01" value={line.manualExtraCostAllocation} onChange={(e) => onPatch({ manualExtraCostAllocation: e.target.value })} className="erp-input h-9 font-numeric" /><span className="font-semibold text-amber-600 dark:text-amber-300">مطلوب لأن أساس التوزيع النسبي يساوي صفراً.</span></label>}

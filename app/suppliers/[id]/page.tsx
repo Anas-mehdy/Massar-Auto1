@@ -9,6 +9,8 @@ import { SubmitButton } from "@/components/submit-button";
 import { getCurrentShopContext } from "@/lib/current-shop";
 import { isDatabaseConnectionError } from "@/lib/database-errors";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { SupplierPurchaseAccount } from "./_purchase-account";
+import { purchaseReceivingService } from "@/lib/services/purchaseReceivingService";
 import { supplierService } from "@/lib/services/supplierService";
 import { updateSupplierAction, deleteSupplierAction } from "../actions";
 
@@ -29,9 +31,10 @@ export default async function SupplierDetailsPage({
   const { id } = await params;
   let supplier: Awaited<ReturnType<typeof supplierService.getSupplierById>>;
   let currency = "SAR";
+  const context = await getCurrentShopContext();
 
   try {
-    const context = await getCurrentShopContext();
+
     currency = context.currency;
     supplier = await supplierService.getSupplierById(context.shopId, id);
   } catch (error) {
@@ -45,6 +48,14 @@ export default async function SupplierDetailsPage({
   if (!supplier) {
     notFound();
   }
+
+  const canReadPurchases = context.permissions.includes("inventory:read");
+  const canPayPurchases = context.permissions.includes("inventory:manage");
+  const [purchaseAccount, wallets, drawerBalance] = await Promise.all([
+    canReadPurchases ? purchaseReceivingService.getSupplierPurchaseAccount(context.shopId, id) : null,
+    canReadPurchases && canPayPurchases ? purchaseReceivingService.listPurchaseFinancialWallets(context.shopId) : [],
+    canReadPurchases && canPayPurchases ? purchaseReceivingService.getPurchaseDrawerBalance(context.shopId) : null,
+  ]);
 
   const totalPartsCost = supplier.repairOrders.reduce((sum, ro) => {
     return sum + (Number(ro.partCost) || 0);
@@ -70,6 +81,8 @@ export default async function SupplierDetailsPage({
           </Button>
         }
       />
+
+      {purchaseAccount && <SupplierPurchaseAccount currency={currency} canPay={canPayPurchases} outstanding={purchaseAccount.outstanding.toString()} credit={purchaseAccount.credit.toString()} drawerBalance={drawerBalance?.toString() ?? "0"} wallets={wallets.map(wallet => ({ id: wallet.id, name: wallet.name, currentBalance: wallet.currentBalance.toString() }))} invoices={purchaseAccount.invoices.map(invoice => ({ id: invoice.id, number: invoice.number, date: invoice.date.toISOString(), total: invoice.total.toString(), paid: invoice.paid.toString(), due: invoice.due.toString() }))} />}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="erp-section flex items-center gap-4">

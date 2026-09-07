@@ -43,6 +43,8 @@ const draftSchema = z.object({
   discountTotal: moneyString.optional(),
   extraCostsTotal: moneyString.optional(),
   amountPaid: moneyString.optional(),
+  paymentAccountType: z.enum(["DRAWER", "WALLET", "OTHER"]).nullable().optional(),
+  paymentWalletId: z.string().uuid().nullable().optional(),
   paymentMethod: z.nativeEnum(PaymentMethod).nullable().optional(),
   paymentSourceName: z.string().max(180).nullable().optional(),
   paymentReference: z.string().max(180).nullable().optional(),
@@ -181,6 +183,7 @@ export async function quickCreatePurchaseSupplierAction(input: { name: string; p
     const parsed = z.object({ name: z.string().trim().min(1, "اسم المورد مطلوب").max(180), phone: z.string().trim().max(60).optional() }).parse(input);
     const supplier = await supplierService.createSupplier(auth.shop.id, parsed);
     revalidatePath("/suppliers");
+  revalidatePath("/suppliers/[id]", "page");
     revalidatePath("/inventory/purchases");
     return { ok: true as const, supplier: { id: supplier.id, name: supplier.name, phone: supplier.phone } };
   } catch (error) {
@@ -222,6 +225,7 @@ function revalidatePurchasePaths(purchaseId: string) {
   revalidatePath("/inventory/purchases");
   revalidatePath(`/inventory/purchases/${purchaseId}`);
   revalidatePath("/suppliers");
+  revalidatePath("/suppliers/[id]", "page");
   revalidatePath("/cash-drawer");
   revalidatePath("/financial-transfers");
   revalidatePath("/reports");

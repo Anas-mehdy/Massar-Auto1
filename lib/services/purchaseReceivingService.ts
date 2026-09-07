@@ -58,6 +58,8 @@ export type PurchaseDraftInput = {
   discountTotal?: string | number | null;
   extraCostsTotal?: string | number | null;
   amountPaid?: string | number | null;
+  paymentAccountType?: PurchaseMoneyAccountType | null;
+  paymentWalletId?: string | null;
   paymentMethod?: PaymentMethod | null;
   paymentSourceName?: string | null;
   paymentReference?: string | null;
@@ -188,6 +190,8 @@ export type PurchaseDetail = {
   createdAt: Date;
   updatedAt: Date;
   version: number;
+  paymentAccountType: PurchaseMoneyAccountType | null;
+  paymentWalletId: string | null;
   paymentMethod: PaymentMethod | null;
   paymentSourceName: string | null;
   paymentReference: string | null;
@@ -667,6 +671,13 @@ export async function findDuplicateSupplierInvoice(
 
 export async function saveDraft(shopId: string, userId: string, currency: string, input: PurchaseDraftInput) {
   const totals = calculate(input, false);
+  const paymentAccountType = input.paymentAccountType ?? (input.paymentMethod === PaymentMethod.CASH ? "DRAWER" : "OTHER");
+  if (!["DRAWER", "WALLET", "OTHER"].includes(paymentAccountType)) throw new Error("مصدر الدفع غير صالح.");
+  const paymentWalletId = paymentAccountType === "WALLET" ? nullableText(input.paymentWalletId) : null;
+  if (paymentWalletId) {
+    const wallets = await prisma.$queryRaw<Array<{id:string}>>`SELECT "id" FROM "FinancialWallet" WHERE "id"=${paymentWalletId}::uuid AND "shopId"=${shopId}::uuid AND "deletedAt" IS NULL AND "isActive"=TRUE`;
+    if (!wallets.length) throw new Error("المحفظة المختارة غير موجودة أو غير نشطة.");
+  }
   const supplier = await validateSupplier(shopId, input.supplierId);
   const existingIds = totals.lines.flatMap((line) => line.inventoryItemId ? [line.inventoryItemId] : []);
   await validateExistingInventoryIds(shopId, existingIds);
@@ -705,6 +716,7 @@ export async function saveDraft(shopId: string, userId: string, currency: string
           "subtotal" = ${totals.subtotal}, "discountTotal" = ${totals.discountTotal},
           "extraCostsTotal" = ${totals.extraCostsTotal}, "total" = ${totals.total},
           "amountPaid" = ${totals.amountPaid}, "balanceDue" = ${totals.balanceDue},
+          "paymentAccountType" = ${paymentAccountType}, "paymentWalletId" = ${paymentWalletId}::uuid,
           "paymentMethod" = ${input.paymentMethod ?? null}, "paymentSourceName" = ${nullableText(input.paymentSourceName)},
           "paymentReference" = ${nullableText(input.paymentReference)},
           "updatedAt" = NOW(), "version" = ${nextVersion}
@@ -716,11 +728,11 @@ export async function saveDraft(shopId: string, userId: string, currency: string
         INSERT INTO "PurchaseInvoice" (
           "shopId", "supplierId", "supplierNameSnapshot", "createdByUserId", "supplierInvoiceNumber",
           "invoiceDate", "notes", "currency", "status", "subtotal", "discountTotal", "extraCostsTotal",
-          "total", "amountPaid", "balanceDue", "paymentMethod", "paymentSourceName", "paymentReference"
+          "total", "amountPaid", "balanceDue", "paymentAccountType", "paymentWalletId", "paymentMethod", "paymentSourceName", "paymentReference"
         ) VALUES (
           ${shopId}::uuid, ${supplier?.id ?? null}::uuid, ${supplierNameSnapshot}, ${userId}::uuid, ${supplierInvoiceNumber},
           ${invoiceDate}, ${notes}, ${currency}, 'DRAFT', ${totals.subtotal}, ${totals.discountTotal}, ${totals.extraCostsTotal},
-          ${totals.total}, ${totals.amountPaid}, ${totals.balanceDue}, ${input.paymentMethod ?? null},
+          ${totals.total}, ${totals.amountPaid}, ${totals.balanceDue}, ${paymentAccountType}, ${paymentWalletId}::uuid, ${input.paymentMethod ?? null},
           ${nullableText(input.paymentSourceName)}, ${nullableText(input.paymentReference)}
         ) RETURNING "id", "version"
       `;
@@ -780,6 +792,8 @@ type LockedPurchase = {
   amountPaid: Prisma.Decimal;
   returnAdjustmentTotal: Prisma.Decimal;
   balanceDue: Prisma.Decimal;
+  paymentAccountType: PurchaseMoneyAccountType | null;
+  paymentWalletId: string | null;
   paymentMethod: PaymentMethod | null;
   paymentSourceName: string | null;
   paymentReference: string | null;
@@ -1076,12 +1090,12 @@ export async function postPurchaseInvoice(
     .sort((a, b) => a.sortOrder - b.sortOrder);
   const postingFingerprint = requestFingerprint({ purchaseId, receiptMode, initialReceipt: normalizedInitialReceipt });
 
-  const previewRows = await prisma.$queryRaw<Array<{ amountPaid: Prisma.Decimal; status: string; paymentMethod: PaymentMethod | null }>>`
-    SELECT "amountPaid", "status", "paymentMethod"::text AS "paymentMethod" FROM "PurchaseInvoice"
+  const previewRows = await prisma.$queryRaw<Array<{ amountPaid: Prisma.Decimal; status: string; paymentMethod: PaymentMethod | null; paymentAccountType: PurchaseMoneyAccountType | null }>>`
+    SELECT "amountPaid", "status", "paymentAccountType", "paymentMethod"::text AS "paymentMethod" FROM "PurchaseInvoice"
     WHERE "id" = ${purchaseId}::uuid AND "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL LIMIT 1
   `;
   if (!previewRows[0]) throw new Error("فاتورة الشراء غير موجودة.");
-  if (previewRows[0].amountPaid.gt(0) && previewRows[0].paymentMethod === PaymentMethod.CASH) {
+  if (previewRows[0].amountPaid.gt(0) && (previewRows[0].paymentAccountType ?? (previewRows[0].paymentMethod === PaymentMethod.CASH ? "DRAWER" : "OTHER")) === "DRAWER") {
     await cashDrawerService.getSnapshot(shopId, 1);
   }
 
@@ -1089,7 +1103,7 @@ export async function postPurchaseInvoice(
     const lockedRows = await tx.$queryRaw<LockedPurchase[]>`
       SELECT "id", "supplierId", "supplierNameSnapshot", "supplierInvoiceNumber", "invoiceDate", "status", "currency",
         "subtotal", "discountTotal", "extraCostsTotal", "total", "amountPaid", COALESCE("returnAdjustmentTotal", 0) AS "returnAdjustmentTotal", "balanceDue",
-        "paymentMethod"::text AS "paymentMethod", "paymentSourceName", "paymentReference", "postingKey", "postingFingerprint"
+        "paymentAccountType", "paymentWalletId", "paymentMethod"::text AS "paymentMethod", "paymentSourceName", "paymentReference", "postingKey", "postingFingerprint"
       FROM "PurchaseInvoice"
       WHERE "id" = ${purchaseId}::uuid AND "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL
       FOR UPDATE
@@ -1221,13 +1235,17 @@ export async function postPurchaseInvoice(
     }
 
     if (purchase.amountPaid.gt(0) && purchase.paymentMethod) {
+      const accountType = purchase.paymentAccountType ?? (purchase.paymentMethod === PaymentMethod.CASH ? "DRAWER" : "OTHER");
+      if (!["DRAWER", "WALLET", "OTHER"].includes(accountType)) throw new Error("مصدر الدفع غير صالح.");
+      const walletId = accountType === "WALLET" ? purchase.paymentWalletId : null;
+      if (accountType === "WALLET" && !walletId) throw new Error("اختر المحفظة التي خرجت منها الدفعة.");
       const initialPaymentKey = `${normalizedPostingKey}:payment`;
-      const initialPaymentFingerprint = requestFingerprint({ purchaseId, amount: purchase.amountPaid.toFixed(2), method: purchase.paymentMethod, accountType: purchase.paymentMethod === PaymentMethod.CASH ? "DRAWER" : "OTHER", reference: purchase.paymentReference ?? null });
+      const initialPaymentFingerprint = requestFingerprint({ purchaseId, amount: purchase.amountPaid.toFixed(2), method: purchase.paymentMethod, accountType, walletId, reference: purchase.paymentReference ?? null });
       await tx.$executeRaw`
-        INSERT INTO "PurchasePayment" ("shopId","purchaseInvoiceId","createdByUserId","method","sourceName","amount","reference","note","paidAt","requestKey","requestFingerprint","accountType")
-        VALUES (${shopId}::uuid,${purchaseId}::uuid,${userId}::uuid,${purchase.paymentMethod},${nullableText(purchase.paymentSourceName)},${purchase.amountPaid},${nullableText(purchase.paymentReference)},'دفعة اعتماد فاتورة شراء',NOW(),${initialPaymentKey},${initialPaymentFingerprint},${purchase.paymentMethod === PaymentMethod.CASH ? "DRAWER" : "OTHER"})
+        INSERT INTO "PurchasePayment" ("shopId","purchaseInvoiceId","createdByUserId","method","sourceName","amount","reference","note","paidAt","requestKey","requestFingerprint","accountType","walletId")
+        VALUES (${shopId}::uuid,${purchaseId}::uuid,${userId}::uuid,${purchase.paymentMethod},${nullableText(purchase.paymentSourceName)},${purchase.amountPaid},${nullableText(purchase.paymentReference)},'دفعة اعتماد فاتورة شراء',NOW(),${initialPaymentKey},${initialPaymentFingerprint},${accountType},${walletId}::uuid)
       `;
-      await applyPurchasePaymentMoneyTx(tx, { shopId, userId, purchaseId, supplierInvoiceNumber: purchase.supplierInvoiceNumber, accountType: purchase.paymentMethod === PaymentMethod.CASH ? "DRAWER" : "OTHER", amount: purchase.amountPaid, sourceName: purchase.paymentSourceName, reference: purchase.paymentReference });
+      await applyPurchasePaymentMoneyTx(tx, { shopId, userId, purchaseId, supplierInvoiceNumber: purchase.supplierInvoiceNumber, accountType, walletId, amount: purchase.amountPaid, sourceName: purchase.paymentSourceName, reference: purchase.paymentReference });
     }
 
     const receiptLines: ReceiptTxLine[] = preparedLines.map((line) => {
@@ -1317,7 +1335,7 @@ export async function recordPurchasePayment(shopId: string, userId: string, purc
   const paidAt = safeOperationDate(input.paidAt, "تاريخ الدفعة");
   if (!(["DRAWER", "WALLET", "OTHER"] as const).includes(input.accountType)) throw new Error("الحساب المالي المحدد غير صالح.");
   if (input.accountType === "WALLET" && !nullableText(input.walletId)) throw new Error("اختر المحفظة التي خرجت منها الدفعة.");
-  if (input.accountType === "OTHER" && !nullableText(input.sourceName)) throw new Error("اكتب مصدر الدفع الخارجي.");
+
   if (input.accountType === "DRAWER") await cashDrawerService.getSnapshot(shopId, 1);
   const fingerprint = requestFingerprint({ purchaseId, amount: amount.toFixed(2), method: input.method, sourceName: nullableText(input.sourceName), reference: nullableText(input.reference), paidAt: paidAt.toISOString(), accountType: input.accountType, walletId: nullableText(input.walletId) });
 
@@ -1325,7 +1343,7 @@ export async function recordPurchasePayment(shopId: string, userId: string, purc
     const purchaseRows = await tx.$queryRaw<LockedPurchase[]>`
       SELECT "id", "supplierId", "supplierNameSnapshot", "supplierInvoiceNumber", "invoiceDate", "status", "currency",
         "subtotal", "discountTotal", "extraCostsTotal", "total", "amountPaid", COALESCE("returnAdjustmentTotal", 0) AS "returnAdjustmentTotal", "balanceDue",
-        "paymentMethod"::text AS "paymentMethod", "paymentSourceName", "paymentReference", "postingKey", "postingFingerprint"
+        "paymentAccountType", "paymentWalletId", "paymentMethod"::text AS "paymentMethod", "paymentSourceName", "paymentReference", "postingKey", "postingFingerprint"
       FROM "PurchaseInvoice" WHERE "id" = ${purchaseId}::uuid AND "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL FOR UPDATE
     `;
     const purchase = purchaseRows[0];
@@ -1576,7 +1594,7 @@ export async function getPurchaseInvoice(shopId: string, purchaseId: string): Pr
   type InvoiceRow = Omit<PurchaseDetail, "items" | "payments" | "receipts" | "supplierReturns">;
   const invoices = await prisma.$queryRaw<InvoiceRow[]>(Prisma.sql`
     SELECT p."id", p."supplierId", p."supplierNameSnapshot", s."name" AS "supplierName", p."supplierInvoiceNumber",
-      p."invoiceDate", p."notes", p."currency", p."status", p."subtotal", p."discountTotal", p."extraCostsTotal",
+      p."paymentAccountType", p."paymentWalletId", p."invoiceDate", p."notes", p."currency", p."status", p."subtotal", p."discountTotal", p."extraCostsTotal",
       p."total", p."amountPaid", COALESCE(p."returnAdjustmentTotal", 0) AS "returnAdjustmentTotal", p."balanceDue", p."postedAt", p."createdAt", p."updatedAt", p."version",
       CASE
         WHEN COALESCE((SELECT SUM(pi2."receivedQuantity") FROM "PurchaseItem" pi2 WHERE pi2."shopId" = ${shopId}::uuid AND pi2."purchaseInvoiceId" = p."id"), 0) = 0 THEN 'NONE'
@@ -1782,7 +1800,27 @@ export async function listPaymentSources(shopId: string) {
   });
 }
 
+export async function getPurchaseDrawerBalance(shopId: string) {
+  const rows = await prisma.$queryRaw<Array<{currentBalance: Prisma.Decimal}>>`SELECT "currentBalance" FROM "CashDrawer" WHERE "shopId"=${shopId}::uuid`;
+  return rows[0]?.currentBalance ?? new Prisma.Decimal(0);
+}
+
+export async function getSupplierPurchaseAccount(shopId: string, supplierId: string) {
+  const [invoices, summary] = await Promise.all([
+    prisma.$queryRaw<Array<{id: string; number: string | null; date: Date; total: Prisma.Decimal; paid: Prisma.Decimal; due: Prisma.Decimal}>>`
+      SELECT "id", "supplierInvoiceNumber" AS "number", "invoiceDate" AS "date", "total", "amountPaid" AS "paid", "balanceDue" AS "due"
+      FROM "PurchaseInvoice" WHERE "shopId"=${shopId}::uuid AND "supplierId"=${supplierId}::uuid AND "status"='POSTED' AND "deletedAt" IS NULL
+      ORDER BY ("balanceDue">0) DESC, "invoiceDate" DESC, "id"`,
+    prisma.$queryRaw<Array<{outstanding: Prisma.Decimal; credit: Prisma.Decimal}>>`
+      SELECT COALESCE((SELECT SUM("balanceDue") FROM "PurchaseInvoice" WHERE "shopId"=${shopId}::uuid AND "supplierId"=${supplierId}::uuid AND "status"='POSTED' AND "deletedAt" IS NULL),0) AS "outstanding",
+      COALESCE((SELECT SUM("amount") FROM "SupplierReturnSettlement" WHERE "shopId"=${shopId}::uuid AND "supplierId"=${supplierId}::uuid AND "type"='SUPPLIER_CREDIT'),0) AS "credit"`
+  ]);
+  return {invoices, outstanding: summary[0].outstanding, credit: summary[0].credit};
+}
+
 export const purchaseReceivingService = {
+  getSupplierPurchaseAccount,
+  getPurchaseDrawerBalance,
   searchInventory,
   lookupInventoryByIdentifier,
   getInventoryItemsByIds,

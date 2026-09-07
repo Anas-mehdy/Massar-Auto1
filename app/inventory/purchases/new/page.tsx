@@ -15,9 +15,10 @@ type NewPurchasePageProps = { searchParams: Promise<{ draft?: string; copied?: s
 export default async function NewPurchasePage({ searchParams }: NewPurchasePageProps) {
   const params = await searchParams;
   const auth = await requirePermission("inventory:manage");
-  const [suppliers, paymentSources, categories, draft] = await Promise.all([
+  const [suppliers, wallets, drawerBalance, categories, draft] = await Promise.all([
     supplierService.listSuppliers(auth.shop.id),
-    purchaseReceivingService.listPaymentSources(auth.shop.id),
+    purchaseReceivingService.listPurchaseFinancialWallets(auth.shop.id),
+    purchaseReceivingService.getPurchaseDrawerBalance(auth.shop.id),
     inventoryCategoryService.listInventoryCategories(auth.shop.id),
     params.draft ? purchaseReceivingService.getPurchaseInvoice(auth.shop.id, params.draft).catch(() => null) : Promise.resolve(null),
   ]);
@@ -27,7 +28,7 @@ export default async function NewPurchasePage({ searchParams }: NewPurchasePageP
     <PageHeader
       eyebrow="المخزون • المشتريات"
       title={editableDraft ? "تعديل مسودة استلام بضاعة" : "استلام بضاعة"}
-      description="أدخل فاتورة المورد مرة واحدة. الاستلام الكامل هو الافتراضي السريع، ويمكن تسجيل ما وصل فقط واستلام الباقي لاحقاً. لا يتغير المخزون قبل الاعتماد."
+      description="نظام إدخال فاتورة متعددة الأصناف بسرعة ودقة وباستخدام الـ AI"
       actions={<Button asChild variant="outline" className="font-bold"><Link href="/inventory/purchases"><ArrowRight className="ml-1.5 h-4 w-4" />فواتير المشتريات</Link></Button>}
     />
 
@@ -43,7 +44,8 @@ export default async function NewPurchasePage({ searchParams }: NewPurchasePageP
 
     <PurchaseReceivingForm
       suppliers={suppliers.map((supplier) => ({ id: supplier.id, name: supplier.name, phone: supplier.phone }))}
-      paymentSources={paymentSources}
+      wallets={wallets.map(wallet => ({ id: wallet.id, name: wallet.name, currentBalance: wallet.currentBalance.toString() }))}
+      drawerBalance={drawerBalance.toString()}
       categories={categories}
       currency={auth.shop.currency}
       initialDraft={editableDraft ? {
@@ -58,6 +60,8 @@ export default async function NewPurchasePage({ searchParams }: NewPurchasePageP
         extraCostsTotal: editableDraft.extraCostsTotal.toString(),
         amountPaid: editableDraft.amountPaid.toString(),
         paymentMethod: editableDraft.paymentMethod,
+        paymentAccountType: editableDraft.paymentAccountType,
+        paymentWalletId: editableDraft.paymentWalletId,
         paymentSourceName: editableDraft.paymentSourceName,
         paymentReference: editableDraft.paymentReference,
         lines: editableDraft.items.map((item) => ({

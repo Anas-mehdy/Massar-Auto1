@@ -503,6 +503,8 @@ model PurchaseInvoice {
   returnAdjustmentTotal Decimal   @default(0) @db.Decimal(14, 2)
   balanceDue            Decimal   @default(0) @db.Decimal(14, 2)
   paymentMethod         String?   @db.VarChar(30)
+  paymentAccountType    String?   @db.VarChar(20)
+  paymentWalletId       String?   @db.Uuid
   paymentSourceName     String?
   paymentReference      String?
   postingKey            String?   @db.VarChar(80)

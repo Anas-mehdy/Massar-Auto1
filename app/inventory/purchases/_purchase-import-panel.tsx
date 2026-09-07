@@ -175,6 +175,13 @@ export function PurchaseImportPanel({ onImport }: { onImport: (rows: ResolvedImp
       <button type="button" onClick={() => setOpen(false)} className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-slate-700 dark:hover:bg-slate-900"><X className="h-4 w-4" /></button>
     </div>
 
+    <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs leading-6 text-slate-600 dark:bg-slate-950/50 dark:text-slate-300">
+      <p><strong>كيف تجهّز الجدول؟</strong> كل صف يمثل صنفاً. انسخ الخلايا من Excel والصقها هنا؛ ترتيب الأعمدة لا يهم، لأنك تختار وظيفة كل عمود في المعاينة.</p>
+      <p>الأعمدة: اسم الصنف، الكمية، تكلفة الوحدة؛ والباركود وسعر البيع اختياريان. يفضّل نسخ صف العناوين أيضاً.</p>
+      <div className="my-2 overflow-x-auto"><table className="w-full text-right"><thead><tr>{["اسم الصنف", "الكمية", "تكلفة الوحدة", "سعر البيع"].map(label => <th className="px-2" key={label}>{label}</th>)}</tr></thead><tbody><tr><td className="px-2">شاحن USB-C</td><td className="px-2">10</td><td className="px-2">5</td><td className="px-2">8</td></tr></tbody></table></div>
+      <p>التصنيف والتوافقات: أكملهما بعد إضافة البنود؛ يمكنك تطبيق تصنيف واحد على عدة أصناف جديدة محددة.</p>
+      <p className="mt-1 font-bold">هذه الأداة لا تستخدم AI ولا تستهلك قراءاتك. الجداول ذات الخلايا المدمجة والعناوين المتعددة تحتاج ترتيباً قبل اللصق. لقراءة مستند، استخدم استيراد صورة أو PDF.</p>
+    </div>
     <textarea
       value={rawText}
       onChange={(event) => rebuild(event.target.value)}

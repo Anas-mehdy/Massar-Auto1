@@ -86,7 +86,7 @@ jobs:
           # InventoryCategory is managed by SQL and absent from Prisma models.
           cp -R prisma/migrations/20260831003500_add_inventory_categories_phase1 "$ci_schema_dir/migrations/"
           cp -R prisma/migrations/20260901184500_add_financial_transfers "$ci_schema_dir/migrations/"
-          for migration in prisma/migrations/20260906*; do
+          for migration in prisma/migrations/20260906* prisma/migrations/20260907120000_purchase_initial_payment_account; do
             cp -R "$migration" "$ci_schema_dir/migrations/"
           done
           npx prisma migrate deploy --schema "$ci_schema_dir/schema.prisma"
