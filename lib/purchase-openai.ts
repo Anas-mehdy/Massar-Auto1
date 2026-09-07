@@ -4,7 +4,7 @@ export type PurchaseAiSource = {
   sourceType: "IMAGE" | "PDF";
   fileName: string | null;
   mimeType: string | null;
-  fileData: Buffer | null;
+  fileData: Uint8Array | null;
   pageCount: number | null;
 };
 
@@ -299,7 +299,7 @@ export async function callOpenAiPurchaseExtractor(source: PurchaseAiSource): Pro
     throw new PurchaseAiProviderError("ملف المصدر غير متاح للقراءة.", { code: "SOURCE_FILE_MISSING", chargeKnown: true, actualCostUsd: 0 });
   }
 
-  const base64 = source.fileData.toString("base64");
+  const base64 = Buffer.from(source.fileData).toString("base64");
   const fileContent = source.sourceType === "IMAGE"
     ? { type: "input_image", image_url: `data:${source.mimeType};base64,${base64}`, detail: "high" }
     : {
