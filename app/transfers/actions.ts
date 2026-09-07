@@ -135,6 +135,8 @@ const transferSchema = z.object({
   commission: z.string().trim().optional(),
   commissionMode: z.enum(["DEDUCTED", "ADDED", "NONE"]).optional(),
   isDeferred: z.boolean().optional(),
+  settlementType: z.enum(["CASH_DRAWER", "WALLET"]).optional(),
+  settlementWalletId: z.string().uuid("اختر محفظة تسوية صحيحة").optional().or(z.literal("")),
   customerId: z.string().uuid().optional().or(z.literal("")),
   customerName: z.string().trim().max(120).optional(),
   customerPhone: z.string().trim().max(40).optional(),
@@ -153,6 +155,8 @@ export async function createTransferAction(formData: FormData) {
       commission: readString(formData, "commission"),
       commissionMode: readString(formData, "commissionMode") || undefined,
       isDeferred: readString(formData, "isDeferred") === "on",
+      settlementType: readString(formData, "settlementType") || undefined,
+      settlementWalletId: readString(formData, "settlementWalletId"),
       customerId: readString(formData, "customerId"),
       customerName: readString(formData, "customerName"),
       customerPhone: readString(formData, "customerPhone"),
@@ -161,6 +165,7 @@ export async function createTransferAction(formData: FormData) {
     const auth = await requirePermission("sales:create");
     const transfer = await financialTransferService.createTransfer(auth.shop.id, auth.user.id, {
       ...input,
+      settlementWalletId: input.settlementWalletId || undefined,
       customerId: input.customerId || undefined,
     });
     await captureServerEvent({
@@ -171,12 +176,14 @@ export async function createTransferAction(formData: FormData) {
       properties: {
         operation_type: input.operationType,
         is_deferred: Boolean(input.isDeferred),
+        settlement_type: input.isDeferred ? "DEBT" : (input.settlementType || "CASH_DRAWER"),
         has_customer: Boolean(input.customerId || input.customerName || input.customerPhone),
         source: onboardingMode ? "transfers_onboarding" : pointOfSaleReturn ? "point_of_sale" : "transfers",
         onboarding_mode: onboardingMode,
       },
     });
     revalidatePath("/transfers");
+    revalidatePath("/cash-drawer");
     revalidatePath("/reports");
     revalidatePath("/debts");
     revalidatePath("/point-of-sale");
@@ -203,6 +210,7 @@ export async function voidTransferAction(formData: FormData) {
     const auth = await requirePermission("sales:create");
     await financialTransferService.voidTransfer(auth.shop.id, id, auth.user.id);
     revalidatePath("/transfers");
+    revalidatePath("/cash-drawer");
     revalidatePath("/reports");
     revalidatePath("/debts");
     redirectTo = "/transfers?voided=1";
