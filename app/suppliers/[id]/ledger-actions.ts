@@ -9,7 +9,7 @@ import { timeZoneForCountry, zonedDateTimeToUtc } from "@/lib/timezone";
 const uuid = z.string().uuid();
 const requestKey = z.string().trim().min(12).max(120);
 
-function localNoonUtc(dateInput: string, countryCode: string) {
+function localNoonUtc(dateInput: string, countryCode?: string | null) {
   const [year, month, day] = dateInput.split("-").map(Number);
   if (!year || !month || !day) throw new Error("التاريخ غير صالح.");
   return zonedDateTimeToUtc({ year, month, day, hour: 12 }, timeZoneForCountry(countryCode));
