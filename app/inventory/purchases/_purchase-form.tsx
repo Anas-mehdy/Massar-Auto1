@@ -255,8 +255,10 @@ export function PurchaseReceivingForm({
   const postingBarrierRef = useRef(false);
   const postedRef = useRef(false);
   const mountedRef = useRef(false);
+  const approvalErrorRef = useRef<HTMLDivElement | null>(null);
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState("");
+  const [approvalError, setApprovalError] = useState("");
   const [supplierCreatorOpen, setSupplierCreatorOpen] = useState(false);
   const [supplierCreator, setSupplierCreator] = useState({ name: "", phone: "" });
   const [supplierCreating, setSupplierCreating] = useState(false);
@@ -272,6 +274,7 @@ export function PurchaseReceivingForm({
   const subtotal = useMemo(() => activeLines.reduce((sum, line) => sum + Math.max(0, Math.trunc(num(line.quantity))) * Math.max(0, num(line.unitCost)), 0), [activeLines]);
   const finalTotal = Math.max(0, subtotal - Math.max(0, num(discountTotal)) + Math.max(0, num(extraCostsTotal)));
   const remaining = Math.max(0, finalTotal - Math.max(0, num(amountPaid)));
+  const supplierRequired = remaining > 0.009 || (num(amountPaid) > 0.009 && paymentAccountType !== "DRAWER");
   const partialReceiptError = useMemo(() => {
     if (!partialReceipt) return "";
     for (const line of activeLines) {
@@ -286,7 +289,7 @@ export function PurchaseReceivingForm({
     const errors: { supplier?: string; discount?: string; amountPaid?: string; lines?: string; matching?: string } = {};
     if (num(discountTotal) > subtotal + 0.009) errors.discount = "الخصم لا يمكن أن يتجاوز مجموع البنود.";
     if (num(amountPaid) > finalTotal + 0.009) errors.amountPaid = "المدفوع لا يمكن أن يتجاوز إجمالي الفاتورة.";
-    if (!supplierId) errors.supplier = "اختر المورد أو أضفه من زر +.";
+    if (supplierRequired && !supplierId) errors.supplier = "اختر المورد أو أضفه من زر + عند وجود دين أو دفع غير نقدي.";
     const invalidLine = activeLines.find((line) => Math.trunc(num(line.quantity)) <= 0 || num(line.unitCost) < 0 || (!line.inventoryItemId && !line.newItemName.trim()));
     if (invalidLine) errors.lines = "تحقق من الاسم والكمية وتكلفة الوحدة في البنود.";
     if (activeLines.some((line) => line.matchReviewRequired)) errors.matching = "يوجد بند مستورد يحتاج مراجعة المطابقة قبل الاعتماد.";
@@ -297,7 +300,7 @@ export function PurchaseReceivingForm({
       }
     }
     return errors;
-  }, [discountTotal, subtotal, extraCostsTotal, amountPaid, finalTotal, remaining, supplierId, activeLines]);
+  }, [discountTotal, subtotal, extraCostsTotal, amountPaid, finalTotal, supplierRequired, supplierId, activeLines]);
 
   const markDirty = useCallback(() => {
     if (!mountedRef.current) return;
@@ -381,9 +384,6 @@ export function PurchaseReceivingForm({
           setDuplicate(result.duplicate);
           setLastSavedAt(result.updatedAt);
           setSaveState("saved");
-          // If edits arrived while the request was in flight, immediately persist the
-          // latest render using the new server version. Never recursively replay the
-          // payload captured by an older closure.
           if (dirtyRevisionRef.current <= persistedRevisionRef.current) return result.id;
           setSaveState("saving");
         }
@@ -595,18 +595,23 @@ export function PurchaseReceivingForm({
     markDirty();
   }
 
+  function showApprovalError(message: string) {
+    setApprovalError(message);
+    window.requestAnimationFrame(() => approvalErrorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  }
+
   async function postInvoice() {
     setPostError("");
+    setApprovalError("");
     postingBarrierRef.current = true;
     setPosting(true);
     const savedId = await save(true);
     const id = savedId || draftIdRef.current;
-    if (!id) { postingBarrierRef.current = false; setPosting(false); setPostError("تعذر حفظ المسودة قبل الاعتماد."); return; }
-    if (!activeLines.length) { postingBarrierRef.current = false; setPosting(false); setPostError("أضف بنداً واحداً على الأقل."); return; }
-    if (validation.discount || validation.amountPaid || validation.lines || validation.matching || partialReceiptError) { postingBarrierRef.current = false; setPosting(false); setPostError(validation.discount || validation.amountPaid || validation.lines || validation.matching || partialReceiptError || "تحقق من البيانات."); return; }
-    if (duplicateNewBarcodes.size) { postingBarrierRef.current = false; setPosting(false); setPostError("يوجد باركود مكرر بين أصناف جديدة. راجع البنود قبل الاعتماد."); return; }
-    if (!supplierId) { postingBarrierRef.current = false; setPosting(false); setPostError("اختر مورداً مسجلاً عند وجود مبلغ متبقٍ."); return; }
-    if (num(amountPaid) > 0 && paymentAccountType === "WALLET" && !paymentWalletId) { postingBarrierRef.current = false; setPosting(false); setPostError("اختر المحفظة التي خرجت منها الدفعة."); return; }
+    if (!id) { postingBarrierRef.current = false; setPosting(false); showApprovalError("تعذر حفظ المسودة قبل الاعتماد."); return; }
+    if (!activeLines.length) { postingBarrierRef.current = false; setPosting(false); showApprovalError("أضف بنداً واحداً على الأقل."); return; }
+    if (validation.supplier || validation.discount || validation.amountPaid || validation.lines || validation.matching || partialReceiptError) { postingBarrierRef.current = false; setPosting(false); showApprovalError(validation.supplier || validation.discount || validation.amountPaid || validation.lines || validation.matching || partialReceiptError || "تحقق من البيانات."); return; }
+    if (duplicateNewBarcodes.size) { postingBarrierRef.current = false; setPosting(false); showApprovalError("يوجد باركود مكرر بين أصناف جديدة. راجع البنود قبل الاعتماد."); return; }
+    if (num(amountPaid) > 0 && paymentAccountType === "WALLET" && !paymentWalletId) { postingBarrierRef.current = false; setPosting(false); showApprovalError("اختر المحفظة التي خرجت منها الدفعة."); return; }
 
     if (duplicate && !window.confirm("يوجد رقم فاتورة مشابه لنفس المورد. هل راجعت الفاتورة وتريد المتابعة بالاعتماد؟")) { postingBarrierRef.current = false; setPosting(false); return; }
     const result = await postPurchaseInvoiceAction({
@@ -619,7 +624,7 @@ export function PurchaseReceivingForm({
       })) : undefined,
     });
     setPosting(false);
-    if (!result.ok) { postingBarrierRef.current = false; setPostError("error" in result ? result.error : "تعذر اعتماد الفاتورة."); return; }
+    if (!result.ok) { postingBarrierRef.current = false; showApprovalError("error" in result ? result.error : "تعذر اعتماد الفاتورة."); return; }
     postedRef.current = true;
     router.push(`/inventory/purchases/${result.id}?posted=${partialReceipt ? "partial" : "full"}`);
     router.refresh();
@@ -694,7 +699,6 @@ export function PurchaseReceivingForm({
       <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-xs font-semibold leading-6 text-indigo-800 dark:border-indigo-900/70 dark:bg-indigo-950/25 dark:text-indigo-200">الصنف الموجود لا تتغير توافقاته بسبب فاتورة شراء. الصنف الجديد لا يُنشأ قبل الاعتماد. التوافقات المقترحة تأتي من دليل مسار الموجود ولا تُربط إلا بتأكيدك.</div>
     </section>
 
-
     <section className="rounded-3xl border border-cyan-200 bg-cyan-50/40 p-5 shadow-sm dark:border-cyan-900/70 dark:bg-cyan-950/20">
       <label className="flex cursor-pointer items-start gap-3">
         <input type="checkbox" className="mt-1" checked={partialReceipt} onChange={(event) => {
@@ -755,7 +759,7 @@ export function PurchaseReceivingForm({
         {num(amountPaid) > 0 && <p className="mt-3 text-xs leading-6 text-slate-500 dark:text-slate-400">{paymentAccountType === "DRAWER" ? `رصيد الدرج الحالي: ${money(num(drawerBalance), currency)}. يُخصم المدفوع وتسجّل الحركة عند الاعتماد.` : paymentAccountType === "WALLET" ? "يُخصم المدفوع من المحفظة المختارة وتسجّل الحركة عند الاعتماد." : "تُسجّل الدفعة وتسدد من الفاتورة، دون تغيير رصيد الدرج أو المحافظ."}</p>}
         <div aria-live="polite" className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">الدين المتبقي للمورد: {money(remaining, currency)}<p className="mt-1 text-xs font-normal">{remaining > 0 ? "يظهر في صفحة المورد بعد الاعتماد، ويمكن تسديده لاحقاً بالكامل أو على دفعات." : "لا يتبقى دين على هذه الفاتورة."}</p></div>
       </section>
-      <div className="rounded-3xl border border-slate-200 bg-slate-950 p-5 text-white shadow-sm dark:border-slate-700"><h2 className="font-black">ملخص الفاتورة</h2><div className="mt-4 space-y-3 text-sm"><Summary label="مجموع البنود" value={money(subtotal, currency)} /><div><label className="flex items-center justify-between gap-4"><span className="text-slate-300">الخصم</span><input data-purchase-field type="number" min="0" step="0.01" value={discountTotal} onKeyDown={enterToNext} onChange={(e) => { setDiscountTotal(e.target.value); markDirty(); }} className="h-9 w-32 rounded-lg border border-slate-700 bg-slate-900 px-2 text-left font-numeric" /></label>{validation.discount && <div className="mt-1 text-[10px] font-bold text-rose-300">{validation.discount}</div>}</div><label className="flex items-center justify-between gap-4"><span className="text-slate-300">الشحن / مصاريف إضافية</span><input data-purchase-field type="number" min="0" step="0.01" value={extraCostsTotal} onKeyDown={enterToNext} onChange={(e) => { setExtraCostsTotal(e.target.value); markDirty(); }} className="h-9 w-32 rounded-lg border border-slate-700 bg-slate-900 px-2 text-left font-numeric" /></label><div className="border-t border-slate-700 pt-3"><Summary label="الإجمالي النهائي" value={money(finalTotal, currency)} strong /><Summary label="المدفوع" value={money(num(amountPaid), currency)} /><Summary label="المتبقي" value={money(remaining, currency)} strong tone={remaining > 0 ? "amber" : "green"} /></div></div><p className="mt-4 text-[11px] font-semibold leading-5 text-slate-400">عند الاعتماد يُثبت توزيع الخصم والشحن/مصاريف الشراء المباشرة على البنود. متوسط تكلفة المخزون لا يتغير عند الاعتماد، بل فقط عند الاستلام الفعلي وبحسب الكمية المستلمة. الشحن غير مسترد تلقائياً في مرتجع المورد.</p><Button type="button" onClick={() => void postInvoice()} disabled={posting || !activeLines.length} className="mt-5 h-12 w-full rounded-xl bg-emerald-600 font-black hover:bg-emerald-700">{posting ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ الاعتماد…</> : <><Check className="ml-2 h-4 w-4" />{partialReceipt ? "اعتماد وتسجيل الاستلام الجزئي" : "اعتماد واستلام كل البضاعة"}</>}</Button></div>
+      <div className="rounded-3xl border border-slate-200 bg-slate-950 p-5 text-white shadow-sm dark:border-slate-700"><h2 className="font-black">ملخص الفاتورة</h2><div className="mt-4 space-y-3 text-sm"><Summary label="مجموع البنود" value={money(subtotal, currency)} /><div><label className="flex items-center justify-between gap-4"><span className="text-slate-300">الخصم</span><input data-purchase-field type="number" min="0" step="0.01" value={discountTotal} onKeyDown={enterToNext} onChange={(e) => { setDiscountTotal(e.target.value); markDirty(); }} className="h-9 w-32 rounded-lg border border-slate-700 bg-slate-900 px-2 text-left font-numeric" /></label>{validation.discount && <div className="mt-1 text-[10px] font-bold text-rose-300">{validation.discount}</div>}</div><label className="flex items-center justify-between gap-4"><span className="text-slate-300">الشحن / مصاريف إضافية</span><input data-purchase-field type="number" min="0" step="0.01" value={extraCostsTotal} onKeyDown={enterToNext} onChange={(e) => { setExtraCostsTotal(e.target.value); markDirty(); }} className="h-9 w-32 rounded-lg border border-slate-700 bg-slate-900 px-2 text-left font-numeric" /></label><div className="border-t border-slate-700 pt-3"><Summary label="الإجمالي النهائي" value={money(finalTotal, currency)} strong /><Summary label="المدفوع" value={money(num(amountPaid), currency)} /><Summary label="المتبقي" value={money(remaining, currency)} strong tone={remaining > 0 ? "amber" : "green"} /></div></div><p className="mt-4 text-[11px] font-semibold leading-5 text-slate-400">عند الاعتماد يُثبت توزيع الخصم والشحن/مصاريف الشراء المباشرة على البنود. متوسط تكلفة المخزون لا يتغير عند الاعتماد، بل فقط عند الاستلام الفعلي وبحسب الكمية المستلمة. الشحن غير مسترد تلقائياً في مرتجع المورد.</p>{approvalError && <div ref={approvalErrorRef} role="alert" className="mt-4 rounded-xl border border-rose-500/50 bg-rose-950/70 p-3 text-xs font-bold leading-5 text-rose-100">{approvalError}</div>}<Button type="button" onClick={() => void postInvoice()} disabled={posting || !activeLines.length} className="mt-5 h-12 w-full rounded-xl bg-emerald-600 font-black hover:bg-emerald-700">{posting ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ الاعتماد…</> : <><Check className="ml-2 h-4 w-4" />{partialReceipt ? "اعتماد وتسجيل الاستلام الجزئي" : "اعتماد واستلام كل البضاعة"}</>}</Button></div>
     </section>
   </div>;
 }
