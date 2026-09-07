@@ -394,7 +394,7 @@ async function recoverStaleExtraction(shopId: string, sourceId: string) {
       await tx.$executeRaw(Prisma.sql`
         UPDATE "PurchaseImportExtractionAttempt"
         SET "status"='FAILED', "finishedAt"=COALESCE("finishedAt", NOW()), "failureKind"='STALE_EXTRACTION',
-            "quotaCharged"=FALSE, "quotaReleasedAt"=COALESCE("quotaReleasedAt", NOW()),
+            "quotaCharged"=("providerContactedAt" IS NOT NULL), "quotaReleasedAt"=CASE WHEN "providerContactedAt" IS NULL THEN COALESCE("quotaReleasedAt", NOW()) ELSE NULL END,
             "actualCostUsd"=CASE WHEN "providerContactedAt" IS NULL THEN 0 ELSE "actualCostUsd" END
         WHERE "id"=${attemptId}::uuid AND "shopId"=${shopId}::uuid AND "status"='STARTED'
       `);
@@ -621,8 +621,8 @@ export async function extractSource(shopId: string, userId: string, sourceId: st
       if (!updated[0]) {
         await tx.$executeRaw(Prisma.sql`
           UPDATE "PurchaseImportExtractionAttempt"
-          SET "status"='FAILED', "finishedAt"=NOW(), "failureKind"='EXTRACTION_SUPERSEDED', "quotaCharged"=FALSE,
-              "quotaReleasedAt"=NOW(), "actualCostUsd"=${extracted.actualCostUsd}, "inputTokens"=${extracted.usage.inputTokens},
+          SET "status"='FAILED', "finishedAt"=NOW(), "failureKind"='EXTRACTION_SUPERSEDED', "quotaCharged"=("providerContactedAt" IS NOT NULL),
+              "quotaReleasedAt"=CASE WHEN "providerContactedAt" IS NULL THEN NOW() ELSE NULL END, "actualCostUsd"=${extracted.actualCostUsd}, "inputTokens"=${extracted.usage.inputTokens},
               "cachedInputTokens"=${extracted.usage.cachedInputTokens}, "outputTokens"=${extracted.usage.outputTokens},
               "providerResponseId"=${extracted.responseId}
           WHERE "id"=${started}::uuid AND "shopId"=${shopId}::uuid AND "status"='STARTED'
@@ -653,7 +653,7 @@ export async function extractSource(shopId: string, userId: string, sourceId: st
         await tx.$executeRaw(Prisma.sql`
           UPDATE "PurchaseImportExtractionAttempt"
           SET "status"='FAILED', "finishedAt"=COALESCE("finishedAt", NOW()), "failureKind"=${safe.code},
-              "quotaCharged"=FALSE, "quotaReleasedAt"=COALESCE("quotaReleasedAt", NOW()),
+              "quotaCharged"=("providerContactedAt" IS NOT NULL), "quotaReleasedAt"=CASE WHEN "providerContactedAt" IS NULL THEN COALESCE("quotaReleasedAt", NOW()) ELSE NULL END,
               "actualCostUsd"=${actualCost}, "inputTokens"=${usage?.inputTokens ?? null},
               "cachedInputTokens"=${usage?.cachedInputTokens ?? null}, "outputTokens"=${usage?.outputTokens ?? null},
               "providerResponseId"=${aiError?.responseId ?? null}

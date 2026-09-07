@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, Check, FileImage, FileText, Loader2, RefreshCw, Save, ScanText, Sparkles, Upload, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { PurchaseExtractedDocument } from "@/lib/purchase-document-import";
 import {
@@ -102,21 +102,32 @@ export function PurchaseDocumentImportPanel({
   const fileRef = useRef<HTMLInputElement>(null);
   const existingKeys = useMemo(() => new Set(existingImportKeys), [existingImportKeys]);
 
-  async function refreshQuota() {
+  const [quotaError, setQuotaError] = useState("");
+  const quotaRequest = useRef(0);
+  const refreshQuota = useCallback(async () => {
+    const request = ++quotaRequest.current;
     setQuotaLoading(true);
-    const result = await getPurchaseAiQuotaStatusAction();
-    setQuotaLoading(false);
-    if (result.ok) setQuota(result.quota);
-  }
+    try {
+      const result = await getPurchaseAiQuotaStatusAction();
+      if (request !== quotaRequest.current) return;
+      if (result.ok) { setQuota(result.quota); setQuotaError(""); }
+      else { setQuota(null); setQuotaError("تعذر تحميل حصة AI. أعد المحاولة؛ Excel والإدخال اليدوي متاحان."); }
+    } catch {
+      if (request === quotaRequest.current) { setQuota(null); setQuotaError("تعذر الاتصال للتحقق من حصة AI."); }
+    } finally { if (request === quotaRequest.current) setQuotaLoading(false); }
+  }, []);
 
   useEffect(() => {
-    if (open && mode === "file") void refreshQuota();
-  }, [open, mode]);
+    void refreshQuota();
+    const refreshVisible = () => { if (document.visibilityState === "visible") void refreshQuota(); };
+    window.addEventListener("focus", refreshVisible);
+    document.addEventListener("visibilitychange", refreshVisible);
+    const timer = window.setInterval(refreshVisible, 60_000);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refreshVisible); document.removeEventListener("visibilitychange", refreshVisible); quotaRequest.current++; };
+  }, [refreshQuota]);
 
-  const aiBlocked = Boolean(quota && (
-    !quota.configured || quota.user.remaining <= 0 || quota.shop.remaining <= 0 ||
-    quota.failedAttempts.userRemaining <= 0 || quota.failedAttempts.shopRemaining <= 0 || quota.budget.remainingUsd <= 0
-  ));
+  const aiBlocked = !quota || Boolean(quotaError) || !quota.configured || quota.user.remaining <= 0 || quota.shop.remaining <= 0 ||
+    quota.failedAttempts.userRemaining <= 0 || quota.failedAttempts.shopRemaining <= 0 || quota.budget.remainingUsd <= 0;
 
   async function ensurePurchase() {
     if (purchaseId) return purchaseId;
@@ -143,14 +154,12 @@ export function PurchaseDocumentImportPanel({
     setNotice(forceReread
       ? "إعادة القراءة المقصودة تُحسب قراءة AI جديدة. النتيجة لن تعدّل بنود المسودة قبل مراجعتك."
       : "تجري قراءة AI للمصدر. لن يتم اعتماد الفاتورة أو تغيير المخزون أو الحسابات في هذه الخطوة.");
-    const result = await extractPurchaseImportSourceAction({ sourceId: id, requestKey: requestKey(), forceReread });
-    setBusy("");
-    await refreshQuota();
-    if (!result.ok) {
-      setError("error" in result ? result.error : "تعذر قراءة المصدر.");
-      return;
-    }
-    await loadReview(id);
+    try {
+      const result = await extractPurchaseImportSourceAction({ sourceId: id, requestKey: requestKey(), forceReread });
+      if (!result.ok) { setError("error" in result ? result.error : "تعذر قراءة المصدر."); return; }
+      await loadReview(id);
+    } catch { setError("انقطع الاتصال أثناء القراءة. حدّث العداد وتحقق من النتيجة المحفوظة قبل إعادة القراءة."); }
+    finally { setBusy(""); await refreshQuota(); }
   }
 
   async function uploadFile(file: File) {
@@ -274,11 +283,11 @@ export function PurchaseDocumentImportPanel({
       <div><h3 className="flex items-center gap-2 text-sm font-black text-slate-900 dark:text-slate-100"><ScanText className="h-4 w-4 text-violet-600" />استيراد من صورة، PDF أو نص رسالة</h3><p className="mt-1 text-[11px] font-semibold text-slate-500 dark:text-slate-400">النتيجة تدخل مرحلة مراجعة فقط. الرفع والقراءة لا يغيران المخزون أو الحسابات ولا يعتمدان الفاتورة.</p></div>
       <Button type="button" variant="outline" size="sm" onClick={() => setOpen((value) => !value)}>{open ? <X className="ml-1 h-4 w-4" /> : <Upload className="ml-1 h-4 w-4" />}{open ? "إغلاق" : "استيراد فاتورة"}</Button>
     </div>
+    <div className="mt-3"><AiQuotaCard quota={quota} loading={quotaLoading} error={quotaError} onRetry={() => void refreshQuota()} /></div>
     {open && <div className="mt-4 space-y-4">
       <div className="flex gap-2 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950"><button type="button" onClick={() => setMode("file")} className={`flex-1 rounded-lg px-3 py-2 text-xs font-black ${mode === "file" ? "bg-violet-600 text-white" : "text-slate-500"}`}><FileImage className="ml-1 inline h-4 w-4" />صورة أو PDF</button><button type="button" onClick={() => setMode("text")} className={`flex-1 rounded-lg px-3 py-2 text-xs font-black ${mode === "text" ? "bg-violet-600 text-white" : "text-slate-500"}`}><FileText className="ml-1 inline h-4 w-4" />نص منسوخ من واتساب</button></div>
 
       {!review && mode === "file" && <div className="space-y-3">
-        <AiQuotaCard quota={quota} loading={quotaLoading} />
         <div className="rounded-xl border border-dashed border-violet-300 bg-white p-5 text-center dark:border-violet-800 dark:bg-slate-950"><input ref={fileRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadFile(file); event.currentTarget.value = ""; }} /><FileImage className="mx-auto h-7 w-7 text-violet-500" /><p className="mt-2 text-xs font-black text-slate-700 dark:text-slate-200">PDF حتى 3 صفحات / صورة واحدة</p><p className="mt-1 text-[10px] font-semibold text-slate-400">حد الملف 4MB. يتم التحقق من المحتوى الحقيقي وعدد الصفحات على الخادم. رفع الملف وحده لا يرسله إلى OpenAI.</p><Button type="button" className="mt-3" size="sm" disabled={Boolean(busy)} onClick={() => fileRef.current?.click()}>{busy === "upload" ? <Loader2 className="ml-1 h-4 w-4 animate-spin" /> : <Upload className="ml-1 h-4 w-4" />}اختيار الملف</Button></div>
         {sourceId && sourceType !== "TEXT" ? <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 p-3 text-center dark:border-cyan-900 dark:bg-cyan-950/25"><p className="text-[10px] font-bold text-cyan-800 dark:text-cyan-200">المرفق محفوظ ولم تتم قراءته بالذكاء الاصطناعي بعد.</p><Button type="button" size="sm" className="mt-2" disabled={Boolean(busy) || aiBlocked} onClick={() => void extract(sourceId, false)}><Sparkles className="ml-1 h-4 w-4" />قراءة بالذكاء الاصطناعي <span className="mr-1 text-[9px] opacity-80">(تستهلك قراءة)</span></Button>{aiBlocked ? <p className="mt-2 text-[9px] font-semibold text-amber-700 dark:text-amber-300">قراءة AI غير متاحة حالياً، لكن يمكنك متابعة الإدخال اليدوي أو النص أو Excel.</p> : null}</div> : null}
       </div>}
@@ -306,15 +315,16 @@ export function PurchaseDocumentImportPanel({
   </section>;
 }
 
-function AiQuotaCard({ quota, loading }: { quota: AiQuota | null; loading: boolean }) {
-  if (loading && !quota) return <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-bold text-slate-500 dark:border-slate-800 dark:bg-slate-950"><Loader2 className="h-3.5 w-3.5 animate-spin" />تحميل حصة قراءة AI…</div>;
-  if (!quota) return null;
+function AiQuotaCard({ quota, loading, error, onRetry }: { quota: AiQuota | null; loading: boolean; error: string; onRetry: () => void }) {
+  if (error) return <div role="alert" className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{error}<button type="button" disabled={loading} onClick={onRetry} className="mr-2 font-bold underline">تحديث العداد</button></div>;
+  if (!quota) return <div role="status" className="flex items-center gap-2 p-3 text-xs text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />تحميل العداد — 3 قراءات AI يومياً لكل مستخدم</div>;
   const reset = new Date(quota.resetAt).toLocaleString("ar", { timeZone: quota.timeZone, dateStyle: "short", timeStyle: "short" });
-  return <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3 text-[10px] dark:border-violet-900 dark:bg-violet-950/20">
-    <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2 font-black text-violet-800 dark:text-violet-200"><Sparkles className="h-3.5 w-3.5" />OpenAI — {quota.model}</div><span className="font-bold text-slate-500 dark:text-slate-400">تتجدد: {reset} ({quota.timeZone})</span></div>
-    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-semibold text-slate-600 dark:text-slate-300"><span>حصتك: <strong>{quota.user.remaining}/{quota.user.limit}</strong></span><span>المتجر: <strong>{quota.shop.remaining}/{quota.shop.limit}</strong></span><span>ميزانية الميزة المتبقية: <strong>${quota.budget.remainingUsd.toFixed(2)}</strong></span></div>
-    {!quota.configured ? <p className="mt-2 font-bold text-amber-700 dark:text-amber-300">{quota.configError || "OPENAI_API_KEY غير مضبوط على الخادم؛ رفع المرفقات والإدخال اليدوي والنص وExcel يبقون متاحين."}</p> : null}
-    {(quota.failedAttempts.userRemaining <= 0 || quota.failedAttempts.shopRemaining <= 0) ? <p className="mt-1 font-bold text-amber-700 dark:text-amber-300">تم بلوغ حارس المحاولات الفاشلة اليوم، لذلك أوقفت طلبات AI الجديدة مؤقتاً.</p> : null}
+  return <div role="status" aria-live="polite" className="rounded-xl border border-violet-200 bg-white p-3 text-xs dark:border-violet-900 dark:bg-slate-950">
+    <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-sm text-violet-800 dark:text-violet-200">متبقي لك اليوم: {quota.user.remaining} من {quota.user.limit} قراءات AI</strong><span className="text-slate-500">تتجدد: {reset}</span></div>
+    <p className="mt-2 text-slate-600 dark:text-slate-300">للصور وPDF فقط. تنزيل ورفع Excel والإدخال اليدوي بلا حد يومي. فتح قراءة محفوظة لا يستهلك قراءة جديدة.</p>
+    {quota.user.remaining <= 0 && <p className="mt-2 font-bold text-amber-700 dark:text-amber-300">استخدمت قراءاتك الثلاث اليوم. يمكنك المتابعة عبر قالب Excel أو الإدخال اليدوي.</p>}
+    {!quota.configured && <p className="mt-2 font-bold text-amber-700 dark:text-amber-300">قراءة AI غير مفعّلة بعد. يمكنك استخدام قالب Excel أو الإدخال اليدوي.</p>}
+    {quota.configured && quota.user.remaining > 0 && (quota.shop.remaining <= 0 || quota.budget.remainingUsd <= 0 || quota.failedAttempts.userRemaining <= 0 || quota.failedAttempts.shopRemaining <= 0) && <p className="mt-2 text-amber-700 dark:text-amber-300">قراءة AI غير متاحة مؤقتاً بسبب حد الاستخدام العام. Excel والإدخال اليدوي متاحان.</p>}
   </div>;
 }
 

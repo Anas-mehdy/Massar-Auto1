@@ -107,6 +107,8 @@ jobs:
           npm run purchases:test
           npm run purchases:document-test
           node --import tsx scripts/test-purchase-cost-rounding.ts
+          node --import tsx scripts/test-purchase-excel-template.ts
+          node --import tsx scripts/test-purchase-ai-quota.ts
 
       - name: Full application build
         run: npm run build
