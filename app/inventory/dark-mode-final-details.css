@@ -105,6 +105,13 @@
     opacity:1!important;
   }
 
+  /* Purchase receiving line cards: prevent light backgrounds leaking in dark mode. */
+  .dark .inventory-workspace .purchase-line-card {
+    border-color:#334155!important;
+    background:#020617!important;
+    color:#e2e8f0!important;
+  }
+
   /* Stock status badges */
   .dark .inventory-workspace [class*="bg-emerald-50"] {
     border-color:rgba(52,211,153,.36)!important;

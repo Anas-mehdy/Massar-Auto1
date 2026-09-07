@@ -24,6 +24,7 @@ import { pricingSuggestion, suggestedCompatibilityDataset } from "@/lib/purchase
 import { PurchaseBarcodeScanner, type ResolvedBarcodeScan } from "./_barcode-scanner";
 import { PurchaseImportPanel, type ResolvedImportedPurchaseRow } from "./_purchase-import-panel";
 import { PurchaseDocumentImportPanel, type ResolvedDocumentPurchaseRow } from "./_document-import-panel";
+import { quickCreatePurchaseCategoryAction } from "./category-actions";
 import {
   deletePurchaseDraftAction,
   postPurchaseInvoiceAction,
@@ -181,6 +182,7 @@ export function PurchaseReceivingForm({
 }) {
   const router = useRouter();
   const [suppliers, setSuppliers] = useState(initialSuppliers);
+  const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>(categories);
   const [draftId, setDraftId] = useState<string | null>(initialDraft?.id ?? null);
   const draftIdRef = useRef<string | null>(initialDraft?.id ?? null);
   const [supplierId, setSupplierId] = useState(initialDraft?.supplierId ?? "");
@@ -264,6 +266,10 @@ export function PurchaseReceivingForm({
   const [supplierCreating, setSupplierCreating] = useState(false);
   const [scanConflict, setScanConflict] = useState<{ code: string; item: InventoryResult; lineKeys: string[] } | null>(null);
   const [bulkCategoryId, setBulkCategoryId] = useState("");
+  const [bulkCategoryCreatorOpen, setBulkCategoryCreatorOpen] = useState(false);
+  const [bulkCategoryName, setBulkCategoryName] = useState("");
+  const [bulkCategoryCreating, setBulkCategoryCreating] = useState(false);
+  const [bulkCategoryError, setBulkCategoryError] = useState("");
   const [priceIncrease, setPriceIncrease] = useState("30");
   const [priceRounding, setPriceRounding] = useState<"none" | "0.5" | "1" | "5">("1");
   const [partialReceipt, setPartialReceipt] = useState(false);
@@ -472,7 +478,7 @@ export function PurchaseReceivingForm({
       }
       return {
         ...blankLine(), key: freshKey(), mode: "new", newItemName: row.name, newItemBarcode: row.barcode,
-        newItemCategoryId: categories.find(category => category.name.trim() === row.category?.trim())?.id ?? "",
+        newItemCategoryId: categoryOptions.find(category => category.name.trim() === row.category?.trim())?.id ?? "",
         newItemCategory: row.category ?? "",
         importedSourceText: row.sourceText, quantity: row.quantity, unitCost: row.unitCost, salePrice: row.salePrice,
         matchReviewRequired: row.state === "review", matchCandidates: row.candidates, selected: false, compatibilityReviewNeeded: true,
@@ -571,8 +577,25 @@ export function PurchaseReceivingForm({
     setLines((current) => current.map((line) => line.inventoryItemId || line.newItemName.trim() || line.newItemBarcode.trim() ? { ...line, selected: shouldSelect } : line));
   }
 
+  async function createBulkCategory() {
+    const name = bulkCategoryName.trim();
+    if (!name) return;
+    setBulkCategoryCreating(true);
+    setBulkCategoryError("");
+    const result = await quickCreatePurchaseCategoryAction({ name });
+    setBulkCategoryCreating(false);
+    if (!result.ok) {
+      setBulkCategoryError(result.error);
+      return;
+    }
+    setCategoryOptions((current) => [result.category, ...current.filter((category) => category.id !== result.category.id)]);
+    setBulkCategoryId(result.category.id);
+    setBulkCategoryName("");
+    setBulkCategoryCreatorOpen(false);
+  }
+
   function applyBulkCategory() {
-    const category = categories.find((item) => item.id === bulkCategoryId);
+    const category = categoryOptions.find((item) => item.id === bulkCategoryId);
     if (!category) return;
     setLines((current) => current.map((line) => line.selected && line.mode === "new" ? { ...line, newItemCategoryId: category.id, newItemCategory: category.name } : line));
     markDirty();
@@ -695,7 +718,7 @@ export function PurchaseReceivingForm({
     <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-900">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-black text-slate-900 dark:text-slate-100">بنود الاستلام</h2><p className="mt-1 text-xs font-semibold leading-6 text-slate-500 dark:text-slate-400">السطر التالي يظهر تلقائياً. المطابقة الدقيقة بالباركود/SKU فقط يمكن اعتمادها تلقائياً؛ اقتراحات الاسم تبقى للمراجعة.</p></div><div className="flex items-center gap-2"><Button type="button" size="sm" variant="outline" onClick={toggleAllSelected} className="font-bold">{selectedLines.length === activeLines.length && activeLines.length ? "إلغاء تحديد الكل" : "تحديد الكل"}</Button><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">{activeLines.length} بند</span></div></div>
       {(validation.lines || validation.matching) && <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">{validation.lines || validation.matching}</div>}
-      <div className="space-y-3">{lines.map((line, index) => <PurchaseLineCard key={line.key} line={line} index={index} currency={currency} categories={categories} showManualExtraAllocation={subtotal <= 0.009 && num(extraCostsTotal) > 0} duplicate={Boolean(line.inventoryItemId && duplicateInventoryIds.has(line.inventoryItemId))} duplicateBarcode={Boolean(line.mode === "new" && line.newItemBarcode && duplicateNewBarcodes.has(line.newItemBarcode))} onPatch={(patch) => patchLine(line.key, patch)} onRemove={() => removeLine(line.key)} onEnterNext={enterToNext} />)}</div>
+      <div className="space-y-3">{lines.map((line, index) => <PurchaseLineCard key={line.key} line={line} index={index} currency={currency} categories={categoryOptions} showManualExtraAllocation={subtotal <= 0.009 && num(extraCostsTotal) > 0} duplicate={Boolean(line.inventoryItemId && duplicateInventoryIds.has(line.inventoryItemId))} duplicateBarcode={Boolean(line.mode === "new" && line.newItemBarcode && duplicateNewBarcodes.has(line.newItemBarcode))} onPatch={(patch) => patchLine(line.key, patch)} onRemove={() => removeLine(line.key)} onEnterNext={enterToNext} />)}</div>
       <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-xs font-semibold leading-6 text-indigo-800 dark:border-indigo-900/70 dark:bg-indigo-950/25 dark:text-indigo-200">الصنف الموجود لا تتغير توافقاته بسبب فاتورة شراء. الصنف الجديد لا يُنشأ قبل الاعتماد. التوافقات المقترحة تأتي من دليل مسار الموجود ولا تُربط إلا بتأكيدك.</div>
     </section>
 
@@ -727,7 +750,8 @@ export function PurchaseReceivingForm({
     <section className="grid gap-4 xl:grid-cols-2">
       <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center gap-2"><Tags className="h-5 w-5 text-indigo-600" /><div><h2 className="font-black text-slate-900 dark:text-slate-100">تصنيف جماعي للأصناف الجديدة</h2><p className="text-xs font-semibold text-slate-400">يطبق فقط على البنود الجديدة المحددة، ولا يغيّر تصنيف صنف موجود.</p></div></div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]"><select value={bulkCategoryId} onChange={(event) => setBulkCategoryId(event.target.value)} className="erp-input"><option value="">اختر التصنيف</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select><Button type="button" onClick={applyBulkCategory} disabled={!bulkCategoryId || !selectedLines.some((line) => line.mode === "new")} className="font-black">تطبيق على المحدد</Button></div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]"><select value={bulkCategoryId} onChange={(event) => setBulkCategoryId(event.target.value)} className="erp-input"><option value="">اختر التصنيف</option>{categoryOptions.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select><Button type="button" variant="outline" onClick={() => { setBulkCategoryCreatorOpen((value) => !value); setBulkCategoryError(""); }} className="shrink-0 px-3" aria-label="إضافة تصنيف جديد"><Plus className="h-4 w-4" /></Button><Button type="button" onClick={applyBulkCategory} disabled={!bulkCategoryId || !selectedLines.some((line) => line.mode === "new")} className="font-black">تطبيق على المحدد</Button></div>
+        {bulkCategoryCreatorOpen && <div className="mt-3 grid gap-2 rounded-xl border border-indigo-200 bg-indigo-50/60 p-3 sm:grid-cols-[1fr_auto] sm:items-end dark:border-indigo-900 dark:bg-indigo-950/20"><label className="grid gap-1 text-xs font-black text-slate-600 dark:text-slate-300">اسم التصنيف الجديد<input value={bulkCategoryName} maxLength={120} onChange={(event) => setBulkCategoryName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void createBulkCategory(); } }} className="erp-input" placeholder="مثال: شاشات، بطاريات، كابلات..." /></label><Button type="button" disabled={bulkCategoryCreating || !bulkCategoryName.trim()} onClick={() => void createBulkCategory()} className="font-black">{bulkCategoryCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : "إنشاء واختيار"}</Button>{bulkCategoryError && <div className="text-xs font-bold text-rose-600 sm:col-span-2 dark:text-rose-300">{bulkCategoryError}</div>}</div>}
         <p className="mt-3 text-[10px] font-semibold text-slate-400"><Link href="/inventory/purchases/pending-compatibility" className="font-black text-indigo-700 underline dark:text-indigo-300">الأصناف التي تحتاج إكمال توافقات</Link> تبقى قابلة للوصول بعد الاعتماد.</p>
       </div>
 
@@ -776,7 +800,7 @@ function PurchaseLineCard({ line, index, currency, categories, showManualExtraAl
   const total = Math.max(1, Math.trunc(num(line.quantity) || 1)) * Math.max(0, num(line.unitCost));
   const stateLabel = line.matchReviewRequired ? "يحتاج مراجعة" : line.mode === "new" ? "صنف جديد" : "صنف موجود";
   const stateTone = line.matchReviewRequired ? "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200" : line.mode === "new" ? "bg-cyan-100 text-cyan-800 dark:bg-cyan-950/50 dark:text-cyan-200" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200";
-  return <article className={`rounded-2xl border p-3 sm:p-4 ${line.matchReviewRequired ? "border-amber-300 bg-amber-50/40 dark:border-amber-800 dark:bg-amber-950/20" : isBlank ? "border-dashed border-slate-300 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-950/30" : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950/35"}`}>
+  return <article className={`purchase-line-card rounded-2xl border p-3 sm:p-4 ${line.matchReviewRequired ? "border-amber-300 bg-amber-50/40 dark:border-amber-800 dark:bg-amber-950/20" : isBlank ? "border-dashed border-slate-300 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-950/30" : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950/35"}`}>
     <div className="mb-3 flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><input type="checkbox" checked={line.selected} disabled={isBlank} onChange={(event) => onPatch({ selected: event.target.checked })} /><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs font-black text-slate-600 dark:bg-slate-800 dark:text-slate-300">{index + 1}</span><span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${isBlank ? "bg-slate-100 text-slate-500 dark:bg-slate-800" : stateTone}`}>{isBlank ? "السطر التالي جاهز" : stateLabel}</span>{line.importedSourceText && <span className="truncate text-[10px] font-bold text-slate-400">مستورد</span>}</div>{!isBlank && <button type="button" onClick={onRemove} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40"><Trash2 className="h-4 w-4" /></button>}</div>
     <div className="grid gap-3 lg:grid-cols-[minmax(260px,2fr)_100px_135px_155px_145px] lg:items-start">
       <div><div className="mb-1.5 flex items-center justify-between"><span className="text-xs font-black text-slate-600 dark:text-slate-300">الصنف</span>{!isBlank && !line.matchReviewRequired && <button type="button" onClick={() => onPatch({
