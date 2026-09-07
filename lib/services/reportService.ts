@@ -150,15 +150,29 @@ export async function getFinancialReport(shopId: string, range: FinancialRange) 
       where: {
         shopId,
         deletedAt: null,
-        createdAt: rangeWhere(range),
-        type: {
-          in: [
-            InventoryMovementType.SALE,
-            InventoryMovementType.REPAIR_USAGE,
-            InventoryMovementType.RETURN,
-            InventoryMovementType.REPAIR_RETURN,
-          ],
-        },
+        OR: [
+          {
+            createdAt: rangeWhere(range),
+            type: { in: [InventoryMovementType.SALE, InventoryMovementType.RETURN] },
+          },
+          {
+            createdAt: { lt: range.end },
+            type: { in: [InventoryMovementType.REPAIR_USAGE, InventoryMovementType.REPAIR_RETURN] },
+            repairOrder: {
+              is: {
+                deletedAt: null,
+                status: { not: RepairStatus.CANCELLED },
+                invoices: {
+                  some: {
+                    deletedAt: null,
+                    status: { not: InvoiceStatus.VOID },
+                    issuedAt: rangeWhere(range),
+                  },
+                },
+              },
+            },
+          },
+        ],
       },
       select: {
         type: true,
@@ -175,8 +189,20 @@ export async function getFinancialReport(shopId: string, range: FinancialRange) 
         deletedAt: null,
         inventoryItemId: null,
         unitCost: { not: null },
-        createdAt: rangeWhere(range),
-        repairOrder: { is: { deletedAt: null, status: { not: RepairStatus.CANCELLED } } },
+        createdAt: { lt: range.end },
+        repairOrder: {
+          is: {
+            deletedAt: null,
+            status: { not: RepairStatus.CANCELLED },
+            invoices: {
+              some: {
+                deletedAt: null,
+                status: { not: InvoiceStatus.VOID },
+                issuedAt: rangeWhere(range),
+              },
+            },
+          },
+        },
       },
       select: { quantity: true, unitCost: true, createdAt: true },
     }),
@@ -187,8 +213,15 @@ export async function getFinancialReport(shopId: string, range: FinancialRange) 
         status: { not: RepairStatus.CANCELLED },
         deductPartCost: true,
         partCost: { not: null },
-        createdAt: rangeWhere(range),
+        createdAt: { lt: range.end },
         items: { none: { deletedAt: null } },
+        invoices: {
+          some: {
+            deletedAt: null,
+            status: { not: InvoiceStatus.VOID },
+            issuedAt: rangeWhere(range),
+          },
+        },
       },
       select: { partCost: true, createdAt: true },
     }),
