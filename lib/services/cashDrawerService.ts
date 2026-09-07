@@ -17,7 +17,9 @@ export type CashDrawerMovementType =
   | "DEBT_PAYMENT"
   | "PURCHASE_PAYMENT"
   | "SUPPLIER_REFUND"
-  | "CHANGE_RETURN";
+  | "EXPENSE_PAYMENT"
+  | "CHANGE_RETURN"
+  | "SUPPLIER_PAYMENT";
 
 export type CashDrawerSourceType =
   | "SALE"
@@ -28,8 +30,10 @@ export type CashDrawerSourceType =
   | "DEBT"
   | "PURCHASE"
   | "SUPPLIER_RETURN"
+  | "EXPENSE"
   | "CASH_DRAWER_TRANSFER"
-  | "MANUAL";
+  | "MANUAL"
+  | "SUPPLIER";
 
 export type CashDrawerMovementRow = {
   id: string;

@@ -6,6 +6,8 @@ export function cashDrawerMovementLabel(movement: Pick<CashDrawerMovementRow, "t
   if (movementType === "ELECTRONIC_SERVICE_PAYMENT") return "تحصيل خدمة إلكترونية";
   if (movementType === "PURCHASE_PAYMENT") return "دفع فاتورة شراء";
   if (movementType === "SUPPLIER_REFUND") return "استرداد من مورد";
+  if (movementType === "EXPENSE_PAYMENT") return "دفع مصروف";
+  if (movementType === "SUPPLIER_PAYMENT") return "دفعة للمورد";
   switch (movement.type) {
     case "OPENING_BALANCE": return "الرصيد الافتتاحي";
     case "MANUAL_IN": return "إضافة نقد للدرج";
@@ -31,6 +33,8 @@ export function cashDrawerSourceHref(movement: Pick<CashDrawerMovementRow, "sour
   if (sourceType === "DEBT" && movement.customerId) return `/debts/${movement.customerId}`;
   if (sourceType === "CASH_DRAWER_TRANSFER" && movement.financialTransferId) return `/transfers/${movement.financialTransferId}`;
   if ((sourceType === "PURCHASE" || sourceType === "SUPPLIER_RETURN") && movement.sourceId) return `/inventory/purchases/${movement.sourceId}`;
+  if (sourceType === "EXPENSE" && movement.sourceId) return `/reports?expense=${movement.sourceId}#expense-${movement.sourceId}`;
+  if (sourceType === "SUPPLIER" && movement.sourceId) return `/suppliers/${movement.sourceId}`;
   return null;
 }
 
@@ -43,6 +47,8 @@ export function cashDrawerSourceLinkLabel(sourceType: CashDrawerSourceType) {
   if (source === "DEBT") return "فتح دفتر الدين";
   if (source === "CASH_DRAWER_TRANSFER") return "فتح حركة المحفظة";
   if (source === "PURCHASE" || source === "SUPPLIER_RETURN") return "فتح فاتورة الشراء";
+  if (source === "EXPENSE") return "فتح المصروف";
+  if (source === "SUPPLIER") return "فتح حساب المورد";
   return "فتح المصدر";
 }
 
@@ -58,5 +64,7 @@ export function cashDrawerSourceLabel(sourceType: CashDrawerSourceType) {
   if (source === "CASH_DRAWER_TRANSFER") return "تحويل محفظة";
   if (source === "PURCHASE") return "فاتورة شراء";
   if (source === "SUPPLIER_RETURN") return "مرتجع مورد";
+  if (source === "EXPENSE") return "مصروف";
+  if (source === "SUPPLIER") return "حساب مورد";
   return "حركة يدوية";
 }

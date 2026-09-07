@@ -12,8 +12,11 @@ import {
 import { prisma } from "@/lib/prisma";
 import { debtReportService } from "@/lib/services/debtReportService";
 import { softwareServiceService } from "@/lib/services/softwareServiceService";
+import { cashDrawerService } from "@/lib/services/cashDrawerService";
+import { financialTransferService } from "@/lib/services/financialTransferService";
 
 export type FinancialRange = { start: Date; end: Date };
+export type ExpenseFundingSource = "DRAWER" | "WALLET";
 
 export type CreateExpenseInput = {
   title: string;
@@ -21,6 +24,18 @@ export type CreateExpenseInput = {
   amount: string;
   spentAt: Date;
   notes?: string;
+  fundingSource: ExpenseFundingSource;
+  fundingWalletId?: string;
+};
+
+const expenseCategoryLabels: Record<ExpenseCategory, string> = {
+  RENT: "إيجار",
+  SALARIES: "رواتب وأجور",
+  UTILITIES: "كهرباء وإنترنت وخدمات",
+  MARKETING: "تسويق وإعلانات",
+  TRANSPORT: "نقل وتوصيل",
+  MAINTENANCE: "صيانة وتجهيزات",
+  OTHER: "مصروف آخر",
 };
 
 const paymentMethodLabels: Record<PaymentMethod, string> = {
@@ -394,31 +409,143 @@ export async function createExpense(
 ) {
   const amount = new Prisma.Decimal(input.amount.replace(",", "."));
   if (!amount.isPositive()) throw new Error("قيمة المصروف يجب أن تكون أكبر من صفر.");
+  if (input.fundingSource === "WALLET" && !input.fundingWalletId) throw new Error("اختر المحفظة التي سُحب منها المصروف.");
 
-  return prisma.expense.create({
-    data: {
-      shopId,
-      createdByUserId,
-      category: input.category,
-      title: input.title.trim(),
-      amount,
-      spentAt: input.spentAt,
-      notes: input.notes?.trim() || null,
-    },
-  });
+  if (input.fundingSource === "DRAWER") await cashDrawerService.getSnapshot(shopId, 1);
+  else await financialTransferService.listWallets(shopId);
+
+  const title = input.title.trim();
+  const notes = input.notes?.trim() || null;
+  const categoryLabel = expenseCategoryLabels[input.category];
+  const movementDescription = notes
+    ? `مصروف — ${categoryLabel}: ${title} — ${notes}`
+    : `مصروف — ${categoryLabel}: ${title}`;
+
+  return prisma.$transaction(async (tx) => {
+    const expense = await tx.expense.create({
+      data: {
+        shopId,
+        createdByUserId,
+        category: input.category,
+        title,
+        amount,
+        spentAt: input.spentAt,
+        notes,
+        fundingSource: input.fundingSource,
+        fundingWalletId: input.fundingSource === "WALLET" ? input.fundingWalletId : null,
+      },
+    });
+
+    if (input.fundingSource === "DRAWER") {
+      const drawerRows = await tx.$queryRaw<Array<{ id: string; currentBalance: Prisma.Decimal }>>`
+        SELECT "id", "currentBalance" FROM "CashDrawer"
+        WHERE "shopId" = ${shopId}::uuid FOR UPDATE`;
+      const drawer = drawerRows[0];
+      if (!drawer) throw new Error("الدرج النقدي غير موجود.");
+      if (drawer.currentBalance.lt(amount)) throw new Error("رصيد الدرج النقدي غير كافٍ لتسجيل هذا المصروف.");
+
+      const nextBalance = drawer.currentBalance.sub(amount);
+      await tx.$executeRaw`UPDATE "CashDrawer" SET "currentBalance" = ${nextBalance}, "updatedAt" = NOW() WHERE "id" = ${drawer.id}::uuid`;
+      const movementRows = await tx.$queryRaw<Array<{ id: string }>>`
+        INSERT INTO "CashDrawerMovement"
+          ("shopId", "drawerId", "createdByUserId", "type", "direction", "amount", "description", "reference", "sourceType", "sourceId", "sourceReference", "createdAt")
+        VALUES
+          (${shopId}::uuid, ${drawer.id}::uuid, ${createdByUserId}::uuid, 'EXPENSE_PAYMENT', 'OUT', ${amount}, ${movementDescription}, ${title}, 'EXPENSE', ${expense.id}, ${title}, ${input.spentAt})
+        RETURNING "id"`;
+      const movementId = movementRows[0]?.id;
+      if (!movementId) throw new Error("تعذر تسجيل حركة المصروف في الدرج النقدي.");
+
+      return tx.expense.update({ where: { id: expense.id }, data: { cashDrawerMovementId: movementId } });
+    }
+
+    const walletRows = await tx.$queryRaw<Array<{ id: string; name: string; currentBalance: Prisma.Decimal }>>`
+      SELECT "id", "name", "currentBalance" FROM "FinancialWallet"
+      WHERE "id" = ${input.fundingWalletId}::uuid AND "shopId" = ${shopId}::uuid
+        AND "deletedAt" IS NULL AND "isActive" = TRUE
+      FOR UPDATE`;
+    const wallet = walletRows[0];
+    if (!wallet) throw new Error("المحفظة المختارة غير موجودة أو غير فعالة.");
+    if (wallet.currentBalance.lt(amount)) throw new Error(`رصيد محفظة ${wallet.name} غير كافٍ لتسجيل هذا المصروف.`);
+
+    const nextWalletBalance = wallet.currentBalance.sub(amount);
+    await tx.$executeRaw`UPDATE "FinancialWallet" SET "currentBalance" = ${nextWalletBalance}, "updatedAt" = NOW() WHERE "id" = ${wallet.id}::uuid`;
+    const transferRows = await tx.$queryRaw<Array<{ id: string }>>`
+      INSERT INTO "FinancialTransfer"
+        ("shopId", "walletId", "createdByUserId", "operationType", "amount", "walletAmount", "commission", "commissionMode", "isDeferred", "notes", "sourceType", "sourceId", "sourceReference", "createdAt", "updatedAt")
+      VALUES
+        (${shopId}::uuid, ${wallet.id}::uuid, ${createdByUserId}::uuid, 'WALLET_WITHDRAWAL', ${amount}, ${amount}, 0, 'NONE', FALSE, ${movementDescription}, 'EXPENSE', ${expense.id}, ${title}, ${input.spentAt}, NOW())
+      RETURNING "id"`;
+    const transferId = transferRows[0]?.id;
+    if (!transferId) throw new Error("تعذر تسجيل حركة المصروف في المحفظة.");
+
+    return tx.expense.update({
+      where: { id: expense.id },
+      data: { fundingWalletName: wallet.name, financialTransferId: transferId },
+    });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
 }
 
-export async function deleteExpense(shopId: string, expenseId: string) {
-  const expense = await prisma.expense.findFirst({
+export async function deleteExpense(shopId: string, expenseId: string, voidedByUserId?: string) {
+  const existing = await prisma.expense.findFirst({
     where: { id: expenseId, shopId, deletedAt: null },
-    select: { id: true },
+    select: { id: true, fundingSource: true },
   });
-  if (!expense) throw new Error("المصروف غير موجود.");
+  if (!existing) throw new Error("المصروف غير موجود.");
+  if (existing.fundingSource === "DRAWER") await cashDrawerService.getSnapshot(shopId, 1);
+  if (existing.fundingSource === "WALLET") await financialTransferService.listWallets(shopId);
 
-  return prisma.expense.update({
-    where: { id: expense.id },
-    data: { deletedAt: new Date(), version: { increment: 1 } },
-  });
+  return prisma.$transaction(async (tx) => {
+    const expense = await tx.expense.findFirst({
+      where: { id: expenseId, shopId, deletedAt: null },
+      select: {
+        id: true, amount: true, fundingSource: true, fundingWalletId: true,
+        cashDrawerMovementId: true, financialTransferId: true,
+      },
+    });
+    if (!expense) throw new Error("المصروف غير موجود.");
+
+    if (expense.fundingSource === "DRAWER" && expense.cashDrawerMovementId) {
+      const movementRows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
+        SELECT "id", "status" FROM "CashDrawerMovement"
+        WHERE "id" = ${expense.cashDrawerMovementId}::uuid AND "shopId" = ${shopId}::uuid
+          AND "sourceType" = 'EXPENSE' AND "sourceId" = ${expense.id}
+        FOR UPDATE`;
+      const movement = movementRows[0];
+      if (!movement) throw new Error("حركة الدرج المرتبطة بالمصروف غير موجودة؛ تم إيقاف الحذف لحماية الرصيد.");
+      if (movement.status === "ACTIVE") {
+        const drawerRows = await tx.$queryRaw<Array<{ id: string; currentBalance: Prisma.Decimal }>>`
+          SELECT "id", "currentBalance" FROM "CashDrawer" WHERE "shopId" = ${shopId}::uuid FOR UPDATE`;
+        const drawer = drawerRows[0];
+        if (!drawer) throw new Error("الدرج النقدي غير موجود.");
+        await tx.$executeRaw`UPDATE "CashDrawer" SET "currentBalance" = ${drawer.currentBalance.add(expense.amount)}, "updatedAt" = NOW() WHERE "id" = ${drawer.id}::uuid`;
+        await tx.$executeRaw`UPDATE "CashDrawerMovement" SET "status" = 'VOID', "voidedAt" = NOW() WHERE "id" = ${movement.id}::uuid`;
+      }
+    }
+
+    if (expense.fundingSource === "WALLET" && expense.financialTransferId) {
+      const transferRows = await tx.$queryRaw<Array<{ id: string; walletId: string; walletAmount: Prisma.Decimal; status: string }>>`
+        SELECT "id", "walletId", "walletAmount", "status" FROM "FinancialTransfer"
+        WHERE "id" = ${expense.financialTransferId}::uuid AND "shopId" = ${shopId}::uuid
+          AND "sourceType" = 'EXPENSE' AND "sourceId" = ${expense.id}
+        FOR UPDATE`;
+      const transfer = transferRows[0];
+      if (!transfer) throw new Error("حركة المحفظة المرتبطة بالمصروف غير موجودة؛ تم إيقاف الحذف لحماية الرصيد.");
+      if (transfer.status === "ACTIVE") {
+        const walletRows = await tx.$queryRaw<Array<{ id: string; currentBalance: Prisma.Decimal }>>`
+          SELECT "id", "currentBalance" FROM "FinancialWallet"
+          WHERE "id" = ${transfer.walletId}::uuid AND "shopId" = ${shopId}::uuid FOR UPDATE`;
+        const wallet = walletRows[0];
+        if (!wallet) throw new Error("المحفظة المرتبطة بالمصروف غير موجودة.");
+        await tx.$executeRaw`UPDATE "FinancialWallet" SET "currentBalance" = ${wallet.currentBalance.add(transfer.walletAmount)}, "updatedAt" = NOW() WHERE "id" = ${wallet.id}::uuid`;
+        await tx.$executeRaw`UPDATE "FinancialTransfer" SET "status" = 'VOID', "voidedAt" = NOW(), "voidedByUserId" = ${voidedByUserId || null}::uuid, "updatedAt" = NOW() WHERE "id" = ${transfer.id}::uuid`;
+      }
+    }
+
+    return tx.expense.update({
+      where: { id: expense.id },
+      data: { deletedAt: new Date(), version: { increment: 1 } },
+    });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
 }
 
 export const reportService = {

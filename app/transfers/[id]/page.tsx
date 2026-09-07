@@ -20,10 +20,11 @@ export const dynamic = "force-dynamic";
 
 function cleanNotes(value: string | null) {
   if (!value) return "—";
-  return value.replace(/\s*\[(?:INSTALLMENT-PAYMENT|INSTALLMENT-DOWN|DEBT-PAYMENT):[0-9a-f-]+\]\s*/gi, "").trim() || "—";
+  return value.replace(/\s*\[(?:INSTALLMENT-PAYMENT|INSTALLMENT-DOWN|DEBT-PAYMENT|SUPPLIER-LEDGER):[0-9a-f-]+\]\s*/gi, "").trim() || "—";
 }
 
 function settlementLabel(transfer: TransferDetailsRow) {
+  if (transfer.sourceType === "SUPPLIER") return "دفعة مورد — خصم مباشر من المحفظة";
   if (transfer.settlementType === "DEBT") return "آجل — دفتر ديون العميل";
   if (transfer.settlementType === "CASH_DRAWER") {
     return transfer.operationType === "CUSTOMER_DEPOSIT" ? "نقدي — استلام في الدرج" : "نقدي — صرف من الدرج";

@@ -10,8 +10,11 @@ import { getCurrentShopContext } from "@/lib/current-shop";
 import { isDatabaseConnectionError } from "@/lib/database-errors";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { SupplierPurchaseAccount } from "./_purchase-account";
+import { SupplierLedgerPanel } from "./_supplier-ledger";
 import { purchaseReceivingService } from "@/lib/services/purchaseReceivingService";
+import { supplierLedgerService } from "@/lib/services/supplierLedgerService";
 import { supplierService } from "@/lib/services/supplierService";
+import { dateInputValueForTimeZone } from "@/lib/timezone";
 import { updateSupplierAction, deleteSupplierAction } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -51,11 +54,13 @@ export default async function SupplierDetailsPage({
 
   const canReadPurchases = context.permissions.includes("inventory:read");
   const canPayPurchases = context.permissions.includes("inventory:manage");
-  const [purchaseAccount, wallets, drawerBalance] = await Promise.all([
+  const [purchaseAccount, wallets, drawerBalance, supplierLedger] = await Promise.all([
     canReadPurchases ? purchaseReceivingService.getSupplierPurchaseAccount(context.shopId, id) : null,
     canReadPurchases && canPayPurchases ? purchaseReceivingService.listPurchaseFinancialWallets(context.shopId) : [],
     canReadPurchases && canPayPurchases ? purchaseReceivingService.getPurchaseDrawerBalance(context.shopId) : null,
+    canReadPurchases ? supplierLedgerService.getSupplierLedger(context.shopId, id) : null,
   ]);
+  const todayInput = dateInputValueForTimeZone(new Date(), context.timeZone);
 
   const totalPartsCost = supplier.repairOrders.reduce((sum, ro) => {
     return sum + (Number(ro.partCost) || 0);
@@ -81,6 +86,21 @@ export default async function SupplierDetailsPage({
           </Button>
         }
       />
+
+      {supplierLedger && <SupplierLedgerPanel
+        supplierId={id}
+        currency={currency}
+        today={todayInput}
+        canManage={canPayPurchases}
+        manualOutstanding={supplierLedger.manualOutstanding}
+        purchaseOutstanding={supplierLedger.purchaseOutstanding}
+        supplierCredit={supplierLedger.supplierCredit}
+        totalPayable={supplierLedger.totalPayable}
+        netBalance={supplierLedger.netBalance}
+        drawerBalance={Number(drawerBalance ?? 0)}
+        wallets={wallets.map(wallet => ({ id: wallet.id, name: wallet.name, currentBalance: Number(wallet.currentBalance) }))}
+        events={supplierLedger.events.map(({ occurredAt, dueAt, ...event }) => ({ ...event, occurredAt: occurredAt.toISOString(), occurredLabel: formatDate(occurredAt, context.timeZone), dueLabel: dueAt ? formatDate(dueAt, context.timeZone) : null }))}
+      />}
 
       {purchaseAccount && <SupplierPurchaseAccount currency={currency} canPay={canPayPurchases} outstanding={purchaseAccount.outstanding.toString()} credit={purchaseAccount.credit.toString()} drawerBalance={drawerBalance?.toString() ?? "0"} wallets={wallets.map(wallet => ({ id: wallet.id, name: wallet.name, currentBalance: wallet.currentBalance.toString() }))} invoices={purchaseAccount.invoices.map(invoice => ({ id: invoice.id, number: invoice.number, date: invoice.date.toISOString(), total: invoice.total.toString(), paid: invoice.paid.toString(), due: invoice.due.toString() }))} />}
 

@@ -92,6 +92,8 @@ jobs:
           for migration in prisma/migrations/20260906* prisma/migrations/20260907120000_purchase_initial_payment_account; do
             cp -R "$migration" "$ci_schema_dir/migrations/"
           done
+          cp -R prisma/migrations/20260908002000_add_supplier_ledger "$ci_schema_dir/migrations/"
+          cp -R prisma/migrations/20260908150000_link_expenses_to_funding_source "$ci_schema_dir/migrations/"
           npx prisma migrate deploy --schema "$ci_schema_dir/schema.prisma"
 
       - name: TypeScript
@@ -104,6 +106,7 @@ jobs:
           node scripts/test-purchase-receiving-phase4-static.cjs
           node scripts/test-purchase-receiving-lifecycle.cjs
           node scripts/test-purchase-legacy-cost-compat-static.cjs
+          node scripts/test-supplier-ledger-static.cjs
 
       - name: Purchase parser tests with real dependencies
         run: |

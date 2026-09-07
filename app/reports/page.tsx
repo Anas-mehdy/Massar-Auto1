@@ -7,7 +7,6 @@ import {
   Boxes,
   CircleDollarSign,
   Landmark,
-  Plus,
   ReceiptText,
   Trash2,
   TrendingUp,
@@ -23,6 +22,8 @@ import { formatCurrency, formatDate } from "@/lib/format";
 import { getInventoryDamageReportSummary } from "@/lib/services/inventoryDamageReportService";
 import { reportService } from "@/lib/services/reportService";
 import { getTransferCommissionReportSummary } from "@/lib/services/transferCommissionReportService";
+import { financialTransferService } from "@/lib/services/financialTransferService";
+import { cashDrawerService } from "@/lib/services/cashDrawerService";
 import {
   dateInputEndUtcForTimeZone,
   dateInputStartUtcForTimeZone,
@@ -34,7 +35,8 @@ import {
   yearUtcBoundsForTimeZone,
   zonedDateTimeToUtc,
 } from "@/lib/timezone";
-import { createExpenseAction, deleteExpenseAction } from "./actions";
+import { deleteExpenseAction } from "./actions";
+import { ExpenseForm } from "./_expense-form";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +57,7 @@ type ReportsPageProps = {
     end?: string;
     expenseSaved?: string;
     expenseDeleted?: string;
+    expense?: string;
   }>;
 };
 
@@ -107,10 +110,12 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const auth = await requirePermission("reports:read");
   const timeZone = timeZoneForCountry(auth.shop.countryCode);
   const range = resolveRange(params, timeZone);
-  const [report, damageSummary, transferCommission] = await Promise.all([
+  const [report, damageSummary, transferCommission, wallets, drawer] = await Promise.all([
     reportService.getFinancialReport(auth.shop.id, range),
     getInventoryDamageReportSummary(auth.shop.id, range.start, range.end),
     getTransferCommissionReportSummary(auth.shop.id, range.start, range.end),
+    financialTransferService.listWallets(auth.shop.id).catch(() => []),
+    cashDrawerService.getSnapshot(auth.shop.id, 1).catch(() => null),
   ]);
   const currency = auth.shop.currency || "SAR";
   const canManageExpenses = can(auth, "expenses:manage");
@@ -220,7 +225,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         <BreakdownCard title="مصادر الأموال المقبوضة" description="نقدي، بطاقة، تحويل، خدمات إلكترونية أو مصدر مخصص" items={report.paymentSources} max={maxSource} currency={currency} empty="لا توجد دفعات في هذه الفترة." />
       </div>
 
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <section id="expenses" className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
             <div>
@@ -234,14 +239,15 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
           ) : (
             <div className="overflow-x-auto">
               <table className="erp-table min-w-[700px]">
-                <thead><tr><th>المصروف</th><th>الفئة</th><th>التاريخ</th><th>المبلغ</th><th>أضيف بواسطة</th>{canManageExpenses && <th>إجراء</th>}</tr></thead>
+                <thead><tr><th>المصروف</th><th>الفئة</th><th>التاريخ</th><th>المبلغ</th><th>مصدر السحب</th><th>أضيف بواسطة</th>{canManageExpenses && <th>إجراء</th>}</tr></thead>
                 <tbody>
                   {report.expenses.map((expense) => (
-                    <tr key={expense.id}>
+                    <tr id={`expense-${expense.id}`} key={expense.id} className={params.expense === expense.id ? "bg-amber-50/80 dark:bg-amber-950/20" : undefined}>
                       <td><div className="font-black text-slate-800">{expense.title}</div>{expense.notes && <div className="mt-1 max-w-xs truncate text-[10px] text-slate-400">{expense.notes}</div>}</td>
                       <td>{categoryLabels[expense.category]}</td>
                       <td>{formatDate(expense.spentAt, timeZone)}</td>
                       <td className="font-numeric font-black text-rose-700">{formatCurrency(expense.amount, currency)}</td>
+                      <td className="text-xs font-bold text-slate-600 dark:text-slate-300">{expense.fundingSource === "DRAWER" ? "الدرج النقدي" : expense.fundingSource === "WALLET" ? `محفظة — ${expense.fundingWalletName || "محفظة إلكترونية"}` : "غير محدد (مصروف سابق)"}</td>
                       <td>{expense.createdByUser?.name || "-"}</td>
                       {canManageExpenses && <td><form action={deleteExpenseAction}><input type="hidden" name="expenseId" value={expense.id} /><Button type="submit" size="sm" variant="outline" className="rounded-lg border-rose-200 text-rose-700 hover:bg-rose-50"><Trash2 className="h-3.5 w-3.5 ml-1" />حذف</Button></form></td>}
                     </tr>
@@ -253,20 +259,13 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         </div>
 
         {canManageExpenses && (
-          <form action={createExpenseAction} className="erp-section h-fit space-y-4 xl:sticky xl:top-6">
-            <div className="border-b border-slate-100 pb-3">
-              <h3 className="flex items-center gap-2 text-sm font-black text-slate-900"><Plus className="h-4 w-4 text-primary" />تسجيل مصروف</h3>
-              <p className="mt-1 text-[10px] font-bold text-slate-400">يُطرح مباشرة من صافي الربح.</p>
-            </div>
-            <label className="grid gap-1.5 text-xs font-bold text-slate-700">اسم المصروف<input name="title" className="erp-input" placeholder="مثال: إيجار المحل" required /></label>
-            <label className="grid gap-1.5 text-xs font-bold text-slate-700">الفئة<select name="category" className="erp-input" defaultValue="OTHER">{Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="grid gap-1.5 text-xs font-bold text-slate-700">المبلغ<input name="amount" className="erp-input font-numeric" type="number" min="0.01" step="0.01" required /></label>
-              <label className="grid gap-1.5 text-xs font-bold text-slate-700">التاريخ<input name="spentAt" className="erp-input font-numeric" type="date" defaultValue={todayInput} required /></label>
-            </div>
-            <label className="grid gap-1.5 text-xs font-bold text-slate-700">ملاحظات<textarea name="notes" className="erp-textarea" rows={3} placeholder="اختياري" /></label>
-            <Button type="submit" className="h-11 w-full rounded-xl font-black"><Plus className="h-4 w-4 ml-1.5" />حفظ المصروف</Button>
-          </form>
+          <ExpenseForm
+            categories={Object.entries(categoryLabels).map(([value, label]) => ({ value, label }))}
+            wallets={wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, balance: Number(wallet.currentBalance) }))}
+            currency={currency}
+            todayInput={todayInput}
+            drawerBalance={drawer?.currentBalance ?? null}
+          />
         )}
       </section>
 

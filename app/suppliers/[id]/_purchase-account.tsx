@@ -42,9 +42,9 @@ export function SupplierPurchaseAccount({ invoices, outstanding, credit, currenc
   }
 
   return <section className="erp-section dark:border-slate-800 dark:bg-slate-900">
-    <h2 className="text-lg font-black">حساب المشتريات والدين للمورد</h2>
+    <h2 className="text-lg font-black">حساب فواتير الشراء للمورد</h2>
     <div className="mt-4 grid gap-3 sm:grid-cols-2">
-      <div className="rounded-xl bg-amber-50 p-4 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"><p className="text-xs">الدين المتبقي علينا</p><p className="mt-1 font-numeric text-xl font-black">{money(outstanding)}</p></div>
+      <div className="rounded-xl bg-amber-50 p-4 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"><p className="text-xs">المتبقي من فواتير الشراء</p><p className="mt-1 font-numeric text-xl font-black">{money(outstanding)}</p></div>
       <div className="rounded-xl bg-emerald-50 p-4 text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"><p className="text-xs">رصيد مرتجعات لنا لدى المورد</p><p className="mt-1 font-numeric text-xl font-black">{money(credit)}</p><p className="mt-1 text-xs">يُعرض مستقلاً عن الدين ولا يُخصم منه تلقائياً.</p></div>
     </div>
     {success && <p role="status" className="mt-3 text-sm font-bold text-emerald-700 dark:text-emerald-300">{success}</p>}

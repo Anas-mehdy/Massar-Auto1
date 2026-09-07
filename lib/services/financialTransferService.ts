@@ -18,7 +18,9 @@ export type FinancialTransferSourceType =
   | "INSTALLMENT"
   | "INSTALLMENT_DOWN_PAYMENT"
   | "DEBT"
-  | "CASH_DRAWER_TRANSFER";
+  | "EXPENSE"
+  | "CASH_DRAWER_TRANSFER"
+  | "SUPPLIER";
 
 export type WalletRow = {
   id: string;

@@ -14,6 +14,12 @@ const createExpenseSchema = z.object({
   amount: z.coerce.number().positive("قيمة المصروف يجب أن تكون أكبر من صفر"),
   spentAt: z.string().date(),
   notes: z.string().trim().max(500).optional(),
+  fundingSource: z.enum(["DRAWER", "WALLET"]),
+  fundingWalletId: z.string().uuid().optional().or(z.literal("")),
+}).superRefine((data, ctx) => {
+  if (data.fundingSource === "WALLET" && !data.fundingWalletId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fundingWalletId"], message: "اختر المحفظة التي سُحب منها المصروف." });
+  }
 });
 
 const deleteExpenseSchema = z.object({ expenseId: z.string().uuid() });
@@ -35,6 +41,8 @@ export async function createExpenseAction(formData: FormData) {
     amount: read(formData, "amount"),
     spentAt: read(formData, "spentAt"),
     notes: read(formData, "notes"),
+    fundingSource: read(formData, "fundingSource") || "DRAWER",
+    fundingWalletId: read(formData, "fundingWalletId"),
   });
   const auth = await requirePermission("expenses:manage");
   const timeZone = timeZoneForCountry(auth.shop.countryCode);
@@ -45,17 +53,23 @@ export async function createExpenseAction(formData: FormData) {
     amount: input.amount.toFixed(2),
     spentAt: localNoonUtc(input.spentAt, timeZone),
     notes: input.notes,
+    fundingSource: input.fundingSource,
+    fundingWalletId: input.fundingWalletId || undefined,
   });
 
   revalidatePath("/reports");
+  revalidatePath("/cash-drawer");
+  revalidatePath("/transfers");
   redirect("/reports?preset=month&expenseSaved=1");
 }
 
 export async function deleteExpenseAction(formData: FormData) {
   const input = deleteExpenseSchema.parse({ expenseId: read(formData, "expenseId") });
   const auth = await requirePermission("expenses:manage");
-  await reportService.deleteExpense(auth.shop.id, input.expenseId);
+  await reportService.deleteExpense(auth.shop.id, input.expenseId, auth.user.id);
 
   revalidatePath("/reports");
+  revalidatePath("/cash-drawer");
+  revalidatePath("/transfers");
   redirect("/reports?preset=month&expenseDeleted=1");
 }

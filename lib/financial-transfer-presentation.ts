@@ -12,9 +12,11 @@ export function transferSourceLabel(sourceType: FinancialTransferSourceType, ope
   if (sourceType === "INSTALLMENT") return "تحصيل قسط";
   if (sourceType === "INSTALLMENT_DOWN_PAYMENT") return "دفعة أولى للأقساط";
   if (sourceType === "DEBT") return "تحصيل دين";
+  if (sourceType === "EXPENSE") return "مصروف";
   if (sourceType === "CASH_DRAWER_TRANSFER") return operationType === "WALLET_TOPUP" ? "تحويل من الدرج" : "تحويل إلى الدرج";
   if (sourceType === "CUSTOMER_TRANSFER") return operationType === "CUSTOMER_DEPOSIT" ? "إيداع للعميل" : "سحب للعميل";
   if (sourceType === "CUSTOMER_TRANSFER_SETTLEMENT") return operationType === "WALLET_TOPUP" ? "تسوية إيداع للعميل" : "تسوية سحب للعميل";
+  if (sourceType === "SUPPLIER") return "دفعة للمورد";
   return operationType === "WALLET_TOPUP" ? "شحن محفظة يدوي" : "سحب يدوي من المحفظة";
 }
 
@@ -24,7 +26,9 @@ export function transferSourceHref(transfer: Pick<TransferRow, "sourceType" | "s
   if (transfer.sourceType === "INVOICE") return transfer.sourceId ? `/invoices/${transfer.sourceId}` : null;
   if (transfer.sourceType === "INSTALLMENT" || transfer.sourceType === "INSTALLMENT_DOWN_PAYMENT") return transfer.sourceId ? `/installments/${transfer.sourceId}` : null;
   if (transfer.sourceType === "DEBT") return transfer.customerId ? `/debts/${transfer.customerId}` : null;
+  if (transfer.sourceType === "EXPENSE") return transfer.sourceId ? `/reports?expense=${transfer.sourceId}#expense-${transfer.sourceId}` : `/reports`;
   if (transfer.sourceType === "CUSTOMER_TRANSFER_SETTLEMENT") return transfer.sourceId ? `/transfers/${transfer.sourceId}` : null;
+  if (transfer.sourceType === "SUPPLIER") return transfer.sourceId ? `/suppliers/${transfer.sourceId}` : null;
   return null;
 }
 
@@ -34,7 +38,9 @@ export function transferSourceLinkLabel(sourceType: FinancialTransferSourceType)
   if (sourceType === "INVOICE") return "فتح الفاتورة";
   if (sourceType === "INSTALLMENT" || sourceType === "INSTALLMENT_DOWN_PAYMENT") return "فتح خطة الأقساط";
   if (sourceType === "DEBT") return "فتح دفتر الدين";
+  if (sourceType === "EXPENSE") return "فتح المصروف";
   if (sourceType === "CUSTOMER_TRANSFER_SETTLEMENT") return "فتح العملية الأصلية";
+  if (sourceType === "SUPPLIER") return "فتح حساب المورد";
   return "فتح المصدر";
 }
 
