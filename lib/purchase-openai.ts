@@ -30,6 +30,9 @@ export class PurchaseAiProviderError extends Error {
   usage: PurchaseAiUsage | null;
   actualCostUsd: number | null;
   responseId: string | null;
+  httpStatus: number | null;
+  providerErrorCode: string | null;
+  providerRequestId: string | null;
 
   constructor(message: string, options: {
     code: string;
@@ -38,6 +41,9 @@ export class PurchaseAiProviderError extends Error {
     usage?: PurchaseAiUsage | null;
     actualCostUsd?: number | null;
     responseId?: string | null;
+    httpStatus?: number | null;
+    providerErrorCode?: string | null;
+    providerRequestId?: string | null;
   }) {
     super(message);
     this.name = "PurchaseAiProviderError";
@@ -47,6 +53,9 @@ export class PurchaseAiProviderError extends Error {
     this.usage = options.usage ?? null;
     this.actualCostUsd = options.actualCostUsd ?? null;
     this.responseId = options.responseId ?? null;
+    this.httpStatus = options.httpStatus ?? null;
+    this.providerErrorCode = options.providerErrorCode ?? null;
+    this.providerRequestId = options.providerRequestId ?? null;
   }
 }
 
@@ -172,7 +181,9 @@ const PURCHASE_EXTRACTION_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
-    schemaVersion: { type: "integer", const: PURCHASE_DOCUMENT_SCHEMA_VERSION },
+    // Structured Outputs supports enum but does not document JSON Schema const.
+    // The independent Zod pass below still validates the exact version.
+    schemaVersion: { type: "integer", enum: [PURCHASE_DOCUMENT_SCHEMA_VERSION] },
     supplierName: { type: ["string", "null"] },
     invoiceDate: { type: ["string", "null"] },
     supplierInvoiceNumber: { type: ["string", "null"] },
@@ -258,6 +269,20 @@ function safeResponseId(payload: unknown) {
   return payload && typeof payload === "object" && typeof (payload as { id?: unknown }).id === "string"
     ? (payload as { id: string }).id.slice(0, 160)
     : null;
+}
+
+function safeProviderError(payload: unknown) {
+  const error = payload && typeof payload === "object" && "error" in payload
+    ? (payload as { error?: unknown }).error
+    : null;
+  if (!error || typeof error !== "object") return { code: null, type: null, param: null };
+  const row = error as Record<string, unknown>;
+  const safeText = (value: unknown, max = 120) => typeof value === "string" ? value.slice(0, max) : null;
+  return {
+    code: safeText(row.code),
+    type: safeText(row.type),
+    param: safeText(row.param),
+  };
 }
 
 export async function callOpenAiPurchaseExtractor(source: PurchaseAiSource): Promise<PurchaseAiCallResult> {
@@ -346,14 +371,46 @@ export async function callOpenAiPurchaseExtractor(source: PurchaseAiSource): Pro
   const actualCostUsd = calculatePurchaseAiActualCost(usage, config.pricing);
 
   if (!response.ok) {
-    const code = response.status === 429 ? "OPENAI_RATE_LIMIT" : response.status === 401 ? "OPENAI_AUTH" : "OPENAI_HTTP_ERROR";
+    const providerError = safeProviderError(payload);
+    const providerRequestId = response.headers.get("x-request-id")?.slice(0, 160) ?? null;
+    const code = response.status === 429
+      ? "OPENAI_RATE_LIMIT"
+      : response.status === 401
+        ? "OPENAI_AUTH"
+        : response.status === 403
+          ? "OPENAI_PERMISSION"
+          : response.status === 404
+            ? "OPENAI_MODEL_NOT_FOUND"
+            : response.status === 400
+              ? "OPENAI_INVALID_REQUEST"
+              : "OPENAI_HTTP_ERROR";
     const usageObserved = usage.inputTokens > 0 || usage.cachedInputTokens > 0 || usage.outputTokens > 0;
     // 4xx responses without usage are treated as known no-charge failures. A 5xx
     // without usage is kept conservative/unknown so the feature budget reservation
     // remains held until an operator can reconcile it safely.
     const chargeKnown = usageObserved || response.status < 500;
+    // Keep invoice bytes, prompts, keys, and provider messages out of logs.
+    console.error("[purchase-ai] OpenAI rejected invoice extraction request", {
+      httpStatus: response.status,
+      providerErrorCode: providerError.code,
+      providerErrorType: providerError.type,
+      providerErrorParam: providerError.param,
+      providerRequestId,
+      model: config.model,
+    });
+    const message = response.status === 429
+      ? "OpenAI وصل إلى حد استخدام مؤقت. جرّب لاحقاً أو أكمل يدوياً."
+      : response.status === 401
+        ? "مفتاح OpenAI غير صالح أو لا يملك صلاحية لهذا الطلب."
+        : response.status === 403
+          ? "مفتاح OpenAI لا يملك صلاحية استخدام النموذج المحدد."
+          : response.status === 404
+            ? "نموذج OpenAI المحدد غير متاح لهذا المفتاح."
+            : response.status === 400
+              ? "صيغة طلب قراءة الفاتورة غير مقبولة لدى OpenAI."
+              : "رفض OpenAI طلب قراءة الفاتورة. يمكنك إكمالها يدوياً.";
     throw new PurchaseAiProviderError(
-      response.status === 429 ? "OpenAI وصل إلى حد استخدام مؤقت. جرّب لاحقاً أو أكمل يدوياً." : response.status === 401 ? "مفتاح OpenAI غير صالح أو لا يملك صلاحية لهذا الطلب." : "رفض OpenAI طلب قراءة الفاتورة. يمكنك إكمالها يدوياً.",
+      message,
       {
         code,
         providerContacted: true,
@@ -361,6 +418,9 @@ export async function callOpenAiPurchaseExtractor(source: PurchaseAiSource): Pro
         usage: usageObserved ? usage : null,
         actualCostUsd: chargeKnown ? actualCostUsd : null,
         responseId,
+        httpStatus: response.status,
+        providerErrorCode: providerError.code,
+        providerRequestId,
       },
     );
   }

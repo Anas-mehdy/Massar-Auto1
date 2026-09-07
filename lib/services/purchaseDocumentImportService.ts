@@ -651,11 +651,15 @@ export async function extractSource(shopId: string, userId: string, sourceId: st
       const chargeKnown = aiError?.chargeKnown ?? (!providerContacted);
       const actualCost = aiError?.actualCostUsd ?? (chargeKnown ? 0 : null);
       const usage = aiError?.usage;
+      const usageObserved = Boolean(usage && (usage.inputTokens > 0 || usage.cachedInputTokens > 0 || usage.outputTokens > 0));
+      // A rejected request with known zero usage/cost did not read the invoice,
+      // so it must not consume one of the user's successful AI readings.
+      const quotaCharged = providerContacted && (!chargeKnown || (actualCost ?? 0) > 0 || usageObserved);
       await prisma.$transaction(async (tx) => {
         await tx.$executeRaw(Prisma.sql`
           UPDATE "PurchaseImportExtractionAttempt"
           SET "status"='FAILED', "finishedAt"=COALESCE("finishedAt", NOW()), "failureKind"=${safe.code},
-              "quotaCharged"=("providerContactedAt" IS NOT NULL), "quotaReleasedAt"=CASE WHEN "providerContactedAt" IS NULL THEN COALESCE("quotaReleasedAt", NOW()) ELSE NULL END,
+              "quotaCharged"=${quotaCharged}, "quotaReleasedAt"=CASE WHEN ${quotaCharged} THEN NULL ELSE COALESCE("quotaReleasedAt", NOW()) END,
               "actualCostUsd"=${actualCost}, "inputTokens"=${usage?.inputTokens ?? null},
               "cachedInputTokens"=${usage?.cachedInputTokens ?? null}, "outputTokens"=${usage?.outputTokens ?? null},
               "providerResponseId"=${aiError?.responseId ?? null}
