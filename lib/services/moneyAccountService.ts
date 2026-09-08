@@ -86,21 +86,25 @@ export async function applyOutgoingMoneyTx(
     amount: string | number | Prisma.Decimal;
     reference?: string | null;
     description: string;
+    drawerType?: "CHANGE_RETURN" | "SOFTWARE_SERVICE_COST";
+    contextLabel?: string;
     source?: MoneySourceMeta;
   },
 ) {
   const amount = decimal(input.amount); if (amount.lte(0)) return;
+  const drawerType = input.drawerType ?? "CHANGE_RETURN";
+  const contextLabel = input.contextLabel?.trim();
   if (input.destination === "DRAWER") {
     const rows = await tx.$queryRaw<Array<{ id: string; currentBalance: Prisma.Decimal }>>`SELECT "id", "currentBalance" FROM "CashDrawer" WHERE "shopId" = ${shopId}::uuid FOR UPDATE`;
     const drawer = rows[0]; if (!drawer) throw new Error("الدرج النقدي غير موجود.");
-    const next = drawer.currentBalance.sub(amount); if (next.lt(0)) throw new Error("رصيد الدرج غير كافٍ لإرجاع الباقي.");
+    const next = drawer.currentBalance.sub(amount); if (next.lt(0)) throw new Error(contextLabel ? `رصيد الدرج غير كافٍ لتسديد ${contextLabel}.` : "رصيد الدرج غير كافٍ لإرجاع الباقي.");
     await tx.$executeRaw`UPDATE "CashDrawer" SET "currentBalance" = ${next}, "updatedAt" = NOW() WHERE "id" = ${drawer.id}::uuid`;
     await tx.$executeRaw`
       INSERT INTO "CashDrawerMovement" (
         "shopId", "drawerId", "createdByUserId", "type", "direction", "amount", "description", "reference",
         "sourceType", "sourceId", "sourceReference", "customerId"
       ) VALUES (
-        ${shopId}::uuid, ${drawer.id}::uuid, ${userId}::uuid, 'CHANGE_RETURN', 'OUT', ${amount}, ${input.description},
+        ${shopId}::uuid, ${drawer.id}::uuid, ${userId}::uuid, ${drawerType}, 'OUT', ${amount}, ${input.description},
         ${input.reference ?? input.source?.sourceReference ?? null}, ${input.source?.sourceType ?? "SALE_CHANGE"},
         ${input.source?.sourceId ?? null}, ${input.source?.sourceReference ?? input.reference ?? null},
         ${input.source?.customerId ?? null}::uuid
@@ -108,10 +112,10 @@ export async function applyOutgoingMoneyTx(
     `;
     return;
   }
-  if (!input.walletId) throw new Error("اختر محفظة إرجاع الباقي.");
+  if (!input.walletId) throw new Error(contextLabel ? `اختر المحفظة التي ستُسدد منها ${contextLabel}.` : "اختر محفظة إرجاع الباقي.");
   const rows = await tx.$queryRaw<Array<{ id: string; name: string; currentBalance: Prisma.Decimal }>>`SELECT "id", "name", "currentBalance" FROM "FinancialWallet" WHERE "id" = ${input.walletId}::uuid AND "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL AND "isActive" = TRUE FOR UPDATE`;
-  const wallet = rows[0]; if (!wallet) throw new Error("محفظة إرجاع الباقي غير موجودة.");
-  const next = wallet.currentBalance.sub(amount); if (next.lt(0)) throw new Error(`رصيد محفظة ${wallet.name} غير كافٍ لإرجاع الباقي.`);
+  const wallet = rows[0]; if (!wallet) throw new Error(contextLabel ? `المحفظة المحددة لتسديد ${contextLabel} غير موجودة أو غير فعالة.` : "محفظة إرجاع الباقي غير موجودة.");
+  const next = wallet.currentBalance.sub(amount); if (next.lt(0)) throw new Error(contextLabel ? `رصيد محفظة ${wallet.name} غير كافٍ لتسديد ${contextLabel}.` : `رصيد محفظة ${wallet.name} غير كافٍ لإرجاع الباقي.`);
   await tx.$executeRaw`UPDATE "FinancialWallet" SET "currentBalance" = ${next}, "updatedAt" = NOW() WHERE "id" = ${wallet.id}::uuid`;
   await tx.$executeRaw`
     INSERT INTO "FinancialTransfer" (
@@ -132,7 +136,7 @@ async function reverseTrackedMoneyTx(tx: Prisma.TransactionClient, shopId: strin
   const drawerMovements = await tx.$queryRaw<Array<{ id: string; drawerId: string; direction: "IN" | "OUT"; amount: Prisma.Decimal }>>(Prisma.sql`
     SELECT "id", "drawerId", "direction", "amount" FROM "CashDrawerMovement"
     WHERE "shopId" = ${shopId}::uuid AND "status" = 'ACTIVE' AND "type" IN (${Prisma.join(match.drawerTypes)}) AND "description" LIKE ${match.descriptionLike}
-    ORDER BY "createdAt" ASC FOR UPDATE
+    ORDER BY CASE WHEN "direction" = 'OUT' THEN 0 ELSE 1 END, "createdAt" DESC, "id" DESC FOR UPDATE
   `);
   for (const movement of drawerMovements) {
     const drawers = await tx.$queryRaw<Array<{ id: string; currentBalance: Prisma.Decimal }>>`SELECT "id", "currentBalance" FROM "CashDrawer" WHERE "id" = ${movement.drawerId}::uuid AND "shopId" = ${shopId}::uuid FOR UPDATE`;
@@ -147,7 +151,7 @@ async function reverseTrackedMoneyTx(tx: Prisma.TransactionClient, shopId: strin
     SELECT "id", "walletId", "operationType", "walletAmount" FROM "FinancialTransfer"
     WHERE "shopId" = ${shopId}::uuid AND "status" = 'ACTIVE' AND "deletedAt" IS NULL
       AND "operationType" IN ('WALLET_TOPUP','WALLET_WITHDRAWAL') AND "notes" LIKE ${match.descriptionLike}
-    ORDER BY "createdAt" ASC FOR UPDATE
+    ORDER BY CASE WHEN "operationType" = 'WALLET_WITHDRAWAL' THEN 0 ELSE 1 END, "createdAt" DESC, "id" DESC FOR UPDATE
   `;
   for (const movement of walletMovements) {
     const wallets = await tx.$queryRaw<Array<{ id: string; currentBalance: Prisma.Decimal }>>`SELECT "id", "currentBalance" FROM "FinancialWallet" WHERE "id" = ${movement.walletId}::uuid AND "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL FOR UPDATE`;
@@ -164,7 +168,7 @@ export async function reverseSaleMoneyTx(tx: Prisma.TransactionClient, shopId: s
 }
 
 export async function reverseInvoiceMoneyTx(tx: Prisma.TransactionClient, shopId: string, invoiceNumber: string) {
-  await reverseTrackedMoneyTx(tx, shopId, { drawerTypes: ["INVOICE_PAYMENT", "CHANGE_RETURN"], descriptionLike: `%${invoiceNumber}%` });
+  await reverseTrackedMoneyTx(tx, shopId, { drawerTypes: ["INVOICE_PAYMENT", "CHANGE_RETURN", "SOFTWARE_SERVICE_COST"], descriptionLike: `%${invoiceNumber}%` });
 }
 
 export const moneyAccountService = { prepareMoneyAccounts, applyIncomingMoneyTx, applyOutgoingMoneyTx, reverseSaleMoneyTx, reverseInvoiceMoneyTx };

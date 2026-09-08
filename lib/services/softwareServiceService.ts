@@ -233,6 +233,7 @@ export async function createSale(
 
   const serviceCost = input.serviceCost?.trim() ? decimal(input.serviceCost) : null;
   if (serviceCost?.lt(0)) throw new Error("تكلفة الخدمة لا يمكن أن تكون سالبة.");
+  const hasServiceCost = Boolean(serviceCost?.gt(0));
 
   if (input.deviceKept && !nullableText(input.deviceBrand) && !nullableText(input.deviceModel)) {
     throw new Error("عند إبقاء الجهاز بالمحل، أدخل نوع الجهاز أو موديله لتمييزه.");
@@ -244,9 +245,12 @@ export async function createSale(
   if (!isDebtSale && amountReceived.lt(salePrice)) throw new Error("المبلغ المستلم أقل من سعر الخدمة. اختر «دفتر الديون» إذا كان العميل سيدفع لاحقاً.");
   const changeAmount = isDebtSale ? new Prisma.Decimal(0) : amountReceived.sub(salePrice);
   const changeDestination = input.changeDestination ?? "DRAWER";
+  const costDestination = paymentDestination === "WALLET" ? "WALLET" : "DRAWER";
+  const costWalletId = paymentDestination === "WALLET" ? input.walletId : undefined;
 
   if (!isDebtSale) await moneyAccountService.prepareMoneyAccounts(shopId, paymentDestination);
   if (changeAmount.gt(0)) await moneyAccountService.prepareMoneyAccounts(shopId, changeDestination);
+  if (hasServiceCost) await moneyAccountService.prepareMoneyAccounts(shopId, costDestination);
 
   const invoiceNumber = await invoiceService.generateInvoiceNumber(shopId);
 
@@ -324,6 +328,15 @@ export async function createSale(
     const softwareSale = rows[0];
     if (!softwareSale) throw new Error("تعذر حفظ خدمة السوفتوير.");
 
+    const source = {
+      sourceType: "INVOICE" as const,
+      sourceId: invoice.id,
+      sourceReference: invoice.invoiceNumber,
+      customerId: customer?.id ?? null,
+      customerName: customer?.name ?? null,
+      customerPhone: customer?.phone ?? null,
+    };
+
     if (isDebtSale) {
       if (customer) {
         await sourceDebtService.createSourceDebtTx(tx, {
@@ -338,14 +351,6 @@ export async function createSale(
         });
       }
     } else {
-      const source = {
-        sourceType: "INVOICE" as const,
-        sourceId: invoice.id,
-        sourceReference: invoice.invoiceNumber,
-        customerId: customer?.id ?? null,
-        customerName: customer?.name ?? null,
-        customerPhone: customer?.phone ?? null,
-      };
       const sourceName = await moneyAccountService.applyIncomingMoneyTx(tx, shopId, createdByUserId, {
         destination: paymentDestination,
         walletId: input.walletId,
@@ -387,6 +392,19 @@ export async function createSale(
           paidAt: new Date(),
           version: { increment: 1 },
         },
+      });
+    }
+
+    if (serviceCost?.gt(0)) {
+      await moneyAccountService.applyOutgoingMoneyTx(tx, shopId, createdByUserId, {
+        destination: costDestination,
+        walletId: costWalletId,
+        amount: serviceCost,
+        reference: invoice.invoiceNumber,
+        description: `دفع تكلفة خدمة سوفتوير ${serviceName} — فاتورة ${invoice.invoiceNumber}`,
+        drawerType: "SOFTWARE_SERVICE_COST",
+        contextLabel: "تكلفة خدمة السوفتوير",
+        source,
       });
     }
 
