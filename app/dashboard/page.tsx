@@ -1,8 +1,10 @@
 import {
   AlertTriangle,
   ArrowRightLeft,
+  Banknote,
   Boxes,
   CheckCircle2,
+  CircleDollarSign,
   Clock,
   Code2,
   Crown,
@@ -11,7 +13,8 @@ import {
   Receipt,
   ShoppingCart,
   Sparkles,
-  WalletCards,
+  TrendingDown,
+  TrendingUp,
   Wrench,
 } from "lucide-react";
 import { SubscriptionStatus } from "@prisma/client";
@@ -38,6 +41,7 @@ import { MonetizationPrompt } from "@/components/onboarding/monetization-prompt"
 import { getCurrentShopContext } from "@/lib/current-shop";
 import { isDatabaseConnectionError } from "@/lib/database-errors";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { dailySummaryService } from "@/lib/services/dailySummaryService";
 import { dashboardService } from "@/lib/services/dashboardService";
 import { subscriptionService, type SubscriptionOverview } from "@/lib/services/subscriptionService";
 
@@ -48,15 +52,20 @@ export default async function DashboardPage() {
   let activity: Awaited<ReturnType<typeof dashboardService.getRecentActivity>>;
   let shopContext: Awaited<ReturnType<typeof getCurrentShopContext>>;
   let subscriptionOverview: SubscriptionOverview | null = null;
+  let dailySummary: Awaited<ReturnType<typeof dailySummaryService.getDailySummaryHeadline>> | null = null;
 
   try {
     shopContext = await getCurrentShopContext();
     const { shopId } = shopContext;
-    [metrics, activity, subscriptionOverview] = await Promise.all([
+    const canReadReports = shopContext.permissions.includes("reports:read");
+    [metrics, activity, subscriptionOverview, dailySummary] = await Promise.all([
       dashboardService.getDashboardMetrics(shopId),
       dashboardService.getRecentActivity(shopId),
       shopContext.membershipRole === "OWNER"
         ? subscriptionService.getSubscriptionOverview(shopId).catch(() => null)
+        : Promise.resolve(null),
+      canReadReports
+        ? dailySummaryService.getDailySummaryHeadline(shopId).catch(() => null)
         : Promise.resolve(null),
     ]);
   } catch (error) {
@@ -73,6 +82,21 @@ export default async function DashboardPage() {
     timeZone: shopContext.timeZone,
   }).format(new Date());
 
+  const financialCards: Array<{
+    label: string;
+    helper: string;
+    value: string | number;
+    icon: typeof Wrench;
+    href: string;
+    tone: DashboardTone;
+  }> = dailySummary ? [
+    { label: "إجمالي مبيعات اليوم", helper: "كل قنوات البيع المحققة اليوم", value: formatCurrency(dailySummary.totals.sales, currency), icon: ShoppingCart, href: "/daily-summary", tone: "brand" },
+    { label: "المقبوض فعلياً اليوم", helper: "الأموال التي تم تحصيلها فعلياً", value: formatCurrency(dailySummary.totals.collected, currency), icon: Banknote, href: "/daily-summary", tone: "success" },
+    { label: "مجمل ربح اليوم", helper: "بعد التكاليف + عمولات التحويلات", value: formatCurrency(dailySummary.totals.grossProfit, currency), icon: TrendingUp, href: "/daily-summary", tone: dailySummary.totals.grossProfit >= 0 ? "info" : "danger" },
+    { label: "مصروفات اليوم", helper: "كل المصروفات المسجلة اليوم", value: formatCurrency(dailySummary.totals.expenses, currency), icon: TrendingDown, href: "/daily-summary", tone: "warning" },
+    { label: "صافي ربح اليوم", helper: "مجمل الربح بعد خصم المصروفات", value: formatCurrency(dailySummary.totals.netProfit, currency), icon: CircleDollarSign, href: "/daily-summary", tone: dailySummary.totals.netProfit >= 0 ? "success" : "danger" },
+  ] : [];
+
   const metricCards: Array<{
     label: string;
     helper: string;
@@ -85,11 +109,6 @@ export default async function DashboardPage() {
     { label: "جاهزة للتسليم", helper: "تم إنجازها وبانتظار العميل", value: metrics.readyForDeliveryCount, icon: CheckCircle2, href: "/repair-orders", tone: "success" },
     { label: "طلبات استلمت اليوم", helper: "تذاكر صيانة جديدة مسجلة", value: metrics.repairOrdersCreatedToday, icon: Plus, href: "/repair-orders", tone: "info" },
     { label: "طلبات سلمت اليوم", helper: "أجهزة استلمها أصحابها", value: metrics.deliveredToday, icon: CheckCircle2, href: "/repair-orders", tone: "support" },
-    { label: "مبيعات اليوم", helper: "إيرادات نقاط البيع والقطع", value: formatCurrency(metrics.salesRevenueToday, currency), icon: ShoppingCart, href: "/sales", tone: "warning" },
-    { label: "مبيعات السوفتوير اليوم", helper: "خدمات سوفتوير مسجلة اليوم", value: formatCurrency(metrics.softwareSalesToday, currency), icon: Code2, href: "/software-services", tone: "support" },
-    { label: "فواتير غير مكتملة", helper: "فواتير بانتظار التحصيل", value: metrics.unpaidInvoicesCount, icon: FileText, href: "/invoices", tone: "warning" },
-    { label: "مبالغ مستحقة", helper: "أرصدة متبقية للتحصيل", value: formatCurrency(metrics.unpaidBalanceTotal, currency), icon: Receipt, href: "/invoices", tone: "danger" },
-    { label: "إجمالي الديون", helper: "أرصدة العملاء في دفتر الديون", value: formatCurrency(metrics.totalDebtOutstanding, currency), icon: WalletCards, href: "/debts", tone: "warning" },
     { label: "تنبيهات المخزون", helper: "قطع قاربت على النفاد", value: metrics.lowStockItemsCount, icon: Boxes, href: "/inventory?lowStockOnly=true", tone: "danger" },
   ];
 
@@ -154,9 +173,19 @@ export default async function DashboardPage() {
         </Link>
       </section>
 
+      {dailySummary ? (
+        <section>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div><h2 className="masar-section-title">ملخص اليوم المالي</h2><p className="masar-section-description">أهم أرقام اليوم المالية في مكان واحد، مع صفحة جرد كاملة للتفاصيل.</p></div>
+            <Button asChild variant="outline" className="h-10 rounded-xl border-teal-200 bg-white px-4 text-[12px] font-black text-teal-700 hover:bg-teal-50"><Link href="/daily-summary">عرض الجرد اليومي الكامل<ArrowRightLeft className="mr-1.5 h-4 w-4" /></Link></Button>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">{financialCards.map((card) => <DashboardStatCard key={card.label} {...card} />)}</div>
+        </section>
+      ) : null}
+
       <section>
         <div className="mb-4 flex items-end justify-between gap-3">
-          <div><h2 className="masar-section-title">نظرة سريعة على عملك</h2><p className="masar-section-description">أهم مؤشرات الورشة اليوم والحالات التي تحتاج متابعة.</p></div>
+          <div><h2 className="masar-section-title">حالة الورشة الآن</h2><p className="masar-section-description">الطلبات والتسليمات والمخزون التي تحتاج متابعة تشغيلية.</p></div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">{metricCards.map((card) => <DashboardStatCard key={card.label} {...card} />)}</div>
       </section>
