@@ -2,7 +2,7 @@ import { InvoiceStatus, Prisma } from "@prisma/client";
 import { parseSourceDebtReference } from "@/lib/debt-source-reference";
 import { prisma } from "@/lib/prisma";
 import { getInventoryDamageReportSummary } from "@/lib/services/inventoryDamageReportService";
-import { reportService } from "@/lib/services/reportService";
+import { reportService, type FinancialRange } from "@/lib/services/reportService";
 import { softwareServiceService } from "@/lib/services/softwareServiceService";
 import { getTransferCommissionReportSummary } from "@/lib/services/transferCommissionReportService";
 import { getShopTimeZone } from "@/lib/shop-timezone";
@@ -40,6 +40,16 @@ export type DailyDamageItem = {
   name: string;
   quantity: number;
   value: number;
+};
+
+export type DailyPeriodLiquiditySource = {
+  id: string;
+  label: string;
+  kind: "DRAWER" | "WALLET" | "PROVIDER";
+  openingBalance: number;
+  inflow: number;
+  outflow: number;
+  closingBalance: number;
 };
 
 type DebtLedgerRow = {
@@ -180,9 +190,121 @@ async function getSupplierPayables(shopId: string) {
   };
 }
 
-async function getDailyFinancialCore(shopId: string) {
+async function getPeriodLiquidity(shopId: string, range: FinancialRange) {
+  const [drawerRows, walletRows, providerRows] = await Promise.all([
+    prisma.$queryRaw<Array<{
+      id: string;
+      currentBalance: Prisma.Decimal;
+      periodIn: Prisma.Decimal;
+      periodOut: Prisma.Decimal;
+      afterNet: Prisma.Decimal;
+    }>>`
+      SELECT d."id", d."currentBalance",
+        COALESCE(SUM(m."amount") FILTER (
+          WHERE m."status" = 'ACTIVE' AND m."direction" = 'IN'
+            AND m."createdAt" >= ${range.start} AND m."createdAt" < ${range.end}
+        ), 0) AS "periodIn",
+        COALESCE(SUM(m."amount") FILTER (
+          WHERE m."status" = 'ACTIVE' AND m."direction" = 'OUT'
+            AND m."createdAt" >= ${range.start} AND m."createdAt" < ${range.end}
+        ), 0) AS "periodOut",
+        COALESCE(SUM(CASE WHEN m."direction" = 'IN' THEN m."amount" ELSE -m."amount" END) FILTER (
+          WHERE m."status" = 'ACTIVE' AND m."createdAt" >= ${range.end}
+        ), 0) AS "afterNet"
+      FROM "CashDrawer" d
+      LEFT JOIN "CashDrawerMovement" m ON m."drawerId" = d."id" AND m."shopId" = ${shopId}::uuid
+      WHERE d."shopId" = ${shopId}::uuid
+      GROUP BY d."id", d."currentBalance"
+    `,
+    prisma.$queryRaw<Array<{
+      id: string;
+      name: string;
+      currentBalance: Prisma.Decimal;
+      periodIn: Prisma.Decimal;
+      periodOut: Prisma.Decimal;
+      afterNet: Prisma.Decimal;
+    }>>`
+      SELECT w."id", w."name", w."currentBalance",
+        COALESCE(SUM(t."walletAmount") FILTER (
+          WHERE t."status" = 'ACTIVE' AND t."deletedAt" IS NULL
+            AND t."operationType" IN ('CUSTOMER_WITHDRAWAL','WALLET_TOPUP')
+            AND t."createdAt" >= ${range.start} AND t."createdAt" < ${range.end}
+        ), 0) AS "periodIn",
+        COALESCE(SUM(t."walletAmount") FILTER (
+          WHERE t."status" = 'ACTIVE' AND t."deletedAt" IS NULL
+            AND t."operationType" IN ('CUSTOMER_DEPOSIT','WALLET_WITHDRAWAL')
+            AND t."createdAt" >= ${range.start} AND t."createdAt" < ${range.end}
+        ), 0) AS "periodOut",
+        COALESCE(SUM(CASE
+          WHEN t."operationType" IN ('CUSTOMER_WITHDRAWAL','WALLET_TOPUP') THEN t."walletAmount"
+          ELSE -t."walletAmount"
+        END) FILTER (
+          WHERE t."status" = 'ACTIVE' AND t."deletedAt" IS NULL
+            AND t."operationType" IN ('CUSTOMER_DEPOSIT','CUSTOMER_WITHDRAWAL','WALLET_TOPUP','WALLET_WITHDRAWAL')
+            AND t."createdAt" >= ${range.end}
+        ), 0) AS "afterNet"
+      FROM "FinancialWallet" w
+      LEFT JOIN "FinancialTransfer" t ON t."walletId" = w."id" AND t."shopId" = ${shopId}::uuid
+      WHERE w."shopId" = ${shopId}::uuid
+      GROUP BY w."id", w."name", w."currentBalance"
+      ORDER BY w."name" ASC
+    `,
+    prisma.$queryRaw<Array<{
+      id: string;
+      name: string;
+      currentBalance: Prisma.Decimal;
+      periodIn: Prisma.Decimal;
+      periodOut: Prisma.Decimal;
+      afterNet: Prisma.Decimal;
+    }>>`
+      SELECT p."id", p."name", p."currentBalance",
+        COALESCE(SUM(m."amount") FILTER (
+          WHERE m."direction" = 'IN' AND m."createdAt" >= ${range.start} AND m."createdAt" < ${range.end}
+        ), 0) AS "periodIn",
+        COALESCE(SUM(m."amount") FILTER (
+          WHERE m."direction" = 'OUT' AND m."createdAt" >= ${range.start} AND m."createdAt" < ${range.end}
+        ), 0) AS "periodOut",
+        COALESCE(SUM(CASE WHEN m."direction" = 'IN' THEN m."amount" ELSE -m."amount" END) FILTER (
+          WHERE m."createdAt" >= ${range.end}
+        ), 0) AS "afterNet"
+      FROM "ElectronicServiceProvider" p
+      LEFT JOIN "ElectronicServiceProviderMovement" m ON m."providerId" = p."id" AND m."shopId" = ${shopId}::uuid
+      WHERE p."shopId" = ${shopId}::uuid
+      GROUP BY p."id", p."name", p."currentBalance"
+      ORDER BY p."name" ASC
+    `,
+  ]);
+
+  const buildSource = (
+    row: { id: string; currentBalance: Prisma.Decimal; periodIn: Prisma.Decimal; periodOut: Prisma.Decimal; afterNet: Prisma.Decimal },
+    label: string,
+    kind: DailyPeriodLiquiditySource["kind"],
+  ): DailyPeriodLiquiditySource => {
+    const inflow = money(number(row.periodIn));
+    const outflow = money(number(row.periodOut));
+    const closingBalance = money(number(row.currentBalance) - number(row.afterNet));
+    const openingBalance = money(closingBalance - inflow + outflow);
+    return { id: row.id, label, kind, openingBalance, inflow, outflow, closingBalance };
+  };
+
+  const sources: DailyPeriodLiquiditySource[] = [
+    ...drawerRows.map((row) => buildSource(row, "الدرج النقدي", "DRAWER")),
+    ...walletRows.map((row) => buildSource(row, row.name, "WALLET")),
+    ...providerRows.map((row) => buildSource(row, row.name, "PROVIDER")),
+  ];
+
+  return {
+    sources,
+    openingBalance: money(sources.reduce((sum, source) => sum + source.openingBalance, 0)),
+    inflow: money(sources.reduce((sum, source) => sum + source.inflow, 0)),
+    outflow: money(sources.reduce((sum, source) => sum + source.outflow, 0)),
+    closingBalance: money(sources.reduce((sum, source) => sum + source.closingBalance, 0)),
+  };
+}
+
+async function getDailyFinancialCore(shopId: string, requestedRange?: FinancialRange) {
   const timeZone = await getShopTimeZone(shopId);
-  const range = dayUtcBoundsForTimeZone(new Date(), timeZone);
+  const range = requestedRange ?? dayUtcBoundsForTimeZone(new Date(), timeZone);
   const [report, transferCommission] = await Promise.all([
     reportService.getFinancialReport(shopId, range),
     getTransferCommissionReportSummary(shopId, range.start, range.end).catch(() => ({ totalProfit: 0, operationCount: 0 })),
@@ -212,8 +334,9 @@ export async function getDailySummaryHeadline(shopId: string) {
   return { timeZone, range, totals };
 }
 
-export async function getDailySummary(shopId: string) {
-  const { timeZone, range, report, transferCommission, totals } = await getDailyFinancialCore(shopId);
+export async function getDailySummary(shopId: string, requestedRange?: FinancialRange) {
+  const { timeZone, range, report, transferCommission, totals } = await getDailyFinancialCore(shopId, requestedRange);
+  const periodLiquidityPromise = getPeriodLiquidity(shopId, range);
 
   const [
     damageSummary,
@@ -503,6 +626,7 @@ export async function getDailySummary(shopId: string) {
     getDebtSnapshot(shopId),
     getSupplierPayables(shopId),
   ]);
+  const periodLiquidity = await periodLiquidityPromise;
 
   const posRevenue = number(posRows[0]?.revenue);
   const posCost = number(posCostRows[0]?.cost);
@@ -635,6 +759,7 @@ export async function getDailySummary(shopId: string) {
       trackedBeforeReconciliation: trackedCollection,
       reconciliationDifference,
     },
+    periodLiquidity,
     inventory: {
       valueAtCost: report.metrics.inventoryValue,
       damageValue: money(damageSummary.totalValue),
