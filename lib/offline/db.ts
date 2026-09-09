@@ -89,6 +89,27 @@ export async function enqueueOfflineMutation(mutation: OfflineMutation) {
   db.close();
 }
 
+export async function getOfflineMutation(operationId: string) {
+  const db = await openOfflineDb();
+  const tx = db.transaction(OFFLINE_STORES.outbox, "readonly");
+  const result = await requestResult<OfflineMutation | undefined>(
+    tx.objectStore(OFFLINE_STORES.outbox).get(operationId),
+  );
+  db.close();
+  return result;
+}
+
+export async function updateOfflineMutation(
+  operationId: string,
+  patch: Partial<Pick<OfflineMutation, "status" | "retryCount" | "lastError">>,
+) {
+  const mutation = await getOfflineMutation(operationId);
+  if (!mutation) return null;
+  const updated: OfflineMutation = { ...mutation, ...patch };
+  await enqueueOfflineMutation(updated);
+  return updated;
+}
+
 export async function listPendingMutations(shopId: string) {
   const db = await openOfflineDb();
   const tx = db.transaction(OFFLINE_STORES.outbox, "readonly");
@@ -97,6 +118,17 @@ export async function listPendingMutations(shopId: string) {
   return all
     .filter((mutation) => mutation.shopId === shopId && (mutation.status === "pending" || mutation.status === "failed"))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export async function hasPendingMutationForEntity(shopId: string, entityId: string) {
+  const db = await openOfflineDb();
+  const tx = db.transaction(OFFLINE_STORES.outbox, "readonly");
+  const index = tx.objectStore(OFFLINE_STORES.outbox).index("entityId");
+  const mutations = await requestResult<OfflineMutation[]>(index.getAll(entityId));
+  db.close();
+  return mutations.some(
+    (mutation) => mutation.shopId === shopId && ["pending", "failed", "syncing"].includes(mutation.status),
+  );
 }
 
 export async function setOfflineMeta(record: OfflineMetaRecord) {
