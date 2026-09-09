@@ -137,6 +137,21 @@ elif new_union not in activation_text:
 activation.write_text(activation_text)
 print("ELECTRONIC_SERVICE_ACTIVATION_BANK_TYPE_OK")
 
+# Build lint: Stat.icon is JSX content, so use ReactNode rather than any.
+bank_page = Path("app/bank-accounts/page.tsx")
+bank_page_text = bank_page.read_text()
+old_stat = "function Stat({ icon,title,value,helper }:{ icon:any; title:string; value:string; helper:string })"
+new_stat = "function Stat({ icon,title,value,helper }:{ icon:ReactNode; title:string; value:string; helper:string })"
+if old_stat in bank_page_text:
+    bank_page_text = bank_page_text.replace(old_stat, new_stat, 1)
+elif new_stat not in bank_page_text:
+    raise SystemExit("bank Stat icon type anchor not found")
+react_node_import = 'import type { ReactNode } from "react";'
+if react_node_import not in bank_page_text:
+    bank_page_text = react_node_import + "\n" + bank_page_text
+bank_page.write_text(bank_page_text)
+print("BANK_PAGE_STAT_REACT_NODE_OK")
+
 regression = Path("/tmp/massar-bank/bank-staging-payload/regression-bank-ledger.mjs")
 if not regression.exists():
     raise SystemExit("bank regression bundle not found")
@@ -169,10 +184,3 @@ regression.write_text(regression_text)
 print("BANK_REGRESSION_PATHS_REBASED_OK")
 print("BANK_REGRESSION_GENERATED_TREES_EXCLUDED_OK")
 print("BANK_COMPAT_REPAIRS_OK")
-
-page = Path("app/bank-accounts/page.tsx")
-lines = page.read_text().splitlines()
-print("=== BANK_PAGE_LINT_CONTEXT ===")
-for n in range(68, min(85, len(lines) + 1)):
-    print(f"{n:04d}: {lines[n-1]}")
-raise SystemExit("BANK_PAGE_LINT_DEBUG_COMPLETE")
