@@ -91,3 +91,22 @@ CREATE TRIGGER "Customer_sync_change_trigger"
 AFTER INSERT OR UPDATE ON "Customer"
 FOR EACH ROW
 EXECUTE FUNCTION "massar_record_customer_sync_change"();
+
+-- Seed the change log with all customers that already existed before Offline V1.
+-- This guarantees a brand-new device can bootstrap its local customer database from cursor 0.
+INSERT INTO "SyncChange" (
+  "shopId",
+  "entityType",
+  "entityId",
+  "action",
+  "entityVersion",
+  "changedAt"
+)
+SELECT
+  c."shopId",
+  'customer',
+  c."id",
+  CASE WHEN c."deletedAt" IS NULL THEN 'upsert' ELSE 'delete' END,
+  c."version",
+  CURRENT_TIMESTAMP
+FROM "Customer" c;
