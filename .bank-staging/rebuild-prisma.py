@@ -178,11 +178,22 @@ for old, new in patch_refs.items():
         raise SystemExit(f"expected exactly one regression patch-path anchor: {old}")
     regression_text = regression_text.replace(old, new, 1)
 
+# The original review workspace had no dependency/build metadata. After npm ci the CI checkout
+# contains generated Prisma declarations under node_modules, which must not be mistaken for
+# application code mutating bank balances. Keep the same mutation assertion but scope candidates
+# to project source by excluding generated/VCS trees.
+candidate_old = "const candidates = files(root).filter(f => !f.endsWith('.patch') && !f.endsWith('bankAccountService.ts') && !f.endsWith('migration.sql') && !f.endsWith('regression-bank-ledger.mjs'));"
+candidate_new = "const candidates = files(root).filter(f => !f.split(path.sep).some(part => ['node_modules','.git','.next'].includes(part)) && !f.endsWith('.patch') && !f.endsWith('bankAccountService.ts') && !f.endsWith('migration.sql') && !f.endsWith('regression-bank-ledger.mjs'));"
+if regression_text.count(candidate_old) != 1:
+    raise SystemExit("expected regression source-candidate anchor not found exactly once")
+regression_text = regression_text.replace(candidate_old, candidate_new, 1)
+
 if "/mnt/data/massar-bank-local" in regression_text:
     raise SystemExit("stale local regression root remains")
 if "path.join(root,'patches" in regression_text or "path.join(root, 'patches" in regression_text:
     raise SystemExit("stale project-root patch lookup remains")
 regression.write_text(regression_text)
 print("BANK_REGRESSION_PATHS_REBASED_OK")
+print("BANK_REGRESSION_GENERATED_TREES_EXCLUDED_OK")
 
 print("BANK_COMPAT_REPAIRS_OK")
