@@ -122,43 +122,62 @@ async function applyCustomerMutation(
 
   if (mutation.mutationType === "customer.create") {
     if (!payload.name) throw new Error("اسم العميل مطلوب.");
-    const phone = clean(payload.phone);
-    const phoneNormalized = normalizePhone(phone);
-    await ensurePhoneUnique(tx, mutation.shopId, phoneNormalized);
+    const clientGeneratedId = payload.clientGeneratedId ?? mutation.entityId;
 
+    // Resolve a client-generated replay before uniqueness validation. This makes
+    // customer creation idempotent even if a client has to reconstruct its outbox
+    // and therefore sends the same entity with a fresh operationId.
     const existing = await tx.$queryRaw<CustomerRow[]>(Prisma.sql`
       SELECT * FROM "Customer"
       WHERE "shopId" = ${mutation.shopId}::uuid
-        AND ("id" = ${mutation.entityId}::uuid OR "clientGeneratedId" = ${payload.clientGeneratedId ?? mutation.entityId})
+        AND ("id" = ${mutation.entityId}::uuid OR "clientGeneratedId" = ${clientGeneratedId})
       LIMIT 1
       FOR UPDATE
     `);
 
-    let row = existing[0];
-    if (!row) {
-      const created = await tx.$queryRaw<CustomerRow[]>(Prisma.sql`
-        INSERT INTO "Customer" (
-          "id", "shopId", "clientGeneratedId", "name", "phone", "phoneNormalized",
-          "email", "notes", "createdAt", "updatedAt", "deletedAt", "version"
-        ) VALUES (
-          ${mutation.entityId}::uuid,
-          ${mutation.shopId}::uuid,
-          ${payload.clientGeneratedId ?? mutation.entityId},
-          ${payload.name.trim()},
-          ${phone},
-          ${phoneNormalized},
-          ${clean(payload.email)},
-          ${clean(payload.notes)},
-          CURRENT_TIMESTAMP,
-          CURRENT_TIMESTAMP,
-          NULL,
-          1
-        )
-        RETURNING *
-      `);
-      row = created[0];
+    const existingRow = existing[0];
+    if (existingRow) {
+      if (existingRow.id !== mutation.entityId) {
+        return {
+          operationId: mutation.operationId,
+          status: "conflict",
+          customer: serializeCustomer(existingRow),
+          errorCode: "CLIENT_IDENTITY_CONFLICT",
+          errorMessage: "معرّف العميل المحلي مرتبط بسجل مختلف على السيرفر.",
+        };
+      }
+      return {
+        operationId: mutation.operationId,
+        status: "applied",
+        customer: serializeCustomer(existingRow),
+      };
     }
 
+    const phone = clean(payload.phone);
+    const phoneNormalized = normalizePhone(phone);
+    await ensurePhoneUnique(tx, mutation.shopId, phoneNormalized);
+
+    const created = await tx.$queryRaw<CustomerRow[]>(Prisma.sql`
+      INSERT INTO "Customer" (
+        "id", "shopId", "clientGeneratedId", "name", "phone", "phoneNormalized",
+        "email", "notes", "createdAt", "updatedAt", "deletedAt", "version"
+      ) VALUES (
+        ${mutation.entityId}::uuid,
+        ${mutation.shopId}::uuid,
+        ${clientGeneratedId},
+        ${payload.name.trim()},
+        ${phone},
+        ${phoneNormalized},
+        ${clean(payload.email)},
+        ${clean(payload.notes)},
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP,
+        NULL,
+        1
+      )
+      RETURNING *
+    `);
+    const row = created[0];
     if (!row) throw new Error("تعذر إنشاء العميل.");
     return { operationId: mutation.operationId, status: "applied", customer: serializeCustomer(row) };
   }
@@ -286,13 +305,20 @@ export async function applySyncMutation(input: unknown, auth: { shopId: string; 
     `);
 
     if (inserted === 0) {
+      // operationId is globally unique. Never return a stored result unless it
+      // belongs to this exact authenticated tenant/user, otherwise a reused or
+      // leaked UUID could expose another shop's mutation result.
       const prior = await tx.$queryRaw<StoredMutationRow[]>(Prisma.sql`
         SELECT "operationId", "status", "result", "errorCode", "errorMessage"
         FROM "SyncMutation"
         WHERE "operationId" = ${mutation.operationId}::uuid
+          AND "shopId" = ${auth.shopId}::uuid
+          AND "userId" = ${auth.userId}::uuid
         LIMIT 1
       `);
-      if (!prior[0]) throw new Error("تعذر استرجاع نتيجة عملية المزامنة السابقة.");
+      if (!prior[0]) {
+        throw new Error("معرّف عملية المزامنة مستخدم من سياق مختلف.");
+      }
       return storedResult(prior[0]);
     }
 
