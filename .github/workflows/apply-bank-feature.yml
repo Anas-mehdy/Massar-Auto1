@@ -82,9 +82,14 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
+          def replace_required(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f'expected {label} patch context not found: {old[:100]}')
+              return text.replace(old, new, 1)
+
           sales = Path('/tmp/massar-bank/bank-staging-payload/patches/sales-bank-integration.patch')
           s = sales.read_text()
-          replacements = [
+          for old, new in [
             (
               '-      if (changeAmount.gt(0)) await moneyAccountService.applyOutgoingMoneyTx(tx, shopId, createdByUserId, { destination: changeDestination, walletId: input.changeWalletId, amount: changeAmount, reference: sale.receiptNumber, description: `إرجاع باقي للعميل من بيع ${sale.receiptNumber}`, source: { ...sourceBase, sourceType: "SALE" } });',
               '-      if (changeAmount.gt(0)) await moneyAccountService.applyOutgoingMoneyTx(tx, shopId, createdByUserId, { destination: changeDestination, walletId: input.changeWalletId, amount: changeAmount, reference: sale.receiptNumber, description: `إرجاع باقي للعميل من بيع ${sale.receiptNumber}`, source: { ...sourceBase, sourceType: "SALE_CHANGE" } });'
@@ -97,24 +102,34 @@ jobs:
               '+        <SalePaymentFields total={total} wallets={wallets} bankAccounts={bankAccounts} currency={currency} debtEligible={debtEligible} />',
               '+          <SalePaymentFields total={Math.max(0, total)} wallets={wallets} bankAccounts={bankAccounts} currency={currency} debtEligible={customerMode === "NEW" || (customerMode === "EXISTING" && Boolean(selectedCustomer))} />'
             ),
-          ]
-          for old, new in replacements:
-              if old not in s:
-                  raise SystemExit(f'expected sales patch context not found: {old[:80]}')
-              s = s.replace(old, new, 1)
+          ]:
+              s = replace_required(s, old, new, 'sales')
           sales.write_text(s)
 
           electronic = Path('/tmp/massar-bank/bank-staging-payload/patches/electronic-services-bank-integration.patch')
           e = electronic.read_text()
-          old_minus = '-      <ElectronicServiceExecutionForm providers={providers} templates={templates} customers={customers} wallets={wallets} defaultCurrency={context.currency} defaultProviderId={query.provider} />'
-          current_minus = '-      <div className="rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-[0_18px_55px_-38px_rgba(15,23,42,0.28)] dark:border-slate-800 dark:bg-slate-950 sm:p-6"><ElectronicServiceExecutionForm providers={providers} templates={templates} customers={customers} wallets={wallets} defaultCurrency={context.currency} defaultProviderId={query.provider} /></div>'
-          old_plus = '+      <ElectronicServiceExecutionForm providers={providers} templates={templates} customers={customers} wallets={wallets} bankAccounts={bankAccounts} defaultCurrency={context.currency} defaultProviderId={query.provider} />'
-          current_plus = '+      <div className="rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-[0_18px_55px_-38px_rgba(15,23,42,0.28)] dark:border-slate-800 dark:bg-slate-950 sm:p-6"><ElectronicServiceExecutionForm providers={providers} templates={templates} customers={customers} wallets={wallets} bankAccounts={bankAccounts} defaultCurrency={context.currency} defaultProviderId={query.provider} /></div>'
-          for old, new in [(old_minus, current_minus), (old_plus, current_plus)]:
-              if old not in e:
-                  raise SystemExit(f'expected electronic patch context not found: {old[:80]}')
-              e = e.replace(old, new, 1)
+          for old, new in [
+            (
+              '-      <ElectronicServiceExecutionForm providers={providers} templates={templates} customers={customers} wallets={wallets} defaultCurrency={context.currency} defaultProviderId={query.provider} />',
+              '-      <div className="rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-[0_18px_55px_-38px_rgba(15,23,42,0.28)] dark:border-slate-800 dark:bg-slate-950 sm:p-6"><ElectronicServiceExecutionForm providers={providers} templates={templates} customers={customers} wallets={wallets} defaultCurrency={context.currency} defaultProviderId={query.provider} /></div>'
+            ),
+            (
+              '+      <ElectronicServiceExecutionForm providers={providers} templates={templates} customers={customers} wallets={wallets} bankAccounts={bankAccounts} defaultCurrency={context.currency} defaultProviderId={query.provider} />',
+              '+      <div className="rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-[0_18px_55px_-38px_rgba(15,23,42,0.28)] dark:border-slate-800 dark:bg-slate-950 sm:p-6"><ElectronicServiceExecutionForm providers={providers} templates={templates} customers={customers} wallets={wallets} bankAccounts={bankAccounts} defaultCurrency={context.currency} defaultProviderId={query.provider} /></div>'
+            ),
+          ]:
+              e = replace_required(e, old, new, 'electronic')
           electronic.write_text(e)
+
+          purchase = Path('/tmp/massar-bank/bank-staging-payload/patches/purchase-bank-integration.patch')
+          p = purchase.read_text()
+          p = replace_required(
+              p,
+              '   paymentAccountType: z.enum(["DRAWER", "WALLET", "BANK", "OTHER"]).nullable().optional(),\n   paymentWalletId: z.string().uuid().nullable().optional(),\n+  paymentBankAccountId: z.string().uuid().nullable().optional(),',
+              '-  paymentAccountType: z.enum(["DRAWER", "WALLET", "OTHER"]).nullable().optional(),\n+  paymentAccountType: z.enum(["DRAWER", "WALLET", "BANK", "OTHER"]).nullable().optional(),\n   paymentWalletId: z.string().uuid().nullable().optional(),\n+  paymentBankAccountId: z.string().uuid().nullable().optional(),',
+              'purchase actions'
+          )
+          purchase.write_text(p)
           PY
 
       - name: Fetch and verify latest main used by review
