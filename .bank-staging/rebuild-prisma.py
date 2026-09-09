@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -32,6 +33,7 @@ def patch_model(text: str, model: str, after_field: str, new_field: str, new_ind
         lines.insert(len(lines) - 1, new_index)
         block = "\n".join(lines)
     return text[:start] + block + text[end:]
+
 
 schema = patch_model(schema, "PurchaseInvoice", "paymentWalletId", "  paymentBankAccountId  String?   @db.Uuid", "  @@index([paymentBankAccountId])")
 schema = patch_model(schema, "PurchasePayment", "walletId", "  bankAccountId     String?   @db.Uuid", "  @@index([bankAccountId])")
@@ -95,40 +97,92 @@ model BankAccountMovement {
 
 if "model BankAccount {" in schema or "model BankAccountMovement {" in schema:
     raise SystemExit("bank models unexpectedly already present in exact-main schema")
+
 schema = schema.rstrip() + bank_models + "\n"
 Path("prisma/schema.prisma").write_text(schema)
+head = "\n".join(schema.splitlines()[:8])
+if "model BankAccount" in head or "@@index" in head:
+    raise SystemExit("bank schema content leaked into generator/datasource header")
 print("PRISMA_SCHEMA_REBUILT_OK")
 
+# Existing date helpers live in timezone.ts; expose them through the shop-timezone facade
+# used by the new bank-account page.
 shop_tz = Path("lib/shop-timezone.ts")
 shop_text = shop_tz.read_text()
 if "dateInputStartUtcForTimeZone," not in shop_text or "dateInputEndUtcForTimeZone," not in shop_text:
     anchor = "  dateInputUtcBoundsForTimeZone,\n"
     if anchor not in shop_text:
         raise SystemExit("shop-timezone date export anchor not found")
-    shop_tz.write_text(shop_text.replace(anchor, "  dateInputEndUtcForTimeZone,\n  dateInputStartUtcForTimeZone,\n" + anchor, 1))
+    shop_text = shop_text.replace(
+        anchor,
+        "  dateInputEndUtcForTimeZone,\n  dateInputStartUtcForTimeZone,\n" + anchor,
+        1,
+    )
+    shop_tz.write_text(shop_text)
+print("SHOP_TIMEZONE_BANK_COMPAT_OK")
 
+# The bank-aware money service deliberately generalized drawerType -> movementType.
+# Preserve the existing software-service-cost classification at its call site.
 software = Path("lib/services/softwareServiceService.ts")
 software_text = software.read_text()
 old_cost_type = '        drawerType: "SOFTWARE_SERVICE_COST",'
 new_cost_type = '        movementType: "SOFTWARE_SERVICE_COST",'
 if old_cost_type in software_text:
-    software.write_text(software_text.replace(old_cost_type, new_cost_type, 1))
+    software_text = software_text.replace(old_cost_type, new_cost_type, 1)
 elif new_cost_type not in software_text:
     raise SystemExit("software service cost movement classification anchor not found")
+software.write_text(software_text)
+print("SOFTWARE_SERVICE_BANK_MOVEMENT_TYPE_OK")
 
+# The activation success component must accept every payment destination supported
+# by the bank-aware electronic-service transaction flow.
 activation = Path("app/electronic-services/new/_activation-success.tsx")
 activation_text = activation.read_text()
 old_union = 'paymentDestination: "DRAWER" | "WALLET" | "OTHER" | "DEBT";'
 new_union = 'paymentDestination: "DRAWER" | "WALLET" | "BANK" | "OTHER" | "DEBT";'
 if old_union in activation_text:
-    activation.write_text(activation_text.replace(old_union, new_union, 1))
+    activation_text = activation_text.replace(old_union, new_union, 1)
 elif new_union not in activation_text:
     raise SystemExit("electronic service activation payment destination union not found")
+activation.write_text(activation_text)
+print("ELECTRONIC_SERVICE_ACTIVATION_BANK_TYPE_OK")
 
+# The regression bundle was authored in a local workspace where one root contained both
+# the project tree and the review patch directory. In CI those are intentionally separate:
+# the feature project is the current checkout, while reviewed patches remain in /tmp payload.
+# Rebase only path plumbing; every assertion in the regression script stays unchanged.
 regression = Path("/tmp/massar-bank/bank-staging-payload/regression-bank-ledger.mjs")
+if not regression.exists():
+    raise SystemExit("bank regression bundle not found")
 regression_text = regression.read_text()
-print("=== REGRESSION PATH-RELATED SOURCE ===")
-for number, line in enumerate(regression_text.splitlines(), 1):
-    if any(token in line for token in ["massar-bank-local", "patches", "readFileSync", "ROOT", "root"]):
-        print(f"{number:04d}: {line}")
-raise SystemExit("BANK_REGRESSION_PATH_DEBUG_COMPLETE")
+root_decl = "const root = '/mnt/data/massar-bank-local';"
+if root_decl not in regression_text:
+    raise SystemExit("expected regression local root declaration not found")
+repo_root = str(Path.cwd())
+patch_root = "/tmp/massar-bank/bank-staging-payload/patches"
+regression_text = regression_text.replace(
+    root_decl,
+    f"const root = {json.dumps(repo_root)};\nconst patchRoot = {json.dumps(patch_root)};",
+    1,
+)
+
+patch_refs = {
+    "path.join(root,'patches/software-services-bank-integration.patch')": "path.join(patchRoot,'software-services-bank-integration.patch')",
+    "path.join(root,'patches/daily-summary-bank-integration.patch')": "path.join(patchRoot,'daily-summary-bank-integration.patch')",
+    "path.join(root,'patches/financial-transfer-source-types.patch')": "path.join(patchRoot,'financial-transfer-source-types.patch')",
+    "path.join(root,'patches/purchase-bank-integration.patch')": "path.join(patchRoot,'purchase-bank-integration.patch')",
+    "files(path.join(root,'patches'))": "files(patchRoot)",
+}
+for old, new in patch_refs.items():
+    if regression_text.count(old) != 1:
+        raise SystemExit(f"expected exactly one regression patch-path anchor: {old}")
+    regression_text = regression_text.replace(old, new, 1)
+
+if "/mnt/data/massar-bank-local" in regression_text:
+    raise SystemExit("stale local regression root remains")
+if "path.join(root,'patches" in regression_text or "path.join(root, 'patches" in regression_text:
+    raise SystemExit("stale project-root patch lookup remains")
+regression.write_text(regression_text)
+print("BANK_REGRESSION_PATHS_REBASED_OK")
+
+print("BANK_COMPAT_REPAIRS_OK")
