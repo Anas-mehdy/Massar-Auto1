@@ -17,9 +17,10 @@ concurrency:
 jobs:
   apply:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -28,13 +29,25 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d massar_preview"
-          --health-interval 10s
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 10
+          --health-retries 20
     env:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/massar_preview?schema=public
       EXPECTED_PREVIEW_BASE: 0c50c15f46909691485f4d0ff4a4c03302f93a97
       EXPECTED_MAIN_HEAD: 65c73b7f74b10501cfe4b89edc664e541139dba4
+      OPENAI_API_KEY: ""
+      PURCHASE_AI_MODEL: gpt-4.1-mini
+      PURCHASE_AI_SHOP_DAILY_LIMIT: "6"
+      PURCHASE_AI_FEATURE_BUDGET_USD: "5"
+      PURCHASE_AI_MAX_OUTPUT_TOKENS: "8000"
+      PURCHASE_AI_PDF_DETAIL: high
+      PURCHASE_IMPORT_MAX_FILE_MB: "4"
+      PURCHASE_IMPORT_MAX_PDF_PAGES: "3"
+      PURCHASE_IMPORT_EXTRACTING_STALE_MINUTES: "5"
+      NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ""
+      NEXT_PUBLIC_POSTHOG_HOST: ""
+      GROWTH_LIFECYCLE_EMAILS_ENABLED: "false"
     steps:
       - name: Checkout preview staging commit
         uses: actions/checkout@v4
@@ -169,14 +182,62 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Apply all migrations to temporary PostgreSQL
-        run: npx prisma migrate deploy
+      - name: Create Supabase-compatible roles in disposable Postgres
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -d massar_preview -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          SQL
+
+      - name: Verify bank migration over exact main baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          ci_schema_dir="$RUNNER_TEMP/massar-bank-ci/prisma"
+          mkdir -p "$ci_schema_dir/migrations/00000000000000_main_schema_baseline"
+          mkdir -p "$ci_schema_dir/migrations/00000000000001_electronic_service_fixture"
+          git show "$MAIN_HEAD:prisma/schema.prisma" > "$ci_schema_dir/main.prisma"
+          npx prisma migrate diff --from-empty --to-schema-datamodel "$ci_schema_dir/main.prisma" --script > "$ci_schema_dir/migrations/00000000000000_main_schema_baseline/migration.sql"
+          cat > "$ci_schema_dir/migrations/00000000000001_electronic_service_fixture/migration.sql" <<'SQL'
+          CREATE TABLE IF NOT EXISTS "ElectronicServiceTransaction" (
+            "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            "paymentDestination" VARCHAR(20) NOT NULL DEFAULT 'OTHER',
+            CONSTRAINT "ElectronicServiceTransaction_paymentDestination_check"
+              CHECK ("paymentDestination" IN ('DRAWER','WALLET','OTHER','DEBT'))
+          );
+          SQL
+          cp prisma/schema.prisma "$ci_schema_dir/schema.prisma"
+          cp prisma/migrations/migration_lock.toml "$ci_schema_dir/migrations/migration_lock.toml"
+          cp -R prisma/migrations/20260909220000_bank_accounts "$ci_schema_dir/migrations/"
+          npx prisma migrate deploy --schema "$ci_schema_dir/schema.prisma"
+
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d massar_preview -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE check_def text;
+          BEGIN
+            IF to_regclass('"BankAccount"') IS NULL THEN RAISE EXCEPTION 'BankAccount missing'; END IF;
+            IF to_regclass('"BankAccountMovement"') IS NULL THEN RAISE EXCEPTION 'BankAccountMovement missing'; END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='PurchaseInvoice' AND column_name='paymentBankAccountId') THEN RAISE EXCEPTION 'PurchaseInvoice.paymentBankAccountId missing'; END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='PurchasePayment' AND column_name='bankAccountId') THEN RAISE EXCEPTION 'PurchasePayment.bankAccountId missing'; END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='SupplierReturnSettlement' AND column_name='bankAccountId') THEN RAISE EXCEPTION 'SupplierReturnSettlement.bankAccountId missing'; END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='Expense' AND column_name='fundingBankAccountId') THEN RAISE EXCEPTION 'Expense.fundingBankAccountId missing'; END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ElectronicServiceTransaction' AND column_name='bankAccountId') THEN RAISE EXCEPTION 'ElectronicServiceTransaction.bankAccountId missing'; END IF;
+            SELECT pg_get_constraintdef(oid) INTO check_def FROM pg_constraint WHERE conname='ElectronicServiceTransaction_paymentDestination_check';
+            IF check_def IS NULL OR position('BANK' in check_def)=0 THEN RAISE EXCEPTION 'ElectronicServiceTransaction BANK check missing'; END IF;
+          END $$;
+          SQL
+          echo BANK_MIGRATION_BASELINE_OK
 
       - name: TypeScript check
         run: npx tsc --noEmit
 
       - name: Bank ledger regression suite
         run: node /tmp/massar-bank/bank-staging-payload/regression-bank-ledger.mjs
+
+      - name: Full application build
+        run: npm run build
 
       - name: Create clean merge commit and fast-forward preview
         shell: bash
