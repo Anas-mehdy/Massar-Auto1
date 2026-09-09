@@ -9,51 +9,50 @@ import {
 import type { OfflineActor } from "./customerRepository";
 import type { CustomerMutationPayload, OfflineMutation } from "./types";
 
-async function latestCustomerConflict(shopId: string, customerId: string) {
+async function customerConflicts(shopId: string, customerId: string) {
   const mutations = await listEntityMutations(shopId, customerId);
-  return [...mutations].reverse().find((mutation) => mutation.status === "conflict") ?? null;
+  return mutations.filter((mutation) => mutation.status === "conflict");
+}
+
+async function discardConflicts(conflicts: OfflineMutation[]) {
+  await Promise.all(
+    conflicts.map((mutation) => updateOfflineMutation(mutation.operationId, {
+      status: "discarded",
+      lastError: null,
+    })),
+  );
 }
 
 export async function acceptServerCustomer(shopId: string, customerId: string) {
-  const conflict = await latestCustomerConflict(shopId, customerId);
-  if (!conflict?.conflictSnapshot) {
+  const conflicts = await customerConflicts(shopId, customerId);
+  const latest = conflicts.at(-1) ?? null;
+  if (!latest?.conflictSnapshot) {
     throw new Error("لا توجد نسخة سيرفر محفوظة لهذا التعارض.");
   }
 
-  const mutations = await listEntityMutations(shopId, customerId);
-  await Promise.all(
-    mutations
-      .filter((mutation) => mutation.status === "conflict")
-      .map((mutation) => updateOfflineMutation(mutation.operationId, {
-        status: "discarded",
-        lastError: null,
-      })),
-  );
-
-  await putOfflineCustomer({ ...conflict.conflictSnapshot, syncStatus: "synced" });
-  return conflict.conflictSnapshot;
+  await discardConflicts(conflicts);
+  await putOfflineCustomer({ ...latest.conflictSnapshot, syncStatus: "synced" });
+  return latest.conflictSnapshot;
 }
 
 export async function reapplyLocalCustomer(actor: OfflineActor, customerId: string) {
-  const [local, conflict] = await Promise.all([
+  const [local, conflicts] = await Promise.all([
     getOfflineCustomer(customerId),
-    latestCustomerConflict(actor.shopId, customerId),
+    customerConflicts(actor.shopId, customerId),
   ]);
+  const latest = conflicts.at(-1) ?? null;
 
   if (!local || local.shopId !== actor.shopId) {
     throw new Error("النسخة المحلية للعميل غير موجودة.");
   }
-  if (!conflict?.conflictSnapshot) {
+  if (!latest?.conflictSnapshot) {
     throw new Error("لا توجد نسخة سيرفر محفوظة لهذا التعارض.");
   }
-  if (conflict.conflictSnapshot.deletedAt) {
+  if (latest.conflictSnapshot.deletedAt) {
     throw new Error("تم حذف العميل على السيرفر، لذلك لا يمكن إعادة تطبيق التعديل المحلي تلقائياً.");
   }
 
-  await updateOfflineMutation(conflict.operationId, {
-    status: "discarded",
-    lastError: null,
-  });
+  await discardConflicts(conflicts);
 
   const payload: CustomerMutationPayload = {
     name: local.name,
@@ -71,7 +70,7 @@ export async function reapplyLocalCustomer(actor: OfflineActor, customerId: stri
     entityType: "customer",
     entityId: local.id,
     mutationType: "customer.update",
-    baseVersion: conflict.conflictSnapshot.version,
+    baseVersion: latest.conflictSnapshot.version,
     payload,
     createdAt: new Date().toISOString(),
     status: "pending",
@@ -81,7 +80,7 @@ export async function reapplyLocalCustomer(actor: OfflineActor, customerId: stri
 
   const optimistic = {
     ...local,
-    version: conflict.conflictSnapshot.version + 1,
+    version: latest.conflictSnapshot.version + 1,
     updatedAt: new Date().toISOString(),
     deletedAt: null,
     syncStatus: "pending" as const,
