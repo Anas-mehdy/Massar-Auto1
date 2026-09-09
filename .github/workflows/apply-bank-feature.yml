@@ -49,9 +49,10 @@ jobs:
           set -euo pipefail
           STAGING_HEAD="$(git rev-parse HEAD)"
           git merge-base --is-ancestor "$EXPECTED_PREVIEW_BASE" "$STAGING_HEAD"
-          test -f .bank-staging/payload.b64
+          test -f .bank-staging/payload.part.00
+          test -f .bank-staging/payload.part.10
           mkdir -p /tmp/massar-bank
-          base64 -d .bank-staging/payload.b64 > /tmp/massar-bank/payload.tar.gz
+          cat .bank-staging/payload.part.* | base64 -d > /tmp/massar-bank/payload.tar.gz
           tar -xzf /tmp/massar-bank/payload.tar.gz -C /tmp/massar-bank
           test -x /tmp/massar-bank/bank-staging-payload/apply.py
           echo "STAGING_HEAD=$STAGING_HEAD" >> "$GITHUB_ENV"
