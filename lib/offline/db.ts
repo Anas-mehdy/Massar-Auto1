@@ -101,7 +101,7 @@ export async function getOfflineMutation(operationId: string) {
 
 export async function updateOfflineMutation(
   operationId: string,
-  patch: Partial<Pick<OfflineMutation, "status" | "retryCount" | "lastError">>,
+  patch: Partial<Pick<OfflineMutation, "status" | "retryCount" | "lastError" | "conflictSnapshot">>,
 ) {
   const mutation = await getOfflineMutation(operationId);
   if (!mutation) return null;
@@ -120,14 +120,21 @@ export async function listPendingMutations(shopId: string) {
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-export async function hasPendingMutationForEntity(shopId: string, entityId: string) {
+export async function listEntityMutations(shopId: string, entityId: string) {
   const db = await openOfflineDb();
   const tx = db.transaction(OFFLINE_STORES.outbox, "readonly");
   const index = tx.objectStore(OFFLINE_STORES.outbox).index("entityId");
   const mutations = await requestResult<OfflineMutation[]>(index.getAll(entityId));
   db.close();
+  return mutations
+    .filter((mutation) => mutation.shopId === shopId)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export async function hasPendingMutationForEntity(shopId: string, entityId: string) {
+  const mutations = await listEntityMutations(shopId, entityId);
   return mutations.some(
-    (mutation) => mutation.shopId === shopId && ["pending", "failed", "syncing"].includes(mutation.status),
+    (mutation) => mutation.shopId === shopId && ["pending", "failed", "syncing", "conflict"].includes(mutation.status),
   );
 }
 
