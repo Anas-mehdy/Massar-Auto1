@@ -81,8 +81,9 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('/tmp/massar-bank/bank-staging-payload/patches/sales-bank-integration.patch')
-          s = p.read_text()
+
+          sales = Path('/tmp/massar-bank/bank-staging-payload/patches/sales-bank-integration.patch')
+          s = sales.read_text()
           replacements = [
             (
               '-      if (changeAmount.gt(0)) await moneyAccountService.applyOutgoingMoneyTx(tx, shopId, createdByUserId, { destination: changeDestination, walletId: input.changeWalletId, amount: changeAmount, reference: sale.receiptNumber, description: `إرجاع باقي للعميل من بيع ${sale.receiptNumber}`, source: { ...sourceBase, sourceType: "SALE" } });',
@@ -101,7 +102,19 @@ jobs:
               if old not in s:
                   raise SystemExit(f'expected sales patch context not found: {old[:80]}')
               s = s.replace(old, new, 1)
-          p.write_text(s)
+          sales.write_text(s)
+
+          electronic = Path('/tmp/massar-bank/bank-staging-payload/patches/electronic-services-bank-integration.patch')
+          e = electronic.read_text()
+          old_minus = '-      <ElectronicServiceExecutionForm providers={providers} templates={templates} customers={customers} wallets={wallets} defaultCurrency={context.currency} defaultProviderId={query.provider} />'
+          current_minus = '-      <div className="rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-[0_18px_55px_-38px_rgba(15,23,42,0.28)] dark:border-slate-800 dark:bg-slate-950 sm:p-6"><ElectronicServiceExecutionForm providers={providers} templates={templates} customers={customers} wallets={wallets} defaultCurrency={context.currency} defaultProviderId={query.provider} /></div>'
+          old_plus = '+      <ElectronicServiceExecutionForm providers={providers} templates={templates} customers={customers} wallets={wallets} bankAccounts={bankAccounts} defaultCurrency={context.currency} defaultProviderId={query.provider} />'
+          current_plus = '+      <div className="rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-[0_18px_55px_-38px_rgba(15,23,42,0.28)] dark:border-slate-800 dark:bg-slate-950 sm:p-6"><ElectronicServiceExecutionForm providers={providers} templates={templates} customers={customers} wallets={wallets} bankAccounts={bankAccounts} defaultCurrency={context.currency} defaultProviderId={query.provider} /></div>'
+          for old, new in [(old_minus, current_minus), (old_plus, current_plus)]:
+              if old not in e:
+                  raise SystemExit(f'expected electronic patch context not found: {old[:80]}')
+              e = e.replace(old, new, 1)
+          electronic.write_text(e)
           PY
 
       - name: Fetch and verify latest main used by review
