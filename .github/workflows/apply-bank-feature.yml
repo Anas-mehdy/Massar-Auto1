@@ -75,6 +75,21 @@ jobs:
           test -x /tmp/massar-bank/bank-staging-payload/apply.py
           echo "STAGING_HEAD=$STAGING_HEAD" >> "$GITHUB_ENV"
 
+      - name: Align reviewed patch context with current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/massar-bank/bank-staging-payload/patches/sales-bank-integration.patch')
+          s = p.read_text()
+          old = '-      if (changeAmount.gt(0)) await moneyAccountService.applyOutgoingMoneyTx(tx, shopId, createdByUserId, { destination: changeDestination, walletId: input.changeWalletId, amount: changeAmount, reference: sale.receiptNumber, description: `إرجاع باقي للعميل من بيع ${sale.receiptNumber}`, source: { ...sourceBase, sourceType: "SALE" } });'
+          current = '-      if (changeAmount.gt(0)) await moneyAccountService.applyOutgoingMoneyTx(tx, shopId, createdByUserId, { destination: changeDestination, walletId: input.changeWalletId, amount: changeAmount, reference: sale.receiptNumber, description: `إرجاع باقي للعميل من بيع ${sale.receiptNumber}`, source: { ...sourceBase, sourceType: "SALE_CHANGE" } });'
+          if old not in s:
+              raise SystemExit('expected sales patch context not found')
+          p.write_text(s.replace(old, current, 1))
+          PY
+
       - name: Fetch and verify latest main used by review
         shell: bash
         run: |
