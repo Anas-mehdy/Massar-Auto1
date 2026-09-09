@@ -99,104 +99,44 @@ if "model BankAccount {" in schema or "model BankAccountMovement {" in schema:
 
 schema = schema.rstrip() + bank_models + "\n"
 Path("prisma/schema.prisma").write_text(schema)
-
-head = "\n".join(schema.splitlines()[:8])
-if "model BankAccount" in head or "@@index" in head:
-    raise SystemExit("bank schema content leaked into generator/datasource header")
-
 print("PRISMA_SCHEMA_REBUILT_OK")
 
-# ---------------------------------------------------------------------------
-# Compatibility repairs against exact current main. These preserve existing
-# contracts that the reviewed bank payload accidentally narrowed.
-# ---------------------------------------------------------------------------
-
-# The bank-account page uses these helpers through the shop-timezone facade.
+# Known safe compatibility: timezone.ts owns these helpers, shop-timezone is the facade.
 shop_tz = Path("lib/shop-timezone.ts")
-shop_tz_text = shop_tz.read_text()
-if "dateInputStartUtcForTimeZone," not in shop_tz_text or "dateInputEndUtcForTimeZone," not in shop_tz_text:
+shop_text = shop_tz.read_text()
+if "dateInputStartUtcForTimeZone," not in shop_text or "dateInputEndUtcForTimeZone," not in shop_text:
     anchor = "  dateInputUtcBoundsForTimeZone,\n"
-    if anchor not in shop_tz_text:
+    if anchor not in shop_text:
         raise SystemExit("shop-timezone date export anchor not found")
-    shop_tz_text = shop_tz_text.replace(
-        anchor,
-        "  dateInputEndUtcForTimeZone,\n  dateInputStartUtcForTimeZone,\n" + anchor,
-        1,
-    )
-    shop_tz.write_text(shop_tz_text)
+    shop_text = shop_text.replace(anchor, "  dateInputEndUtcForTimeZone,\n  dateInputStartUtcForTimeZone,\n" + anchor, 1)
+    shop_tz.write_text(shop_text)
 print("SHOP_TIMEZONE_BANK_COMPAT_OK")
 
-# Keep the form's explicit destination union aligned with the service type.
-service_form = Path("app/electronic-services/new/_service-form.tsx")
-service_text = service_form.read_text()
-service_lines = service_text.splitlines(keepends=True)
-service_union_changes = 0
-for i, line in enumerate(service_lines):
-    if all(token in line for token in ['"DRAWER"', '"WALLET"', '"OTHER"', '"DEBT"']) and '"BANK"' not in line:
-        service_lines[i] = line.replace('"WALLET"', '"WALLET" | "BANK"', 1)
-        service_union_changes += 1
-if service_union_changes:
-    service_form.write_text("".join(service_lines))
-print(f"ELECTRONIC_SERVICE_BANK_UNIONS_OK changes={service_union_changes}")
 
-# Preserve the outgoing-money API used by software-service cost payments.
-money_file = Path("lib/services/moneyAccountService.ts")
-money_text = money_file.read_text()
-fn_start = money_text.find("export async function applyOutgoingMoneyTx")
+def print_numbered(path: str, start: int = 1, end: int | None = None):
+    lines = Path(path).read_text().splitlines()
+    end = min(end or len(lines), len(lines))
+    print(f"=== {path} lines {start}-{end} ===")
+    for number in range(start, end + 1):
+        print(f"{number:04d}: {lines[number - 1]}")
+
+money = Path("lib/services/moneyAccountService.ts").read_text()
+fn_start = money.find("export async function applyOutgoingMoneyTx")
 if fn_start < 0:
     raise SystemExit("applyOutgoingMoneyTx not found")
-fn_end = money_text.find("\n}\n", fn_start)
+fn_end = money.find("\n}\n", fn_start)
 if fn_end < 0:
     raise SystemExit("applyOutgoingMoneyTx end not found")
-block = money_text[fn_start:fn_end]
+print("=== EXACT applyOutgoingMoneyTx ===")
+print(money[fn_start:fn_end + 2])
 
-if "drawerType?:" not in block:
-    desc = "    description: string;"
-    desc_pos = money_text.find(desc, fn_start, fn_end)
-    if desc_pos < 0:
-        raise SystemExit("applyOutgoingMoneyTx description field not found")
-    insert_at = desc_pos + len(desc)
-    money_text = (
-        money_text[:insert_at]
-        + "\n    drawerType?: \"CHANGE_RETURN\" | \"SOFTWARE_SERVICE_COST\";\n    contextLabel?: string;"
-        + money_text[insert_at:]
-    )
+form_lines = Path("app/electronic-services/new/_service-form.tsx").read_text().splitlines()
+print("=== electronic service form destination-related lines ===")
+for i, line in enumerate(form_lines, 1):
+    if any(key in line for key in ["paymentDestination", "defaultPayment", "destination:", "destination?", "destination "]):
+        lo, hi = max(1, i - 2), min(len(form_lines), i + 2)
+        for n in range(lo, hi + 1):
+            print(f"FORM {n:04d}: {form_lines[n-1]}")
 
-# Re-locate the function after the signature insertion.
-fn_start = money_text.find("export async function applyOutgoingMoneyTx")
-fn_end = money_text.find("\n}\n", fn_start)
-block = money_text[fn_start:fn_end]
-
-# The generalized bank implementation must keep the drawer movement classification.
-if "input.drawerType" not in block[block.find("input: {") + 8:]:
-    # Add a local classification variable after the amount normalization line.
-    amount_marker = "  const amount = decimal(input.amount);"
-    amount_pos = money_text.find(amount_marker, fn_start, fn_end)
-    if amount_pos < 0:
-        raise SystemExit("applyOutgoingMoneyTx amount marker not found")
-    amount_insert = amount_pos + len(amount_marker)
-    money_text = money_text[:amount_insert] + "\n  const drawerType = input.drawerType ?? \"CHANGE_RETURN\";" + money_text[amount_insert:]
-
-    # Re-locate and require exactly one hard-coded CHANGE_RETURN in the drawer SQL path.
-    fn_start = money_text.find("export async function applyOutgoingMoneyTx")
-    fn_end = money_text.find("\n}\n", fn_start)
-    block = money_text[fn_start:fn_end]
-    candidates = [
-        ("${\"CHANGE_RETURN\"}", "${drawerType}"),
-        ("${'CHANGE_RETURN'}", "${drawerType}"),
-        ("'CHANGE_RETURN', 'OUT'", "${drawerType}, 'OUT'"),
-        ('"CHANGE_RETURN", \'OUT\'', "${drawerType}, 'OUT'"),
-    ]
-    applied = False
-    for old, new in candidates:
-        if old in block:
-            block = block.replace(old, new, 1)
-            applied = True
-            break
-    if not applied:
-        raise SystemExit("could not safely preserve drawerType in outgoing drawer movement")
-    money_text = money_text[:fn_start] + block + money_text[fn_end:]
-
-money_file.write_text(money_text)
-print("MONEY_ACCOUNT_OUTGOING_COMPAT_OK")
-print("BANK_COMPAT_REPAIRS_OK")
+print_numbered("app/electronic-services/new/page.tsx", 45, 70)
+raise SystemExit("BANK_DEBUG_STOP_AFTER_EXACT_SOURCE_DUMP")
