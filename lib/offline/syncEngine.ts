@@ -9,7 +9,9 @@ import {
 } from "./db";
 import type { OfflineCustomer, OfflineMutation } from "./types";
 
-const CUSTOMER_CURSOR_KEY = "sync:customer:cursor";
+function customerCursorKey(shopId: string) {
+  return `sync:customer:${shopId}:cursor`;
+}
 
 type ServerCustomer = Omit<OfflineCustomer, "syncStatus">;
 
@@ -169,7 +171,7 @@ async function syncBatch(shopId: string, mutations: OfflineMutation[], cursor: s
 
   const resultCounts = await applyMutationResults(shopId, data.results ?? []);
   const pulled = await applyPull(shopId, data.pull.changes);
-  await setOfflineMeta({ key: CUSTOMER_CURSOR_KEY, value: data.pull.nextCursor });
+  await setOfflineMeta({ key: customerCursorKey(shopId), value: data.pull.nextCursor });
 
   return {
     ...resultCounts,
@@ -184,7 +186,7 @@ export async function syncCustomersNow(shopId: string): Promise<CustomerSyncSumm
     throw new Error("لا يوجد اتصال بالإنترنت حالياً.");
   }
 
-  let cursor = (await getOfflineMeta(CUSTOMER_CURSOR_KEY)) ?? "0";
+  let cursor = (await getOfflineMeta(customerCursorKey(shopId))) ?? "0";
   let pushed = 0;
   let applied = 0;
   let conflicts = 0;
