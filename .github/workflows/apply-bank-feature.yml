@@ -1,0 +1,109 @@
+name: Apply bank accounts to preview
+
+on:
+  push:
+    branches:
+      - preview/purchase-receiving
+    paths:
+      - '.bank-staging/**'
+      - '.github/workflows/apply-bank-feature.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bank-accounts-preview-apply
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: massar_preview
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d massar_preview"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/massar_preview?schema=public
+      EXPECTED_PREVIEW_BASE: 0c50c15f46909691485f4d0ff4a4c03302f93a97
+      EXPECTED_MAIN_HEAD: 65c73b7f74b10501cfe4b89edc664e541139dba4
+    steps:
+      - name: Checkout preview staging commit
+        uses: actions/checkout@v4
+        with:
+          ref: preview/purchase-receiving
+          fetch-depth: 0
+
+      - name: Verify staging ancestry and decode payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGING_HEAD="$(git rev-parse HEAD)"
+          git merge-base --is-ancestor "$EXPECTED_PREVIEW_BASE" "$STAGING_HEAD"
+          test -f .bank-staging/payload.b64
+          mkdir -p /tmp/massar-bank
+          base64 -d .bank-staging/payload.b64 > /tmp/massar-bank/payload.tar.gz
+          tar -xzf /tmp/massar-bank/payload.tar.gz -C /tmp/massar-bank
+          test -x /tmp/massar-bank/bank-staging-payload/apply.py
+          echo "STAGING_HEAD=$STAGING_HEAD" >> "$GITHUB_ENV"
+
+      - name: Fetch and verify latest main used by review
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          MAIN_HEAD="$(git rev-parse origin/main)"
+          test "$MAIN_HEAD" = "$EXPECTED_MAIN_HEAD"
+          echo "MAIN_HEAD=$MAIN_HEAD" >> "$GITHUB_ENV"
+
+      - name: Build final working tree from latest main plus bank feature
+        shell: bash
+        run: |
+          set -euo pipefail
+          git reset --hard "$MAIN_HEAD"
+          python3 /tmp/massar-bank/bank-staging-payload/apply.py --payload /tmp/massar-bank/bank-staging-payload
+          git status --short
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply all migrations to temporary PostgreSQL
+        run: npx prisma migrate deploy
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Bank ledger regression suite
+        run: node /tmp/massar-bank/bank-staging-payload/regression-bank-ledger.mjs
+
+      - name: Create clean merge commit and fast-forward preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Staging/workflow files are absent because the working tree was reset to main before applying production changes.
+          git add -A
+          TREE_SHA="$(git write-tree)"
+          FINAL_SHA="$(printf '%s\n' 'feat(finance): add integrated bank accounts' | git commit-tree "$TREE_SHA" -p "$STAGING_HEAD" -p "$MAIN_HEAD")"
+          git push origin "$FINAL_SHA:refs/heads/preview/purchase-receiving"
+          echo "FINAL_SHA=$FINAL_SHA" >> "$GITHUB_ENV"
+          echo "Final preview commit: $FINAL_SHA"
