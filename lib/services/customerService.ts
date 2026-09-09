@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { emptyCustomerValue, normalizePhone } from "@/lib/customers/normalize";
 
 export type CustomerFilters = {
   search?: string;
@@ -13,24 +14,10 @@ export type CreateCustomerInput = {
 
 export type UpdateCustomerInput = CreateCustomerInput;
 
-function emptyToNull(value?: string | null) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
-}
-
-export function normalizePhone(phone?: string | null) {
-  const trimmed = phone?.trim();
-  if (!trimmed) return null;
-  const hasPlus = trimmed.startsWith("+");
-  const digits = trimmed.replace(/\D/g, "");
-  if (!digits) return null;
-  return hasPlus ? `+${digits}` : digits;
-}
-
 export async function createCustomer(shopId: string, input: CreateCustomerInput) {
   const name = input.name.trim();
   if (!name) throw new Error("اسم العميل مطلوب.");
-  const phone = emptyToNull(input.phone);
+  const phone = emptyCustomerValue(input.phone);
   const phoneNormalized = normalizePhone(phone);
 
   if (phoneNormalized) {
@@ -54,8 +41,8 @@ export async function createCustomer(shopId: string, input: CreateCustomerInput)
       name,
       phone,
       phoneNormalized,
-      email: emptyToNull(input.email),
-      notes: emptyToNull(input.notes),
+      email: emptyCustomerValue(input.email),
+      notes: emptyCustomerValue(input.notes),
     },
     select: { id: true, name: true, phone: true, email: true },
   });
@@ -123,15 +110,15 @@ export async function updateCustomer(shopId: string, customerId: string, input: 
     select: { id: true },
   });
   if (!customer) throw new Error("العميل غير موجود.");
-  const phone = emptyToNull(input.phone);
+  const phone = emptyCustomerValue(input.phone);
   return prisma.customer.update({
     where: { id: customer.id },
     data: {
       name: input.name.trim(),
       phone,
       phoneNormalized: normalizePhone(phone),
-      email: emptyToNull(input.email),
-      notes: emptyToNull(input.notes),
+      email: emptyCustomerValue(input.email),
+      notes: emptyCustomerValue(input.notes),
       version: { increment: 1 },
     },
   });
@@ -181,6 +168,8 @@ export async function softDeleteCustomer(shopId: string, customerId: string) {
     });
   });
 }
+
+export { normalizePhone };
 
 export const customerService = {
   createCustomer,
