@@ -99,44 +99,50 @@ if "model BankAccount {" in schema or "model BankAccountMovement {" in schema:
 
 schema = schema.rstrip() + bank_models + "\n"
 Path("prisma/schema.prisma").write_text(schema)
+head = "\n".join(schema.splitlines()[:8])
+if "model BankAccount" in head or "@@index" in head:
+    raise SystemExit("bank schema content leaked into generator/datasource header")
 print("PRISMA_SCHEMA_REBUILT_OK")
 
-# Known safe compatibility: timezone.ts owns these helpers, shop-timezone is the facade.
+# Existing date helpers live in timezone.ts; expose them through the shop-timezone facade
+# used by the new bank-account page.
 shop_tz = Path("lib/shop-timezone.ts")
 shop_text = shop_tz.read_text()
 if "dateInputStartUtcForTimeZone," not in shop_text or "dateInputEndUtcForTimeZone," not in shop_text:
     anchor = "  dateInputUtcBoundsForTimeZone,\n"
     if anchor not in shop_text:
         raise SystemExit("shop-timezone date export anchor not found")
-    shop_text = shop_text.replace(anchor, "  dateInputEndUtcForTimeZone,\n  dateInputStartUtcForTimeZone,\n" + anchor, 1)
+    shop_text = shop_text.replace(
+        anchor,
+        "  dateInputEndUtcForTimeZone,\n  dateInputStartUtcForTimeZone,\n" + anchor,
+        1,
+    )
     shop_tz.write_text(shop_text)
 print("SHOP_TIMEZONE_BANK_COMPAT_OK")
 
+# The bank-aware money service deliberately generalized drawerType -> movementType.
+# Preserve the existing software-service-cost classification at its call site.
+software = Path("lib/services/softwareServiceService.ts")
+software_text = software.read_text()
+old_cost_type = '        drawerType: "SOFTWARE_SERVICE_COST",'
+new_cost_type = '        movementType: "SOFTWARE_SERVICE_COST",'
+if old_cost_type in software_text:
+    software_text = software_text.replace(old_cost_type, new_cost_type, 1)
+elif new_cost_type not in software_text:
+    raise SystemExit("software service cost movement classification anchor not found")
+software.write_text(software_text)
+print("SOFTWARE_SERVICE_BANK_MOVEMENT_TYPE_OK")
 
-def print_numbered(path: str, start: int = 1, end: int | None = None):
-    lines = Path(path).read_text().splitlines()
-    end = min(end or len(lines), len(lines))
-    print(f"=== {path} lines {start}-{end} ===")
-    for number in range(start, end + 1):
-        print(f"{number:04d}: {lines[number - 1]}")
+# Onboarding success accepts the same destination union as the electronic-service transaction.
+activation = Path("app/electronic-services/new/_activation-success.tsx")
+activation_text = activation.read_text()
+old_union = 'paymentDestination: "DRAWER" | "WALLET" | "OTHER" | "DEBT";'
+new_union = 'paymentDestination: "DRAWER" | "WALLET" | "BANK" | "OTHER" | "DEBT";'
+if old_union in activation_text:
+    activation_text = activation_text.replace(old_union, new_union, 1)
+elif new_union not in activation_text:
+    raise SystemExit("electronic service activation payment destination union not found")
+activation.write_text(activation_text)
+print("ELECTRONIC_SERVICE_ACTIVATION_BANK_TYPE_OK")
 
-money = Path("lib/services/moneyAccountService.ts").read_text()
-fn_start = money.find("export async function applyOutgoingMoneyTx")
-if fn_start < 0:
-    raise SystemExit("applyOutgoingMoneyTx not found")
-fn_end = money.find("\n}\n", fn_start)
-if fn_end < 0:
-    raise SystemExit("applyOutgoingMoneyTx end not found")
-print("=== EXACT applyOutgoingMoneyTx ===")
-print(money[fn_start:fn_end + 2])
-
-form_lines = Path("app/electronic-services/new/_service-form.tsx").read_text().splitlines()
-print("=== electronic service form destination-related lines ===")
-for i, line in enumerate(form_lines, 1):
-    if any(key in line for key in ["paymentDestination", "defaultPayment", "destination:", "destination?", "destination "]):
-        lo, hi = max(1, i - 2), min(len(form_lines), i + 2)
-        for n in range(lo, hi + 1):
-            print(f"FORM {n:04d}: {form_lines[n-1]}")
-
-print_numbered("app/electronic-services/new/page.tsx", 45, 70)
-raise SystemExit("BANK_DEBUG_STOP_AFTER_EXACT_SOURCE_DUMP")
+print("BANK_COMPAT_REPAIRS_OK")
