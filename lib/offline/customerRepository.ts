@@ -68,7 +68,9 @@ export async function createCustomerOffline(actor: OfflineActor, input: OfflineC
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
-    version: 0,
+    // A newly created server customer starts at version 1. Keeping the optimistic
+    // local version aligned lets subsequent offline edits queue against version 1.
+    version: 1,
     syncStatus: "pending",
   };
 
@@ -106,6 +108,7 @@ export async function updateCustomerOffline(
     email: clean(input.email),
     notes: clean(input.notes),
     updatedAt: new Date().toISOString(),
+    version: existing.version + 1,
     syncStatus: "pending",
   };
 
@@ -132,6 +135,7 @@ export async function deleteCustomerOffline(actor: OfflineActor, customerId: str
     ...existing,
     deletedAt,
     updatedAt: deletedAt,
+    version: existing.version + 1,
     syncStatus: "pending",
   };
 
