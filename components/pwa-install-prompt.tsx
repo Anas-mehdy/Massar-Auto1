@@ -4,6 +4,7 @@ import Image from "next/image";
 import { Download, Share2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { clearOfflineSession, refreshOfflineSessionSnapshot } from "@/lib/offline/offlineSession";
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -11,6 +12,28 @@ type BeforeInstallPromptEvent = Event & {
 };
 
 type NavigatorWithStandalone = Navigator & { standalone?: boolean };
+
+const PUBLIC_PATHS = new Set([
+  "/",
+  "/login",
+  "/register",
+  "/onboarding",
+  "/forgot-password",
+  "/reset-password",
+]);
+
+function isOfflineSessionPublicPath(pathname: string) {
+  return (
+    PUBLIC_PATHS.has(pathname) ||
+    pathname.startsWith("/partners") ||
+    pathname.startsWith("/partner-invite/") ||
+    pathname.startsWith("/register/partner/") ||
+    pathname.startsWith("/track") ||
+    pathname.startsWith("/installment-track") ||
+    pathname.includes("/print") ||
+    pathname.includes("/sticker")
+  );
+}
 
 export function PwaInstallPrompt() {
   const pathname = usePathname();
@@ -56,6 +79,26 @@ export function PwaInstallPrompt() {
       window.removeEventListener("appinstalled", handleInstalled);
     };
   }, []);
+
+  useEffect(() => {
+    if (pathname === "/login") {
+      // Reaching the login screen is an explicit trust boundary. Keep cached business
+      // data/outbox for durability, but revoke access to it until the next online login.
+      void clearOfflineSession();
+      return;
+    }
+
+    if (isOfflineSessionPublicPath(pathname)) return;
+
+    const refresh = () => {
+      if (!navigator.onLine) return;
+      void refreshOfflineSessionSnapshot().catch(() => undefined);
+    };
+
+    refresh();
+    window.addEventListener("online", refresh);
+    return () => window.removeEventListener("online", refresh);
+  }, [pathname]);
 
   async function install() {
     if (installPrompt) {
