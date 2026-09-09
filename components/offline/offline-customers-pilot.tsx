@@ -12,6 +12,10 @@ import {
   type OfflineCustomerInput,
 } from "@/lib/offline/customerRepository";
 import {
+  acceptServerCustomer,
+  reapplyLocalCustomer,
+} from "@/lib/offline/customerConflictResolution";
+import {
   readOfflineSession,
   refreshOfflineSessionSnapshot,
   type OfflineSessionSnapshot,
@@ -58,7 +62,7 @@ export function OfflineCustomersPilot() {
       const summary = await syncCustomersNow(activeSession.shop.id);
       setSyncSummary(summary);
       await reloadCustomers(activeSession.shop.id);
-      setMessage(summary.conflicts > 0 ? `تمت المزامنة مع ${summary.conflicts} تعارض.` : "تمت المزامنة بنجاح.");
+      setMessage(summary.conflicts > 0 ? `تمت المزامنة مع ${summary.conflicts} تعارض يحتاج مراجعة.` : "تمت المزامنة بنجاح.");
     } catch (error) {
       setMessage(errorText(error));
     } finally {
@@ -120,11 +124,8 @@ export function OfflineCustomersPilot() {
     if (!actor || !session) return;
     setMessage(null);
     try {
-      if (editingId) {
-        await updateCustomerOffline(actor, editingId, form);
-      } else {
-        await createCustomerOffline(actor, form);
-      }
+      if (editingId) await updateCustomerOffline(actor, editingId, form);
+      else await createCustomerOffline(actor, form);
       setForm(emptyForm);
       setEditingId(null);
       await reloadCustomers(session.shop.id);
@@ -137,12 +138,7 @@ export function OfflineCustomersPilot() {
 
   function startEdit(customer: OfflineCustomer) {
     setEditingId(customer.id);
-    setForm({
-      name: customer.name,
-      phone: customer.phone ?? "",
-      email: customer.email ?? "",
-      notes: customer.notes ?? "",
-    });
+    setForm({ name: customer.name, phone: customer.phone ?? "", email: customer.email ?? "", notes: customer.notes ?? "" });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -159,17 +155,31 @@ export function OfflineCustomersPilot() {
     }
   }
 
-  if (loading) {
-    return <div className="rounded-2xl border bg-white p-8 text-sm font-bold">جاري تهيئة قاعدة البيانات المحلية...</div>;
+  async function useServerVersion(customer: OfflineCustomer) {
+    if (!session) return;
+    try {
+      await acceptServerCustomer(session.shop.id, customer.id);
+      await reloadCustomers(session.shop.id);
+      setMessage("تم اعتماد نسخة السيرفر وإنهاء التعارض.");
+    } catch (error) {
+      setMessage(errorText(error));
+    }
   }
 
-  if (!session) {
-    return (
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm font-bold text-amber-900">
-        {message ?? "تعذر تهيئة جلسة العمل المحلية."}
-      </div>
-    );
+  async function keepLocalVersion(customer: OfflineCustomer) {
+    if (!session || !actor) return;
+    try {
+      await reapplyLocalCustomer(actor, customer.id);
+      await reloadCustomers(session.shop.id);
+      setMessage("تم إنشاء محاولة جديدة اعتماداً على أحدث نسخة من السيرفر.");
+      if (online) await runSync(session);
+    } catch (error) {
+      setMessage(errorText(error));
+    }
   }
+
+  if (loading) return <div className="rounded-2xl border bg-white p-8 text-sm font-bold">جاري تهيئة قاعدة البيانات المحلية...</div>;
+  if (!session) return <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm font-bold text-amber-900">{message ?? "تعذر تهيئة جلسة العمل المحلية."}</div>;
 
   const canManage = session.permissions.includes("customers:manage");
   const canDelete = session.permissions.includes("customers:delete");
@@ -184,23 +194,13 @@ export function OfflineCustomersPilot() {
           </div>
           <p className="mt-1 text-xs text-slate-500">{session.shop.name} · {session.user.name}</p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={!online || syncing}
-          onClick={() => void runSync(session)}
-          className="font-bold"
-        >
+        <Button type="button" variant="outline" disabled={!online || syncing} onClick={() => void runSync(session)} className="font-bold">
           <RefreshCw className={`ml-1.5 h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
           مزامنة الآن
         </Button>
       </div>
 
-      {message && (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-700">
-          {message}
-        </div>
-      )}
+      {message && <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-700">{message}</div>}
 
       {syncSummary && (
         <div className="grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-5">
@@ -216,11 +216,7 @@ export function OfflineCustomersPilot() {
         <form onSubmit={submitCustomer} className="grid gap-4 rounded-2xl border bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-black">{editingId ? "تعديل عميل محلياً" : "إضافة عميل محلياً"}</h2>
-            {editingId && (
-              <Button type="button" variant="ghost" onClick={() => { setEditingId(null); setForm(emptyForm); }}>
-                إلغاء التعديل
-              </Button>
-            )}
+            {editingId && <Button type="button" variant="ghost" onClick={() => { setEditingId(null); setForm(emptyForm); }}>إلغاء التعديل</Button>}
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <input className="h-11 rounded-xl border px-3 text-sm" required placeholder="اسم العميل" value={form.name} onChange={(e) => setForm((v) => ({ ...v, name: e.target.value }))} />
@@ -253,16 +249,17 @@ export function OfflineCustomersPilot() {
                     {statusLabel(customer.syncStatus)}
                   </span>
                 </div>
-                <div className="flex gap-2">
-                  {canManage && customer.syncStatus !== "conflict" && (
-                    <Button type="button" variant="outline" size="sm" onClick={() => startEdit(customer)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                  {canDelete && customer.syncStatus !== "conflict" && (
-                    <Button type="button" variant="outline" size="sm" onClick={() => void removeCustomer(customer)} className="text-red-700">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                <div className="flex flex-wrap gap-2">
+                  {customer.syncStatus === "conflict" ? (
+                    <>
+                      <Button type="button" variant="outline" size="sm" onClick={() => void useServerVersion(customer)}>اعتماد السيرفر</Button>
+                      {canManage && <Button type="button" variant="outline" size="sm" onClick={() => void keepLocalVersion(customer)}>إعادة تطبيق المحلي</Button>}
+                    </>
+                  ) : (
+                    <>
+                      {canManage && <Button type="button" variant="outline" size="sm" onClick={() => startEdit(customer)}><Pencil className="h-3.5 w-3.5" /></Button>}
+                      {canDelete && <Button type="button" variant="outline" size="sm" onClick={() => void removeCustomer(customer)} className="text-red-700"><Trash2 className="h-3.5 w-3.5" /></Button>}
+                    </>
                   )}
                 </div>
               </div>
