@@ -5,8 +5,7 @@ on:
     branches:
       - preview/purchase-receiving
     paths:
-      - '.bank-staging/**'
-      - '.github/workflows/apply-bank-feature.yml'
+      - '.bank-staging/ready-v4'
 
 permissions:
   contents: write
@@ -49,10 +48,29 @@ jobs:
           set -euo pipefail
           STAGING_HEAD="$(git rev-parse HEAD)"
           git merge-base --is-ancestor "$EXPECTED_PREVIEW_BASE" "$STAGING_HEAD"
-          test -f .bank-staging/payload.part.00
-          test -f .bank-staging/payload.part.10
+          files=(
+            .bank-staging/payload.part.00
+            .bank-staging/payload.part.01
+            .bank-staging/payload.part.02
+            .bank-staging/payload.part.03.00
+            .bank-staging/payload.part.03.01
+            .bank-staging/payload.part.03.02
+            .bank-staging/payload.part.03.03
+            .bank-staging/payload.part.04
+            .bank-staging/payload.part.05
+            .bank-staging/payload.part.06
+            .bank-staging/payload.part.07.00
+            .bank-staging/payload.part.07.01
+            .bank-staging/payload.part.07.02
+            .bank-staging/payload.part.07.03
+            .bank-staging/payload.part.08
+            .bank-staging/payload.part.09
+            .bank-staging/payload.part.10
+          )
+          test -f .bank-staging/ready-v4
+          for f in "${files[@]}"; do test -f "$f"; done
           mkdir -p /tmp/massar-bank
-          cat .bank-staging/payload.part.* | base64 -d > /tmp/massar-bank/payload.tar.gz
+          cat "${files[@]}" | base64 -d > /tmp/massar-bank/payload.tar.gz
           tar -xzf /tmp/massar-bank/payload.tar.gz -C /tmp/massar-bank
           test -x /tmp/massar-bank/bank-staging-payload/apply.py
           echo "STAGING_HEAD=$STAGING_HEAD" >> "$GITHUB_ENV"
@@ -101,7 +119,6 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Staging/workflow files are absent because the working tree was reset to main before applying production changes.
           git add -A
           TREE_SHA="$(git write-tree)"
           FINAL_SHA="$(printf '%s\n' 'feat(finance): add integrated bank accounts' | git commit-tree "$TREE_SHA" -p "$STAGING_HEAD" -p "$MAIN_HEAD")"
