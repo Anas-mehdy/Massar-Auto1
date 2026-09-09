@@ -71,7 +71,7 @@ export function DebtDashboard({
   const [message, setMessage] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [customerOptions, setCustomerOptions] = useState<CustomerOption[]>(customers);
-  const [customerId, setCustomerId] = useState(customers[0]?.id ?? "");
+  const [customerId, setCustomerId] = useState("");
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState("");
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
@@ -120,6 +120,37 @@ export function DebtDashboard({
     setDateTo("");
   }
 
+  function toggleDebtForm() {
+    const next = !showForm;
+    setShowForm(next);
+    setMessage(null);
+    if (next) {
+      setCustomerId("");
+      setShowNewCustomer(false);
+      setNewCustomerName("");
+      setNewCustomerPhone("");
+      setNewCustomerEmail("");
+    }
+  }
+
+  function toggleNewCustomer() {
+    const next = !showNewCustomer;
+    setShowNewCustomer(next);
+    setMessage(null);
+    if (next) {
+      setCustomerId("");
+      setNewCustomerName("");
+      setNewCustomerPhone("");
+      setNewCustomerEmail("");
+    }
+  }
+
+  function selectCustomer(value: string) {
+    setCustomerId(value);
+    setMessage(null);
+    if (value) setShowNewCustomer(false);
+  }
+
   function submitNewCustomer() {
     setMessage(null);
     if (!newCustomerName.trim()) {
@@ -145,21 +176,26 @@ export function DebtDashboard({
       setNewCustomerEmail("");
       setShowNewCustomer(false);
       setMessage(`تمت إضافة العميل «${result.customer.name}» واختياره للدين الحالي.`);
-      router.refresh();
     });
   }
 
   function submitDebt() {
     setMessage(null);
+    if (customerPending) {
+      setMessage("انتظر حتى يتم حفظ العميل الجديد واختياره قبل تسجيل الدين.");
+      return;
+    }
+
     const numericAmount = Number(amount);
     if (!customerId || !Number.isFinite(numericAmount) || numericAmount <= 0) {
       setMessage("اختر العميل وأدخل مبلغاً صحيحاً أكبر من صفر.");
       return;
     }
 
+    const targetCustomerId = customerId;
     startTransition(async () => {
       const result = await createDebtAction({
-        customerId,
+        customerId: targetCustomerId,
         amount: numericAmount,
         type,
         dueAt: dueAt || null,
@@ -175,6 +211,8 @@ export function DebtDashboard({
       setReference("");
       setDueAt("");
       setType("DEBT");
+      setCustomerId("");
+      setShowNewCustomer(false);
       setShowForm(false);
       setMessage("تم تسجيل الدين في دفتر العميل بنجاح.");
       router.refresh();
@@ -196,7 +234,7 @@ export function DebtDashboard({
           <h1 className="mt-1 text-2xl font-black text-slate-900">ذمم العملاء والتحصيلات</h1>
           <p className="mt-1 max-w-2xl text-xs font-semibold leading-6 text-slate-500">قسم محاسبي مستقل عن الأقساط لمتابعة أرصدة العملاء والتحصيلات وسجل كل دفتر.</p>
         </div>
-        <button type="button" onClick={() => setShowForm((value) => !value)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-xs font-black text-white shadow-sm transition hover:bg-slate-800"><Plus className="h-4 w-4" /> إضافة دين</button>
+        <button type="button" onClick={toggleDebtForm} disabled={isPending || customerPending} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-xs font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"><Plus className="h-4 w-4" /> إضافة دين</button>
       </header>
 
       {message ? <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs font-bold text-sky-800">{message}</div> : null}
@@ -206,19 +244,19 @@ export function DebtDashboard({
           <div className="mb-5"><h2 className="text-sm font-black text-slate-900">تسجيل حركة مدينة جديدة</h2><p className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">اختر عميلاً موجوداً أو أضف عميلاً جديداً مباشرة من هنا، حتى لو لم تكن لديه تذاكر صيانة أو مبيعات.</p></div>
           <div className="mb-5 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-              <label className="space-y-1.5 text-xs font-bold text-slate-700"><span>العميل</span><select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none transition focus:border-sky-400">{customerOptions.length === 0 ? <option value="">لا يوجد عملاء بعد</option> : null}{customerOptions.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}{customer.phone ? ` — ${customer.phone}` : ""}</option>)}</select></label>
-              <button type="button" onClick={() => setShowNewCustomer((value) => !value)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-xs font-black text-sky-700 transition hover:bg-sky-100"><UserPlus className="h-4 w-4" /> عميل جديد</button>
+              <label className="space-y-1.5 text-xs font-bold text-slate-700"><span>العميل</span><select value={customerId} onChange={(e) => selectCustomer(e.target.value)} disabled={isPending || customerPending} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none transition focus:border-sky-400 disabled:opacity-50"><option value="">{customerOptions.length === 0 ? "لا يوجد عملاء بعد" : "اختر العميل"}</option>{customerOptions.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}{customer.phone ? ` — ${customer.phone}` : ""}</option>)}</select></label>
+              <button type="button" disabled={isPending || customerPending} onClick={toggleNewCustomer} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-xs font-black text-sky-700 transition hover:bg-sky-100 disabled:opacity-50"><UserPlus className="h-4 w-4" /> عميل جديد</button>
             </div>
-            {showNewCustomer ? <div className="mt-4 border-t border-slate-200 pt-4"><div className="grid gap-3 md:grid-cols-3"><label className="space-y-1 text-xs font-bold text-slate-700"><span>اسم العميل *</span><input value={newCustomerName} onChange={(e) => setNewCustomerName(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-sky-400" placeholder="اسم العميل" /></label><label className="space-y-1 text-xs font-bold text-slate-700"><span>رقم الهاتف</span><input value={newCustomerPhone} onChange={(e) => setNewCustomerPhone(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-sky-400" placeholder="اختياري" /></label><label className="space-y-1 text-xs font-bold text-slate-700"><span>البريد الإلكتروني</span><input type="email" value={newCustomerEmail} onChange={(e) => setNewCustomerEmail(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-sky-400" placeholder="اختياري" /></label></div><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={customerPending} onClick={submitNewCustomer} className="rounded-xl bg-sky-600 px-4 py-2.5 text-xs font-black text-white disabled:opacity-50">{customerPending ? "جارٍ الإضافة..." : "إضافة العميل واختياره"}</button><button type="button" onClick={() => setShowNewCustomer(false)} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-600">إلغاء</button></div></div> : null}
+            {showNewCustomer ? <div className="mt-4 border-t border-slate-200 pt-4"><div className="grid gap-3 md:grid-cols-3"><label className="space-y-1 text-xs font-bold text-slate-700"><span>اسم العميل *</span><input value={newCustomerName} onChange={(e) => setNewCustomerName(e.target.value)} disabled={customerPending} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-sky-400 disabled:opacity-50" placeholder="اسم العميل" /></label><label className="space-y-1 text-xs font-bold text-slate-700"><span>رقم الهاتف</span><input value={newCustomerPhone} onChange={(e) => setNewCustomerPhone(e.target.value)} disabled={customerPending} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-sky-400 disabled:opacity-50" placeholder="اختياري" /></label><label className="space-y-1 text-xs font-bold text-slate-700"><span>البريد الإلكتروني</span><input type="email" value={newCustomerEmail} onChange={(e) => setNewCustomerEmail(e.target.value)} disabled={customerPending} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-sky-400 disabled:opacity-50" placeholder="اختياري" /></label></div><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={customerPending} onClick={submitNewCustomer} className="rounded-xl bg-sky-600 px-4 py-2.5 text-xs font-black text-white disabled:opacity-50">{customerPending ? "جارٍ الإضافة..." : "إضافة العميل واختياره"}</button><button type="button" disabled={customerPending} onClick={() => setShowNewCustomer(false)} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-600 disabled:opacity-50">إلغاء</button></div></div> : null}
           </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <label className="space-y-1.5 text-xs font-bold text-slate-700"><span>نوع الحركة</span><select value={type} onChange={(e) => setType(e.target.value as "DEBT" | "OPENING_BALANCE")} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-sky-400"><option value="DEBT">دين جديد</option><option value="OPENING_BALANCE">رصيد افتتاحي</option></select></label>
-            <label className="space-y-1.5 text-xs font-bold text-slate-700"><span>المبلغ</span><input type="number" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-sky-400" placeholder={`0.00 ${currency}`} /></label>
-            <label className="space-y-1.5 text-xs font-bold text-slate-700"><span>تاريخ الاستحقاق (اختياري)</span><input type="date" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-sky-400" /></label>
-            <label className="space-y-1.5 text-xs font-bold text-slate-700"><span>مرجع (اختياري)</span><input value={reference} onChange={(e) => setReference(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-sky-400" placeholder="رقم فاتورة أو تذكرة..." /></label>
-            <label className="space-y-1.5 text-xs font-bold text-slate-700 md:col-span-2"><span>البيان / السبب</span><input value={description} onChange={(e) => setDescription(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-sky-400" placeholder="مثال: باقي قيمة صيانة الجهاز" /></label>
+            <label className="space-y-1.5 text-xs font-bold text-slate-700"><span>نوع الحركة</span><select value={type} onChange={(e) => setType(e.target.value as "DEBT" | "OPENING_BALANCE")} disabled={isPending || customerPending} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-sky-400 disabled:opacity-50"><option value="DEBT">دين جديد</option><option value="OPENING_BALANCE">رصيد افتتاحي</option></select></label>
+            <label className="space-y-1.5 text-xs font-bold text-slate-700"><span>المبلغ</span><input type="number" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isPending || customerPending} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-sky-400 disabled:opacity-50" placeholder={`0.00 ${currency}`} /></label>
+            <label className="space-y-1.5 text-xs font-bold text-slate-700"><span>تاريخ الاستحقاق (اختياري)</span><input type="date" value={dueAt} onChange={(e) => setDueAt(e.target.value)} disabled={isPending || customerPending} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-sky-400 disabled:opacity-50" /></label>
+            <label className="space-y-1.5 text-xs font-bold text-slate-700"><span>مرجع (اختياري)</span><input value={reference} onChange={(e) => setReference(e.target.value)} disabled={isPending || customerPending} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-sky-400 disabled:opacity-50" placeholder="رقم فاتورة أو تذكرة..." /></label>
+            <label className="space-y-1.5 text-xs font-bold text-slate-700 md:col-span-2"><span>البيان / السبب</span><input value={description} onChange={(e) => setDescription(e.target.value)} disabled={isPending || customerPending} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-sky-400 disabled:opacity-50" placeholder="مثال: باقي قيمة صيانة الجهاز" /></label>
           </div>
-          <div className="mt-5 flex flex-wrap gap-2"><button type="button" disabled={isPending || !customerId} onClick={submitDebt} className="rounded-xl bg-sky-600 px-5 py-2.5 text-xs font-black text-white disabled:opacity-50">{isPending ? "جارٍ الحفظ..." : "حفظ الحركة"}</button><button type="button" onClick={() => setShowForm(false)} className="rounded-xl border border-slate-200 px-5 py-2.5 text-xs font-black text-slate-600">إلغاء</button></div>
+          <div className="mt-5 flex flex-wrap gap-2"><button type="button" disabled={isPending || customerPending || !customerId} onClick={submitDebt} className="rounded-xl bg-sky-600 px-5 py-2.5 text-xs font-black text-white disabled:opacity-50">{customerPending ? "جارٍ حفظ العميل..." : isPending ? "جارٍ الحفظ..." : "حفظ الحركة"}</button><button type="button" disabled={isPending || customerPending} onClick={() => setShowForm(false)} className="rounded-xl border border-slate-200 px-5 py-2.5 text-xs font-black text-slate-600 disabled:opacity-50">إلغاء</button></div>
         </section>
       ) : null}
 
