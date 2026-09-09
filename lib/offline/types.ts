@@ -10,7 +10,8 @@ export type OfflineMutationStatus =
   | "syncing"
   | "applied"
   | "conflict"
-  | "failed";
+  | "failed"
+  | "discarded";
 
 export type OfflineCustomer = {
   id: string;
@@ -42,6 +43,8 @@ export type OfflineMutation<TPayload = unknown> = {
   status: OfflineMutationStatus;
   retryCount: number;
   lastError: string | null;
+  /** Authoritative server row captured when optimistic version validation fails. */
+  conflictSnapshot?: OfflineCustomer | null;
 };
 
 export type OfflineMetaRecord = {
