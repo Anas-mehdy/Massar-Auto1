@@ -2,9 +2,10 @@
 
 import Image from "next/image";
 import { Download, Share2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { clearOfflineSession, refreshOfflineSessionSnapshot } from "@/lib/offline/offlineSession";
+import { syncCustomersNow } from "@/lib/offline/syncEngine";
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -37,6 +38,7 @@ function isOfflineSessionPublicPath(pathname: string) {
 
 export function PwaInstallPrompt() {
   const pathname = usePathname();
+  const syncInFlight = useRef(false);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isIos, setIsIos] = useState(false);
   const [isInstalled, setIsInstalled] = useState(true);
@@ -90,14 +92,24 @@ export function PwaInstallPrompt() {
 
     if (isOfflineSessionPublicPath(pathname)) return;
 
-    const refresh = () => {
-      if (!navigator.onLine) return;
-      void refreshOfflineSessionSnapshot().catch(() => undefined);
+    const refreshAndSync = async () => {
+      if (!navigator.onLine || syncInFlight.current) return;
+      syncInFlight.current = true;
+      try {
+        const snapshot = await refreshOfflineSessionSnapshot();
+        await syncCustomersNow(snapshot.shop.id);
+      } catch {
+        // The normal online UI remains authoritative. A transient sync/auth failure must
+        // never block rendering; pending outbox entries remain durable for the next retry.
+      } finally {
+        syncInFlight.current = false;
+      }
     };
 
-    refresh();
-    window.addEventListener("online", refresh);
-    return () => window.removeEventListener("online", refresh);
+    void refreshAndSync();
+    const handleOnline = () => void refreshAndSync();
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
   }, [pathname]);
 
   async function install() {
