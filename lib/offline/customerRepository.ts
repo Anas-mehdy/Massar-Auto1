@@ -1,4 +1,4 @@
-import { normalizePhone } from "@/lib/services/customerService";
+import { normalizePhone } from "@/lib/customers/normalize";
 import { createOfflineOperationId, getOrCreateDeviceId } from "./device";
 import {
   enqueueOfflineMutation,
@@ -68,8 +68,6 @@ export async function createCustomerOffline(actor: OfflineActor, input: OfflineC
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
-    // A newly created server customer starts at version 1. Keeping the optimistic
-    // local version aligned lets subsequent offline edits queue against version 1.
     version: 1,
     syncStatus: "pending",
   };
