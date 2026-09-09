@@ -74,6 +74,7 @@ async function applyMutationResults(shopId: string, results: MutationResult[]) {
       await updateOfflineMutation(result.operationId, {
         status: "applied",
         lastError: null,
+        conflictSnapshot: null,
       });
 
       if (result.customer) {
@@ -93,6 +94,7 @@ async function applyMutationResults(shopId: string, results: MutationResult[]) {
       await updateOfflineMutation(result.operationId, {
         status: "conflict",
         lastError: result.errorMessage ?? "حدث تعارض أثناء المزامنة.",
+        conflictSnapshot: result.customer ? toOfflineCustomer(result.customer, "synced") : null,
       });
       const local = await getOfflineCustomer(mutation.entityId);
       if (local) {
