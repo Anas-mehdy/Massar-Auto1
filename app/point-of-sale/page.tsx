@@ -22,6 +22,7 @@ import { getCurrentShopContext, type CurrentShopContext } from "@/lib/current-sh
 import { pointOfSaleReturnPath, type PointOfSaleTabKey } from "@/lib/point-of-sale";
 import { prisma } from "@/lib/prisma";
 import { electronicServiceTransactionService } from "@/lib/services/electronicServiceTransactionService";
+import { bankAccountService } from "@/lib/services/bankAccountService";
 import { financialTransferService } from "@/lib/services/financialTransferService";
 import { inventoryService } from "@/lib/services/inventoryService";
 import { repairOrderService } from "@/lib/services/repairOrderService";
@@ -98,9 +99,10 @@ function operationRecordLabel(tab: PointOfSaleTabKey) {
 }
 
 async function renderSaleForm(context: CurrentShopContext, key: string) {
-  const [inventoryItems, wallets] = await Promise.all([
+  const [inventoryItems, wallets, bankAccounts] = await Promise.all([
     inventoryService.listInventoryItems(context.shopId),
     financialTransferService.listWallets(context.shopId),
+    bankAccountService.listAccounts(context.shopId),
   ]);
 
   return (
@@ -109,6 +111,7 @@ async function renderSaleForm(context: CurrentShopContext, key: string) {
       currency={context.currency}
       inventoryItems={inventoryItems.map((item) => ({ id: item.id, name: item.name, sku: item.sku, quantity: item.quantity, unitPrice: item.unitPrice.toString() }))}
       wallets={wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, balance: Number(wallet.currentBalance) }))}
+      bankAccounts={bankAccounts.map((account) => ({ id: account.id, name: account.name, bankName: account.bankName, balance: Number(account.currentBalance) }))}
       returnTo={pointOfSaleReturnPath("sale")}
     />
   );
@@ -143,9 +146,10 @@ async function renderRepairForm(context: CurrentShopContext, key: string) {
 }
 
 async function renderSoftwareForm(context: CurrentShopContext, key: string) {
-  const [catalog, wallets] = await Promise.all([
+  const [catalog, wallets, bankAccounts] = await Promise.all([
     softwareServiceService.listCatalog(context.shopId),
     financialTransferService.listWallets(context.shopId),
+    bankAccountService.listAccounts(context.shopId),
   ]);
 
   return (
@@ -158,6 +162,7 @@ async function renderSoftwareForm(context: CurrentShopContext, key: string) {
         defaultCost: item.defaultCost?.toString() ?? null,
       }))}
       wallets={wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, balance: Number(wallet.currentBalance) }))}
+      bankAccounts={bankAccounts.map((account) => ({ id: account.id, name: account.name, bankName: account.bankName, balance: Number(account.currentBalance) }))}
       currency={context.currency || "SAR"}
       returnTo={pointOfSaleReturnPath("software")}
     />
@@ -198,6 +203,7 @@ async function renderElectronicForm(context: CurrentShopContext, key: string) {
         }))}
         customers={data.customers.map((customer) => ({ id: customer.id, name: customer.name, phone: customer.phone }))}
         wallets={data.wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, currentBalance: Number(wallet.currentBalance) }))}
+        bankAccounts={data.bankAccounts.map((account) => ({ id: account.id, name: account.name, bankName: account.bankName, currentBalance: Number(account.currentBalance) }))}
         defaultCurrency={context.currency}
         returnTo={pointOfSaleReturnPath("electronic")}
       />

@@ -9,11 +9,10 @@ export async function cancelSoftwareServiceSale(
   saleId: string,
   cancelledByUserId: string | null,
 ) {
-  void cancelledByUserId;
-
   // Ensure runtime-managed cash drawer and wallet tables exist before a possible money reversal.
   await moneyAccountService.prepareMoneyAccounts(shopId, "DRAWER");
   await moneyAccountService.prepareMoneyAccounts(shopId, "WALLET");
+  await moneyAccountService.prepareMoneyAccounts(shopId, "BANK");
 
   const existing = await softwareServiceService.getSaleById(shopId, saleId);
   if (!existing) throw new Error("خدمة السوفتوير غير موجودة أو تم إلغاؤها مسبقاً.");
@@ -57,7 +56,9 @@ export async function cancelSoftwareServiceSale(
 
     const now = new Date();
     if (invoice.status !== InvoiceStatus.VOID) {
-      await moneyAccountService.reverseInvoiceMoneyTx(tx, shopId, invoice.invoiceNumber);
+      await moneyAccountService.reverseSourceMoneyTx(tx, shopId, "INVOICE", invoice.id, cancelledByUserId);
+      // Legacy fallback: rows written before source IDs were consistently stored.
+      await moneyAccountService.reverseInvoiceMoneyTx(tx, shopId, invoice.invoiceNumber, cancelledByUserId);
       if (invoice.payments.length > 0) {
         await tx.payment.updateMany({
           where: { shopId, invoiceId: invoice.id, deletedAt: null },

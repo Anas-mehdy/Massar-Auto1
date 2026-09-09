@@ -46,7 +46,6 @@ export async function createInvoiceFromSale(shopId: string, saleId: string, crea
 }
 
 export async function voidInvoice(shopId: string, invoiceId: string, createdByUserId: string | null) {
-  void createdByUserId;
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${invoiceId}::uuid AND "shopId" = ${shopId}::uuid FOR UPDATE`;
     const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, shopId, deletedAt: null }, include: { payments: { where: { deletedAt: null }, select: { id: true } }, installmentPlan: { select: { id: true } } } });
@@ -54,7 +53,9 @@ export async function voidInvoice(shopId: string, invoiceId: string, createdByUs
     if (invoice.status === InvoiceStatus.VOID) return invoice;
     if (invoice.installmentPlan) throw new Error("لا يمكن إلغاء هذه الفاتورة من هنا لأنها مرتبطة بخطة أقساط. قم بإلغاء أو معالجة خطة الأقساط أولاً.");
 
-    await moneyAccountService.reverseInvoiceMoneyTx(tx, shopId, invoice.invoiceNumber);
+    await moneyAccountService.reverseSourceMoneyTx(tx, shopId, "INVOICE", invoice.id, createdByUserId);
+    // Legacy fallback for drawer/wallet movements created before source IDs were persisted.
+    await moneyAccountService.reverseInvoiceMoneyTx(tx, shopId, invoice.invoiceNumber, createdByUserId);
     const now = new Date();
     if (invoice.payments.length > 0) await tx.payment.updateMany({ where: { shopId, invoiceId, deletedAt: null }, data: { deletedAt: now } });
     return tx.invoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.VOID, amountPaid: new Prisma.Decimal(0), balanceDue: invoice.total, paidAt: null, version: { increment: 1 } } });

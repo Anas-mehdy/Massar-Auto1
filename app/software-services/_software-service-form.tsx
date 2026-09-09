@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { SubmitButton } from "@/components/submit-button";
 import { formatCurrency } from "@/lib/format";
 import { CustomerSearchCombobox, type SaleCustomerOption } from "@/app/sales/customer-search-combobox";
-import { SalePaymentFields, type SaleWalletOption } from "@/app/sales/sale-payment-fields";
+import { SalePaymentFields, type SaleBankAccountOption, type SaleWalletOption } from "@/app/sales/sale-payment-fields";
 import { createSoftwareServiceSaleAction } from "./actions";
 
 type CatalogOption = {
@@ -23,11 +23,13 @@ const labelClass = "mb-1.5 block text-xs font-black text-slate-700";
 export function SoftwareServiceForm({
   catalog,
   wallets,
+  bankAccounts,
   currency,
   returnTo,
 }: {
   catalog: CatalogOption[];
   wallets: SaleWalletOption[];
+  bankAccounts: SaleBankAccountOption[];
   currency: string;
   returnTo?: string;
 }) {
@@ -103,7 +105,7 @@ export function SoftwareServiceForm({
           <section className="erp-section">
             <div className="mb-4 border-b border-slate-100 pb-3"><h3 className="text-sm font-black text-slate-800">الحسابات والملخص المالي</h3></div>
             <div className="space-y-3.5"><div className="flex justify-between text-xs font-medium text-slate-500"><span>سعر الخدمة:</span><span className="font-numeric font-bold">{formatCurrency(price, currency)}</span></div><div className="flex justify-between text-xs font-medium text-slate-500"><span>تكلفة الخدمة:</span><span className="font-numeric font-bold text-rose-600">{formatCurrency(cost, currency)}</span></div><div className="flex justify-between border-t border-slate-200 pt-3.5 text-sm font-bold text-slate-850"><span>الربح المتوقع:</span><span className={`font-numeric text-xl font-black ${profit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{formatCurrency(profit, currency)}</span></div></div>
-            <SalePaymentFields total={price} wallets={wallets} currency={currency} debtEligible={debtEligible} />
+            <SalePaymentFields total={price} wallets={wallets} bankAccounts={bankAccounts} currency={currency} debtEligible={debtEligible} />
             <div className="mt-6"><SubmitButton className="h-12 w-full rounded-xl font-black" loadingText="جاري تسجيل الخدمة والتسوية المالية..."><Save className="ml-1.5 h-4.5 w-4.5" />إتمام وإصدار عملية البيع</SubmitButton></div>
           </section>
         </div>

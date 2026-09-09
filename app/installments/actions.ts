@@ -21,6 +21,8 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "حدث خطأ غير متوقع.";
 }
 
+const destinationSchema = z.enum(["DRAWER", "WALLET", "BANK", "OTHER"]);
+
 const createSchema = z.object({
   clientGeneratedId: z.string().min(8).optional(),
   invoiceId: z.string().uuid().optional().or(z.literal("")),
@@ -32,11 +34,21 @@ const createSchema = z.object({
   totalAmount: z.string().trim().min(1, "المبلغ الإجمالي مطلوب"),
   downPayment: z.string().trim().optional(),
   downPaymentMethod: z.nativeEnum(PaymentMethod),
-  downPaymentDestination: z.enum(["DRAWER", "WALLET", "OTHER"]).default("DRAWER"),
+  downPaymentDestination: destinationSchema.default("DRAWER"),
   downPaymentWalletId: z.string().uuid().optional().or(z.literal("")),
+  downPaymentBankAccountId: z.string().uuid().optional().or(z.literal("")),
   installmentCount: z.coerce.number().int().min(1).max(120),
   frequency: z.nativeEnum(InstallmentFrequency),
   firstDueAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ أول قسط مطلوب"),
+}).superRefine((data, ctx) => {
+  const down = Number((data.downPayment || "0").replace(",", "."));
+  if (!(down > 0)) return;
+  if (data.downPaymentDestination === "WALLET" && !data.downPaymentWalletId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["downPaymentWalletId"], message: "اختر المحفظة التي استلمت الدفعة الأولى." });
+  }
+  if (data.downPaymentDestination === "BANK" && !data.downPaymentBankAccountId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["downPaymentBankAccountId"], message: "اختر الحساب البنكي الذي استلم الدفعة الأولى." });
+  }
 });
 
 const paymentSchema = z.object({
@@ -50,8 +62,16 @@ const paymentSchema = z.object({
   reference: z.string().trim().optional(),
   note: z.string().trim().optional(),
   paidAt: z.string().optional(),
-  moneyDestination: z.enum(["DRAWER", "WALLET", "OTHER"]).default("DRAWER"),
+  moneyDestination: destinationSchema.default("DRAWER"),
   walletId: z.string().uuid().optional().or(z.literal("")),
+  bankAccountId: z.string().uuid().optional().or(z.literal("")),
+}).superRefine((data, ctx) => {
+  if (data.moneyDestination === "WALLET" && !data.walletId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["walletId"], message: "اختر المحفظة التي استلمت الدفعة." });
+  }
+  if (data.moneyDestination === "BANK" && !data.bankAccountId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["bankAccountId"], message: "اختر الحساب البنكي الذي استلم الدفعة." });
+  }
 });
 
 const updateSchema = z.object({
@@ -81,6 +101,7 @@ export async function createInstallmentPlanAction(formData: FormData) {
       downPaymentMethod: read(formData, "downPaymentMethod") || PaymentMethod.CASH,
       downPaymentDestination: read(formData, "downPaymentDestination") || "DRAWER",
       downPaymentWalletId: read(formData, "downPaymentWalletId"),
+      downPaymentBankAccountId: read(formData, "downPaymentBankAccountId"),
       installmentCount: read(formData, "installmentCount"),
       frequency: read(formData, "frequency"),
       firstDueAt: read(formData, "firstDueAt"),
@@ -88,18 +109,18 @@ export async function createInstallmentPlanAction(formData: FormData) {
     const auth = await requirePermission("invoices:pay");
     const entitlement = await entitlementService.getEntitlementContext(auth.shop.id);
     if (!entitlement.isOperationallyActive) {
-      throw new Error(
-        "انتهت فترة استخدامك. بياناتك محفوظة بالكامل، اختر خطة لمتابعة إنشاء عمليات جديدة.",
-      );
+      throw new Error("انتهت فترة استخدامك. بياناتك محفوظة بالكامل، اختر خطة لمتابعة إنشاء عمليات جديدة.");
     }
     const plan = await installmentPlanCollectionService.createPlan(auth.shop.id, auth.user.id, {
       ...input,
       downPaymentWalletId: input.downPaymentWalletId || undefined,
+      downPaymentBankAccountId: input.downPaymentBankAccountId || undefined,
     });
     if (!plan) throw new Error("تعذر إنشاء خطة الأقساط.");
     revalidatePath("/installments");
     revalidatePath("/invoices");
     revalidatePath("/transfers");
+    revalidatePath("/bank-accounts");
     revalidatePath("/reports");
     redirect(`/installments/${plan.id}?created=1`);
   } catch (error) {
@@ -124,6 +145,7 @@ export async function addInstallmentPaymentAction(formData: FormData) {
       paidAt: read(formData, "paidAt"),
       moneyDestination: read(formData, "moneyDestination") || "DRAWER",
       walletId: read(formData, "walletId"),
+      bankAccountId: read(formData, "bankAccountId"),
     });
     const auth = await requirePermission("invoices:pay");
     await installmentCollectionService.addPayment(auth.shop.id, input.planId, auth.user.id, {
@@ -138,11 +160,13 @@ export async function addInstallmentPaymentAction(formData: FormData) {
       paidAt: input.paidAt,
       moneyDestination: input.moneyDestination,
       walletId: input.walletId || undefined,
+      bankAccountId: input.bankAccountId || undefined,
     });
     revalidatePath("/installments");
     revalidatePath(`/installments/${input.planId}`);
     revalidatePath("/invoices");
     revalidatePath("/transfers");
+    revalidatePath("/bank-accounts");
     revalidatePath("/reports");
     redirect(`/installments/${input.planId}?paid=1`);
   } catch (error) {

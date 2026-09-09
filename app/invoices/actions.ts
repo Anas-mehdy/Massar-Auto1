@@ -22,8 +22,16 @@ const addPaymentSchema = z.object({
   reference: z.string().optional(),
   note: z.string().optional(),
   paidAt: z.string().optional(),
-  moneyDestination: z.enum(["DRAWER", "WALLET", "OTHER"]).default("OTHER"),
+  moneyDestination: z.enum(["DRAWER", "WALLET", "BANK", "OTHER"]).default("OTHER"),
   walletId: z.string().uuid().optional().or(z.literal("")),
+  bankAccountId: z.string().uuid().optional().or(z.literal("")),
+}).superRefine((data, ctx) => {
+  if (data.moneyDestination === "WALLET" && !data.walletId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["walletId"], message: "اختر المحفظة التي وصل إليها المبلغ." });
+  }
+  if (data.moneyDestination === "BANK" && !data.bankAccountId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["bankAccountId"], message: "اختر الحساب البنكي الذي وصل إليه المبلغ." });
+  }
 });
 
 const voidInvoiceSchema = z.object({ invoiceId: z.string().uuid() });
@@ -89,6 +97,7 @@ export async function addPaymentAction(formData: FormData) {
     paidAt: readString(formData, "paidAt"),
     moneyDestination: readString(formData, "moneyDestination") || "OTHER",
     walletId: readString(formData, "walletId"),
+    bankAccountId: readString(formData, "bankAccountId"),
   });
 
   try {
@@ -104,12 +113,14 @@ export async function addPaymentAction(formData: FormData) {
       paidAt: input.paidAt,
       moneyDestination: input.moneyDestination,
       walletId: input.walletId || undefined,
+      bankAccountId: input.bankAccountId || undefined,
     });
     revalidatePath("/invoices");
     revalidatePath(`/invoices/${input.invoiceId}`);
     revalidatePath("/dashboard");
     revalidatePath("/customers");
     revalidatePath("/transfers");
+    revalidatePath("/bank-accounts");
     revalidatePath("/reports");
   } catch (error) {
     redirect(`/invoices/${input.invoiceId}?paymentError=${encodeURIComponent(getErrorMessage(error))}`);
@@ -124,6 +135,7 @@ export async function voidInvoiceAction(formData: FormData) {
     revalidatePath("/invoices");
     revalidatePath(`/invoices/${input.invoiceId}`);
     revalidatePath("/dashboard");
+    revalidatePath("/bank-accounts");
   } catch (error) {
     redirect(`/invoices/${input.invoiceId}?invoiceError=${encodeURIComponent(getErrorMessage(error))}`);
   }

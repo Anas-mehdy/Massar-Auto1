@@ -26,6 +26,7 @@ export type AddInstallmentCollectionInput = PaymentSourceInput & {
   paidAt?: string;
   moneyDestination: CollectionMoneyDestination;
   walletId?: string;
+  bankAccountId?: string;
 };
 
 function emptyToNull(value?: string) {
@@ -74,6 +75,9 @@ export async function addPayment(
   if (input.moneyDestination === "WALLET" && !input.walletId) {
     throw new Error("اختر المحفظة التي استلمت الدفعة.");
   }
+  if (input.moneyDestination === "BANK" && !input.bankAccountId) {
+    throw new Error("اختر الحساب البنكي الذي استلم الدفعة.");
+  }
 
   await collectionMoneyService.prepareCollectionMoneyAccount(shopId, input.moneyDestination);
   const actualPaidAt = paidDate(input.paidAt);
@@ -119,6 +123,7 @@ export async function addPayment(
       {
         destination: input.moneyDestination,
         walletId: input.walletId,
+        bankAccountId: input.bankAccountId,
         amount: money(paymentCents),
         reference: input.reference || plan.planNumber,
         description: `دفعة أقساط ${plan.planNumber} [INSTALLMENT-PAYMENT:${payment.id}]`,

@@ -11,7 +11,19 @@ import { sourceDebtService } from "@/lib/services/sourceDebtService";
 export type SaleFilters = { search?: string; status?: SaleStatus | "ALL" };
 export type CreateSaleLineItemInput = { inventoryItemId?: string | null; description: string; quantity: number; unitPrice: string; discountTotal?: string };
 export type SalePaymentDestination = Exclude<MoneyAccountDestination, "OTHER"> | "DEBT";
-export type CreateSaleInput = { customerId?: string; customerName?: string; customerPhone?: string; items: CreateSaleLineItemInput[]; paymentDestination?: SalePaymentDestination; walletId?: string; amountReceived?: string; changeDestination?: Exclude<MoneyAccountDestination, "OTHER">; changeWalletId?: string };
+export type CreateSaleInput = {
+  customerId?: string;
+  customerName?: string;
+  customerPhone?: string;
+  items: CreateSaleLineItemInput[];
+  paymentDestination?: SalePaymentDestination;
+  walletId?: string;
+  bankAccountId?: string;
+  amountReceived?: string;
+  changeDestination?: Exclude<MoneyAccountDestination, "OTHER">;
+  changeWalletId?: string;
+  changeBankAccountId?: string;
+};
 function emptyToNull(value?: string | null) { const trimmed = value?.trim(); return trimmed ? trimmed : null; }
 function decimal(value: string | number) { return new Prisma.Decimal(String(value).replace(",", ".")); }
 function normalizePhone(phone: string) { const trimmed = phone.trim(); if (!trimmed) return null; const hasPlus = trimmed.startsWith("+"); const digits = trimmed.replace(/\D/g, ""); if (!digits) return null; return hasPlus ? `+${digits}` : digits; }
@@ -47,6 +59,10 @@ export async function createSale(shopId: string, createdByUserId: string | null,
   if (!isDebtSale && amountReceived.lt(total)) throw new Error("المبلغ المستلم أقل من إجمالي البيع. اختر «دفتر الديون» إذا كان المبلغ سيُدفع لاحقاً.");
   const changeAmount = isDebtSale ? new Prisma.Decimal(0) : amountReceived.sub(total);
   const changeDestination = input.changeDestination ?? "DRAWER";
+  if (paymentDestination === "WALLET" && !input.walletId) throw new Error("اختر محفظة استلام المبلغ.");
+  if (paymentDestination === "BANK" && !input.bankAccountId) throw new Error("اختر الحساب البنكي الذي استلم المبلغ.");
+  if (changeAmount.gt(0) && changeDestination === "WALLET" && !input.changeWalletId) throw new Error("اختر محفظة إرجاع الباقي.");
+  if (changeAmount.gt(0) && changeDestination === "BANK" && !input.changeBankAccountId) throw new Error("اختر الحساب البنكي الذي سيُرجع منه الباقي.");
   if (!isDebtSale) await moneyAccountService.prepareMoneyAccounts(shopId, paymentDestination);
   if (changeAmount.gt(0)) await moneyAccountService.prepareMoneyAccounts(shopId, changeDestination);
   const receiptNumber = await generateReceiptNumber(shopId);
@@ -67,6 +83,12 @@ export async function createSale(shopId: string, createdByUserId: string | null,
     }
 
     const sourceBase = { sourceId: sale.id, sourceReference: sale.receiptNumber, customerId: customer?.id ?? null, customerName: customer?.name ?? null, customerPhone: customer?.phone ?? null };
+    if (!isDebtSale) {
+      await moneyAccountService.lockMoneyAccountEndpointsTx(tx, shopId, [
+        { destination: paymentDestination, walletId: input.walletId, bankAccountId: input.bankAccountId },
+        ...(changeAmount.gt(0) ? [{ destination: changeDestination, walletId: input.changeWalletId, bankAccountId: input.changeBankAccountId }] : []),
+      ]);
+    }
     if (isDebtSale) {
       if (customer && total.gt(0)) {
         await sourceDebtService.createSourceDebtTx(tx, {
@@ -81,8 +103,25 @@ export async function createSale(shopId: string, createdByUserId: string | null,
         });
       }
     } else {
-      await moneyAccountService.applyIncomingMoneyTx(tx, shopId, createdByUserId, { destination: paymentDestination, walletId: input.walletId, amount: amountReceived, reference: sale.receiptNumber, description: `تحصيل بيع ${sale.receiptNumber}`, drawerType: "SALE_CASH", source: { ...sourceBase, sourceType: "SALE" } });
-      if (changeAmount.gt(0)) await moneyAccountService.applyOutgoingMoneyTx(tx, shopId, createdByUserId, { destination: changeDestination, walletId: input.changeWalletId, amount: changeAmount, reference: sale.receiptNumber, description: `إرجاع باقي للعميل من بيع ${sale.receiptNumber}`, source: { ...sourceBase, sourceType: "SALE_CHANGE" } });
+      await moneyAccountService.applyIncomingMoneyTx(tx, shopId, createdByUserId, {
+        destination: paymentDestination,
+        walletId: input.walletId,
+        bankAccountId: input.bankAccountId,
+        amount: amountReceived,
+        reference: sale.receiptNumber,
+        description: `تحصيل بيع ${sale.receiptNumber}`,
+        drawerType: "SALE_CASH",
+        source: { ...sourceBase, sourceType: "SALE" },
+      });
+      if (changeAmount.gt(0)) await moneyAccountService.applyOutgoingMoneyTx(tx, shopId, createdByUserId, {
+        destination: changeDestination,
+        walletId: input.changeWalletId,
+        bankAccountId: input.changeBankAccountId,
+        amount: changeAmount,
+        reference: sale.receiptNumber,
+        description: `إرجاع باقي للعميل من بيع ${sale.receiptNumber}`,
+        source: { ...sourceBase, sourceType: "SALE" },
+      });
     }
     return sale;
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
@@ -92,7 +131,9 @@ export async function cancelSale(shopId: string, saleId: string, createdByUserId
   return prisma.$transaction(async (tx) => {
     const sale = await tx.sale.findFirst({ where: { id: saleId, shopId, deletedAt: null }, include: { items: true } }); if (!sale) throw new Error("عملية البيع غير موجودة."); if (sale.status !== SaleStatus.COMPLETED) return sale;
     await sourceDebtService.reverseSourceDebtTx(tx, { shopId, sourceType: "SALE", sourceId: sale.id });
-    if (sale.receiptNumber) await moneyAccountService.reverseSaleMoneyTx(tx, shopId, sale.receiptNumber);
+    await moneyAccountService.reverseSourceMoneyTx(tx, shopId, "SALE", sale.id, createdByUserId);
+    // Legacy fallback for historical drawer/wallet movements that predate source IDs.
+    if (sale.receiptNumber) await moneyAccountService.reverseSaleMoneyTx(tx, shopId, sale.receiptNumber, createdByUserId);
     for (const saleItem of sale.items) { if (!saleItem.inventoryItemId) continue; const inventoryItem = await tx.inventoryItem.findFirst({ where: { id: saleItem.inventoryItemId, shopId, deletedAt: null } }); if (!inventoryItem) throw new Error("لا يمكن إلغاء البيع لأن قطعة مخزون مرتبطة غير موجودة."); const quantityAfter = inventoryItem.quantity + saleItem.quantity; await tx.inventoryItem.update({ where: { id: inventoryItem.id }, data: { quantity: quantityAfter, version: { increment: 1 } } }); await tx.inventoryMovement.create({ data: { shopId, inventoryItemId: inventoryItem.id, saleId: sale.id, saleItemId: saleItem.id, createdByUserId, type: InventoryMovementType.RETURN, quantityChange: saleItem.quantity, quantityAfter, unitCostSnapshot: inventoryItem.unitCost, note: "إلغاء عملية بيع" } }); }
     return tx.sale.update({ where: { id: sale.id }, data: { status: SaleStatus.CANCELLED, version: { increment: 1 } }, include: { items: true } });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });

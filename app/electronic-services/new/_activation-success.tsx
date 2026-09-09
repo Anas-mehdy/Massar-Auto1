@@ -15,7 +15,7 @@ type Props = {
   customerCharge: number;
   profit: number;
   currency: string;
-  paymentDestination: "DRAWER" | "WALLET" | "OTHER" | "DEBT";
+  paymentDestination: "DRAWER" | "WALLET" | "BANK" | "OTHER" | "DEBT";
 };
 
 export function ElectronicServiceActivationSuccess(props: Props) {

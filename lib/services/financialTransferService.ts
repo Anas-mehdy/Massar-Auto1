@@ -19,7 +19,12 @@ export type FinancialTransferSourceType =
   | "INSTALLMENT_DOWN_PAYMENT"
   | "DEBT"
   | "EXPENSE"
+  | "PURCHASE"
+  | "SUPPLIER_RETURN"
+  | "ELECTRONIC_SERVICE"
+  | "SOFTWARE_SERVICE"
   | "CASH_DRAWER_TRANSFER"
+  | "BANK_TRANSFER"
   | "SUPPLIER";
 
 export type WalletRow = {

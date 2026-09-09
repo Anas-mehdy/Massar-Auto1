@@ -15,11 +15,13 @@ type InvoiceOption = {
   customer: { id: string; name: string; phone: string | null } | null;
 };
 type WalletOption = { id: string; name: string; currentBalance: number };
+type BankAccountOption = { id: string; name: string; bankName: string | null; currentBalance: number };
 
 export function InstallmentPlanForm({
   customers,
   invoices,
   wallets,
+  bankAccounts,
   requestId,
   initialInvoiceId,
   currency,
@@ -27,6 +29,7 @@ export function InstallmentPlanForm({
   customers: CustomerOption[];
   invoices: InvoiceOption[];
   wallets: WalletOption[];
+  bankAccounts: BankAccountOption[];
   requestId: string;
   initialInvoiceId?: string;
   currency: string;
@@ -36,8 +39,9 @@ export function InstallmentPlanForm({
   const [customerId, setCustomerId] = useState(customers[0]?.id || "NEW");
   const [total, setTotal] = useState("");
   const [down, setDown] = useState("0");
-  const [downDestination, setDownDestination] = useState<"DRAWER" | "WALLET" | "OTHER">("DRAWER");
+  const [downDestination, setDownDestination] = useState<"DRAWER" | "WALLET" | "BANK" | "OTHER">("DRAWER");
   const [downWalletId, setDownWalletId] = useState("");
+  const [downBankAccountId, setDownBankAccountId] = useState("");
   const [count, setCount] = useState(4);
   const [title, setTitle] = useState(() => {
     const invoice = invoices.find((item) => item.id === initialInvoiceId);
@@ -50,7 +54,11 @@ export function InstallmentPlanForm({
   const financed = Math.max(0, effectiveTotal - effectiveDown);
   const installment = count > 0 ? financed / count : 0;
   const validPreview = Number.isFinite(installment) && installment > 0;
-  const downLocationValid = effectiveDown <= 0 || downDestination !== "WALLET" || Boolean(downWalletId);
+  const downLocationValid = effectiveDown <= 0
+    || downDestination === "DRAWER"
+    || downDestination === "OTHER"
+    || (downDestination === "WALLET" && Boolean(downWalletId))
+    || (downDestination === "BANK" && Boolean(downBankAccountId));
   const today = useMemo(() => {
     const value = new Date();
     value.setDate(value.getDate() + 30);
@@ -113,8 +121,10 @@ export function InstallmentPlanForm({
             <label className="grid gap-2"><span className="text-xs font-extrabold text-slate-800">الدفعة الأولى</span><input name="downPayment" className="erp-input" type="number" min="0" step="0.01" value={down} onChange={(event) => setDown(event.target.value)} /></label>
             {effectiveDown > 0 && <>
               <label className="grid gap-2"><span className="text-xs font-extrabold text-slate-800">طريقة دفع الدفعة الأولى</span><select name="downPaymentMethod" className="erp-input" defaultValue={PaymentMethod.CASH}><option value="CASH">نقدي</option><option value="CARD">بطاقة</option><option value="BANK_TRANSFER">تحويل بنكي</option><option value="OTHER">أخرى</option></select></label>
-              <label className="grid gap-2"><span className="text-xs font-extrabold text-slate-800">مكان وصول الدفعة الأولى</span><select name="downPaymentDestination" value={downDestination} onChange={(event) => setDownDestination(event.target.value as "DRAWER" | "WALLET" | "OTHER")} className="erp-input"><option value="DRAWER">الدرج النقدي</option><option value="WALLET">محفظة إلكترونية</option><option value="OTHER">بدون تحديث رصيد</option></select></label>
-              <label className="grid gap-2 md:col-span-2"><span className="text-xs font-extrabold text-slate-800">المحفظة</span><select name="downPaymentWalletId" value={downWalletId} onChange={(event) => setDownWalletId(event.target.value)} disabled={downDestination !== "WALLET"} className="erp-input disabled:bg-slate-100 disabled:text-slate-400"><option value="">اخترها فقط إذا وصلت الدفعة الأولى إلى محفظة</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{wallet.name} — {wallet.currentBalance.toFixed(2)} {currency}</option>)}</select><span className="text-[11px] font-semibold leading-5 text-teal-700">الدفعة الأولى تُحتسب مرة واحدة في الخطة؛ هذا الحقل يحدد فقط مكان وجود المال فعلياً.</span></label>
+              <label className="grid gap-2"><span className="text-xs font-extrabold text-slate-800">مكان وصول الدفعة الأولى</span><select name="downPaymentDestination" value={downDestination} onChange={(event) => setDownDestination(event.target.value as "DRAWER" | "WALLET" | "BANK" | "OTHER")} className="erp-input"><option value="DRAWER">الدرج النقدي</option><option value="WALLET">محفظة إلكترونية</option><option value="BANK">حساب بنكي</option><option value="OTHER">بدون تحديث رصيد</option></select></label>
+              {downDestination === "WALLET" ? <label className="grid gap-2 md:col-span-2"><span className="text-xs font-extrabold text-slate-800">المحفظة</span><select name="downPaymentWalletId" value={downWalletId} onChange={(event) => setDownWalletId(event.target.value)} className="erp-input"><option value="">اختر المحفظة</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{wallet.name} — {wallet.currentBalance.toFixed(2)} {currency}</option>)}</select></label> : <input type="hidden" name="downPaymentWalletId" value="" />}
+              {downDestination === "BANK" ? <label className="grid gap-2 md:col-span-2"><span className="text-xs font-extrabold text-slate-800">الحساب البنكي</span><select name="downPaymentBankAccountId" value={downBankAccountId} onChange={(event) => setDownBankAccountId(event.target.value)} className="erp-input"><option value="">اختر الحساب البنكي</option>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}{account.bankName ? ` — ${account.bankName}` : ""} — {account.currentBalance.toFixed(2)} {currency}</option>)}</select></label> : <input type="hidden" name="downPaymentBankAccountId" value="" />}
+              <p className="text-[11px] font-semibold leading-5 text-teal-700 md:col-span-2">الدفعة الأولى تُحتسب مرة واحدة في الخطة؛ هذا الاختيار يحدد فقط مكان وجود المال فعلياً.</p>
             </>}
           </>
         )}

@@ -43,8 +43,9 @@ const draftSchema = z.object({
   discountTotal: moneyString.optional(),
   extraCostsTotal: moneyString.optional(),
   amountPaid: moneyString.optional(),
-  paymentAccountType: z.enum(["DRAWER", "WALLET", "OTHER"]).nullable().optional(),
+  paymentAccountType: z.enum(["DRAWER", "WALLET", "BANK", "OTHER"]).nullable().optional(),
   paymentWalletId: z.string().uuid().nullable().optional(),
+  paymentBankAccountId: z.string().uuid().nullable().optional(),
   paymentMethod: z.nativeEnum(PaymentMethod).nullable().optional(),
   paymentSourceName: z.string().max(180).nullable().optional(),
   paymentReference: z.string().max(180).nullable().optional(),
@@ -227,13 +228,14 @@ function revalidatePurchasePaths(purchaseId: string) {
   revalidatePath("/suppliers");
   revalidatePath("/suppliers/[id]", "page");
   revalidatePath("/cash-drawer");
+  revalidatePath("/bank-accounts");
   revalidatePath("/financial-transfers");
   revalidatePath("/reports");
 }
 
 const operationLineSchema = z.object({ purchaseItemId: uuid, quantity: z.number().int().positive() });
 const operationDateSchema = z.union([z.string().min(1), z.date()]);
-const accountTypeSchema = z.enum(["DRAWER", "WALLET", "OTHER"]);
+const accountTypeSchema = z.enum(["DRAWER", "WALLET", "BANK", "OTHER"]);
 
 export async function recordPurchaseReceiptAction(input: {
   purchaseId: string;
@@ -269,8 +271,9 @@ export async function recordPurchasePaymentAction(input: {
   sourceName?: string | null;
   reference?: string | null;
   paidAt: string;
-  accountType: "DRAWER" | "WALLET" | "OTHER";
+  accountType: "DRAWER" | "WALLET" | "BANK" | "OTHER";
   walletId?: string | null;
+  bankAccountId?: string | null;
 }) {
   try {
     const auth = await requirePermission("inventory:manage");
@@ -284,6 +287,7 @@ export async function recordPurchasePaymentAction(input: {
       paidAt: operationDateSchema,
       accountType: accountTypeSchema,
       walletId: z.string().uuid().nullable().optional(),
+      bankAccountId: z.string().uuid().nullable().optional(),
     }).parse(input);
     const result = await purchaseReceivingService.recordPurchasePayment(auth.shop.id, auth.user.id, parsed.purchaseId, parsed);
     revalidatePurchasePaths(parsed.purchaseId);
@@ -334,8 +338,9 @@ export async function settleSupplierReturnAction(input: {
   type: "PAYABLE_REDUCTION" | "SUPPLIER_CREDIT" | "REFUND";
   amount: string;
   settledAt: string;
-  accountType?: "DRAWER" | "WALLET" | "OTHER" | null;
+  accountType?: "DRAWER" | "WALLET" | "BANK" | "OTHER" | null;
   walletId?: string | null;
+  bankAccountId?: string | null;
   sourceName?: string | null;
   reference?: string | null;
   note?: string | null;
@@ -351,6 +356,7 @@ export async function settleSupplierReturnAction(input: {
       settledAt: operationDateSchema,
       accountType: accountTypeSchema.nullable().optional(),
       walletId: z.string().uuid().nullable().optional(),
+      bankAccountId: z.string().uuid().nullable().optional(),
       sourceName: z.string().trim().max(180).nullable().optional(),
       reference: z.string().trim().max(180).nullable().optional(),
       note: z.string().trim().max(1000).nullable().optional(),

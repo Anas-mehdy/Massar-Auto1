@@ -31,8 +31,9 @@ type SupplierReturnRow = {
 };
 
 type WalletRow = { id: string; name: string; currentBalance: string };
+type BankRow = { id: string; name: string; bankName: string | null; currentBalance: string };
 type PaymentSourceRow = { id: string; name: string };
-type AccountType = "DRAWER" | "WALLET" | "OTHER";
+type AccountType = "DRAWER" | "WALLET" | "BANK" | "OTHER";
 type PaymentMethodValue = "CASH" | "CARD" | "BANK_TRANSFER" | "OTHER";
 type SettlementType = "PAYABLE_REDUCTION" | "SUPPLIER_CREDIT" | "REFUND";
 
@@ -52,6 +53,7 @@ export function PurchaseOperationsPanel({
   items,
   supplierReturns,
   wallets,
+  bankAccounts,
   paymentSources,
 }: {
   purchaseId: string;
@@ -60,6 +62,7 @@ export function PurchaseOperationsPanel({
   items: ItemRow[];
   supplierReturns: SupplierReturnRow[];
   wallets: WalletRow[];
+  bankAccounts: BankRow[];
   paymentSources: PaymentSourceRow[];
 }) {
   const router = useRouter();
@@ -80,6 +83,7 @@ export function PurchaseOperationsPanel({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodValue>("CASH");
   const [paymentAccount, setPaymentAccount] = useState<AccountType>("DRAWER");
   const [paymentWalletId, setPaymentWalletId] = useState("");
+  const [paymentBankAccountId, setPaymentBankAccountId] = useState("");
   const [paymentSourceName, setPaymentSourceName] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentDate, setPaymentDate] = useState(today());
@@ -99,6 +103,7 @@ export function PurchaseOperationsPanel({
   const [settlementAmount, setSettlementAmount] = useState(selectedReturn?.remainingSettlementValue ?? "");
   const [settlementAccount, setSettlementAccount] = useState<AccountType>("DRAWER");
   const [settlementWalletId, setSettlementWalletId] = useState("");
+  const [settlementBankAccountId, setSettlementBankAccountId] = useState("");
   const [settlementSourceName, setSettlementSourceName] = useState("");
   const [settlementReference, setSettlementReference] = useState("");
   const [settlementDate, setSettlementDate] = useState(today());
@@ -146,14 +151,15 @@ export function PurchaseOperationsPanel({
     const amount = numberValue(paymentAmount);
     if (amount <= 0 || amount > numberValue(balanceDue) + 0.009) { setError("أدخل دفعة أكبر من صفر ولا تتجاوز المتبقي."); return; }
     if (paymentAccount === "WALLET" && !paymentWalletId) { setError("اختر المحفظة التي خرجت منها الدفعة."); return; }
+    if (paymentAccount === "BANK" && !paymentBankAccountId) { setError("اختر الحساب البنكي الذي خرجت منه الدفعة."); return; }
     if (paymentAccount === "OTHER" && !paymentSourceName.trim()) { setError("اكتب مصدر الدفع الخارجي حتى يبقى السجل واضحاً."); return; }
     paymentKey.current ??= requestKey();
     setPaymentBusy(true);
     try {
       const result = await recordPurchasePaymentAction({
         purchaseId, requestKey: paymentKey.current, amount: paymentAmount, method: paymentMethod,
-        sourceName: paymentAccount === "OTHER" ? (paymentSourceName || null) : paymentAccount === "WALLET" ? (wallets.find((w) => w.id === paymentWalletId)?.name ?? null) : "الدرج النقدي",
-        reference: paymentReference || null, paidAt: paymentDate, accountType: paymentAccount, walletId: paymentAccount === "WALLET" ? paymentWalletId || null : null,
+        sourceName: paymentAccount === "OTHER" ? (paymentSourceName || null) : paymentAccount === "WALLET" ? (wallets.find((w) => w.id === paymentWalletId)?.name ?? null) : paymentAccount === "BANK" ? (bankAccounts.find((a) => a.id === paymentBankAccountId)?.name ?? null) : "الدرج النقدي",
+        reference: paymentReference || null, paidAt: paymentDate, accountType: paymentAccount, walletId: paymentAccount === "WALLET" ? paymentWalletId || null : null, bankAccountId: paymentAccount === "BANK" ? paymentBankAccountId || null : null,
       });
       if (!result.ok) { paymentKey.current = null; setError("error" in result ? result.error : "تعذر تسجيل الدفعة."); return; }
       paymentKey.current = null;
@@ -192,6 +198,7 @@ export function PurchaseOperationsPanel({
     if (amount <= 0 || amount > numberValue(selectedReturn.remainingSettlementValue) + 0.009) { setError("قيمة التسوية يجب ألا تتجاوز المتبقي على المرتجع."); return; }
     if (settlementType === "PAYABLE_REDUCTION" && amount > numberValue(balanceDue) + 0.009) { setError("الخصم من المستحق لا يمكن أن يتجاوز رصيد الفاتورة الحالي. استخدم رصيد المورد أو استرداداً للمبلغ الزائد."); return; }
     if (settlementType === "REFUND" && settlementAccount === "WALLET" && !settlementWalletId) { setError("اختر المحفظة التي وصل إليها المبلغ المسترد."); return; }
+    if (settlementType === "REFUND" && settlementAccount === "BANK" && !settlementBankAccountId) { setError("اختر الحساب البنكي الذي وصل إليه المبلغ المسترد."); return; }
     if (settlementType === "REFUND" && settlementAccount === "OTHER" && !settlementSourceName.trim()) { setError("اكتب مصدر الاسترداد الخارجي حتى يبقى السجل واضحاً."); return; }
     settlementKey.current ??= requestKey();
     setSettlementBusy(true);
@@ -201,6 +208,7 @@ export function PurchaseOperationsPanel({
         settledAt: settlementDate,
         accountType: settlementType === "REFUND" ? settlementAccount : null,
         walletId: settlementType === "REFUND" && settlementAccount === "WALLET" ? settlementWalletId || null : null,
+        bankAccountId: settlementType === "REFUND" && settlementAccount === "BANK" ? settlementBankAccountId || null : null,
         sourceName: settlementType === "REFUND" ? (settlementAccount === "WALLET" ? wallets.find((w) => w.id === settlementWalletId)?.name ?? null : settlementAccount === "DRAWER" ? "الدرج النقدي" : settlementSourceName || null) : null,
         reference: settlementReference || null,
       });
@@ -233,8 +241,9 @@ export function PurchaseOperationsPanel({
       <OperationCard icon={Banknote} title="دفعة جديدة للمورد" description={numberValue(balanceDue) > 0.009 ? `المتبقي الحالي ${formatMoney(balanceDue, currency)}` : "الفاتورة مسواة ولا تقبل دفعة إضافية."}>
         {numberValue(balanceDue) > 0.009 && <div className="space-y-3">
           <div className="grid gap-2 sm:grid-cols-2"><Field label="قيمة الدفعة"><input type="number" min="0" step="0.01" max={balanceDue} value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} className="erp-input font-numeric" /></Field><Field label="تاريخ الدفعة"><input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className="erp-input" /></Field></div>
-          <div className="grid gap-2 sm:grid-cols-2"><Field label="طريقة الدفع"><select value={paymentMethod} onChange={(e) => { const method = e.target.value as PaymentMethodValue; setPaymentMethod(method); if (method === "CASH") setPaymentAccount("DRAWER"); }} className="erp-input"><option value="CASH">نقدي</option><option value="CARD">بطاقة</option><option value="BANK_TRANSFER">تحويل بنكي</option><option value="OTHER">أخرى</option></select></Field><Field label="الحساب المالي"><select value={paymentAccount} onChange={(e) => setPaymentAccount(e.target.value as AccountType)} className="erp-input"><option value="DRAWER">الدرج النقدي</option>{wallets.length > 0 && <option value="WALLET">محفظة مالية</option>}<option value="OTHER">مصدر خارجي — تسجيل فقط</option></select></Field></div>
+          <div className="grid gap-2 sm:grid-cols-2"><Field label="طريقة الدفع"><select value={paymentMethod} onChange={(e) => { const method = e.target.value as PaymentMethodValue; setPaymentMethod(method); if (method === "CASH") setPaymentAccount("DRAWER"); }} className="erp-input"><option value="CASH">نقدي</option><option value="CARD">بطاقة</option><option value="BANK_TRANSFER">تحويل بنكي</option><option value="OTHER">أخرى</option></select></Field><Field label="الحساب المالي"><select value={paymentAccount} onChange={(e) => { const account = e.target.value as AccountType; setPaymentAccount(account); if (account === "BANK") setPaymentMethod("BANK_TRANSFER"); if (account === "DRAWER") setPaymentMethod("CASH"); }} className="erp-input"><option value="DRAWER">الدرج النقدي</option>{wallets.length > 0 && <option value="WALLET">محفظة مالية</option>}{bankAccounts.length > 0 && <option value="BANK">حساب بنكي</option>}<option value="OTHER">مصدر خارجي — تسجيل فقط</option></select></Field></div>
           {paymentAccount === "WALLET" && <Field label="المحفظة"><select value={paymentWalletId} onChange={(e) => setPaymentWalletId(e.target.value)} className="erp-input"><option value="">اختر المحفظة</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{wallet.name} — {formatMoney(wallet.currentBalance, currency)}</option>)}</select></Field>}
+          {paymentAccount === "BANK" && <Field label="الحساب البنكي"><select value={paymentBankAccountId} onChange={(e) => setPaymentBankAccountId(e.target.value)} className="erp-input"><option value="">اختر الحساب البنكي</option>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} — {formatMoney(account.currentBalance, currency)}</option>)}</select></Field>}
           {paymentAccount === "OTHER" && <Field label="مصدر الدفع الخارجي"><><input list={`purchase-payment-sources-${purchaseId}`} value={paymentSourceName} onChange={(e) => setPaymentSourceName(e.target.value)} className="erp-input" placeholder="اختر محفوظاً أو اكتب المصدر" /><datalist id={`purchase-payment-sources-${purchaseId}`}>{paymentSources.map((source) => <option key={source.id} value={source.name} />)}</datalist></></Field>}
           <Field label="مرجع الدفع (اختياري)"><input value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} className="erp-input" /></Field>
           <Button type="button" disabled={paymentBusy} onClick={() => void submitPayment()} className="w-full font-black">{paymentBusy && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}تسجيل الدفعة</Button>
@@ -255,7 +264,7 @@ export function PurchaseOperationsPanel({
           <Field label="المرتجع"><select value={selectedReturnId} onChange={(e) => { const id = e.target.value; setSelectedReturnId(id); const row = openReturns.find((item) => item.id === id); setSettlementAmount(row?.remainingSettlementValue ?? ""); }} className="erp-input">{openReturns.map((item) => <option key={item.id} value={item.id}>{new Date(item.returnedAt).toLocaleDateString("ar")} — {item.reason} — متبقٍ {formatMoney(item.remainingSettlementValue, currency)}</option>)}</select></Field>
           <Field label="نوع التسوية"><select value={settlementType} onChange={(e) => setSettlementType(e.target.value as SettlementType)} className="erp-input"><option value="PAYABLE_REDUCTION">خصم من مستحق هذه الفاتورة</option><option value="SUPPLIER_CREDIT">رصيد لدى المورد</option><option value="REFUND">مبلغ مسترد فعلياً</option></select></Field>
           <div className="grid gap-2 sm:grid-cols-2"><Field label="القيمة"><input type="number" min="0" step="0.01" value={settlementAmount} onChange={(e) => setSettlementAmount(e.target.value)} className="erp-input font-numeric" /></Field><Field label="تاريخ التسوية"><input type="date" value={settlementDate} onChange={(e) => setSettlementDate(e.target.value)} className="erp-input" /></Field></div>
-          {settlementType === "REFUND" && <><Field label="وصل المبلغ إلى"><select value={settlementAccount} onChange={(e) => setSettlementAccount(e.target.value as AccountType)} className="erp-input"><option value="DRAWER">الدرج النقدي</option>{wallets.length > 0 && <option value="WALLET">محفظة مالية</option>}<option value="OTHER">مصدر خارجي — تسجيل فقط</option></select></Field>{settlementAccount === "WALLET" && <Field label="المحفظة"><select value={settlementWalletId} onChange={(e) => setSettlementWalletId(e.target.value)} className="erp-input"><option value="">اختر المحفظة</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{wallet.name}</option>)}</select></Field>}{settlementAccount === "OTHER" && <Field label="المصدر الخارجي"><input value={settlementSourceName} onChange={(e) => setSettlementSourceName(e.target.value)} className="erp-input" placeholder="مثال: حساب بنكي خارجي" /></Field>}</>}
+          {settlementType === "REFUND" && <><Field label="وصل المبلغ إلى"><select value={settlementAccount} onChange={(e) => setSettlementAccount(e.target.value as AccountType)} className="erp-input"><option value="DRAWER">الدرج النقدي</option>{wallets.length > 0 && <option value="WALLET">محفظة مالية</option>}{bankAccounts.length > 0 && <option value="BANK">حساب بنكي</option>}<option value="OTHER">مصدر خارجي — تسجيل فقط</option></select></Field>{settlementAccount === "WALLET" && <Field label="المحفظة"><select value={settlementWalletId} onChange={(e) => setSettlementWalletId(e.target.value)} className="erp-input"><option value="">اختر المحفظة</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{wallet.name}</option>)}</select></Field>}{settlementAccount === "BANK" && <Field label="الحساب البنكي"><select value={settlementBankAccountId} onChange={(e) => setSettlementBankAccountId(e.target.value)} className="erp-input"><option value="">اختر الحساب البنكي</option>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></Field>}{settlementAccount === "OTHER" && <Field label="المصدر الخارجي"><input value={settlementSourceName} onChange={(e) => setSettlementSourceName(e.target.value)} className="erp-input" placeholder="مثال: حساب خارجي" /></Field>}</>}
           <Field label="مرجع التسوية (اختياري)"><input value={settlementReference} onChange={(e) => setSettlementReference(e.target.value)} className="erp-input" /></Field>
           {settlementType === "SUPPLIER_CREDIT" && <p className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-[11px] font-semibold leading-5 text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">سيُسجل كرَصيد لدى المورد دون تحريك الدرج أو المحفظة ودون خفض مستحق هذه الفاتورة. تطبيق هذا الرصيد على فاتورة شراء أخرى ليس ضمن هذه المرحلة.</p>}
           <Button type="button" disabled={settlementBusy} onClick={() => void submitSettlement()} className="w-full font-black">{settlementBusy && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}تسجيل التسوية</Button>

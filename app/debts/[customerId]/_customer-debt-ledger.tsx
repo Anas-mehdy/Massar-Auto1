@@ -41,6 +41,7 @@ interface Entry {
 
 type PaymentSourceOption = { id: string; name: string };
 type WalletOption = { id: string; name: string; currentBalance: number };
+type BankOption = { id: string; name: string; bankName: string | null; currentBalance: number };
 
 function typeLabel(type: Entry["type"]) {
   if (type === "PAYMENT") return "تحصيل";
@@ -90,6 +91,7 @@ export function CustomerDebtLedger({
   entries,
   paymentSources,
   wallets,
+  bankAccounts,
   balance,
   currency,
 }: {
@@ -97,6 +99,7 @@ export function CustomerDebtLedger({
   entries: Entry[];
   paymentSources: PaymentSourceOption[];
   wallets: WalletOption[];
+  bankAccounts: BankOption[];
   balance: number;
   currency: string;
 }) {
@@ -110,8 +113,9 @@ export function CustomerDebtLedger({
   const [saveCustomSource, setSaveCustomSource] = useState(true);
   const [reference, setReference] = useState("");
   const [description, setDescription] = useState("");
-  const [moneyDestination, setMoneyDestination] = useState<"DRAWER" | "WALLET" | "OTHER">("DRAWER");
+  const [moneyDestination, setMoneyDestination] = useState<"DRAWER" | "WALLET" | "BANK" | "OTHER">("DRAWER");
   const [walletId, setWalletId] = useState("");
+  const [bankAccountId, setBankAccountId] = useState("");
   const [message, setMessage] = useState<string | null>(null);
 
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
@@ -149,6 +153,10 @@ export function CustomerDebtLedger({
       setMessage("اختر المحفظة التي استلمت التحصيل.");
       return;
     }
+    if (moneyDestination === "BANK" && !bankAccountId) {
+      setMessage("اختر الحساب البنكي الذي استلم التحصيل.");
+      return;
+    }
 
     startTransition(async () => {
       const result = await recordDebtPaymentAction({
@@ -159,6 +167,7 @@ export function CustomerDebtLedger({
         description: description || null,
         moneyDestination,
         walletId: moneyDestination === "WALLET" ? walletId : undefined,
+        bankAccountId: moneyDestination === "BANK" ? bankAccountId : undefined,
       });
       if (!result.success) {
         setMessage(result.error);
@@ -172,6 +181,7 @@ export function CustomerDebtLedger({
       setDescription("");
       setMoneyDestination("DRAWER");
       setWalletId("");
+      setBankAccountId("");
       setMessage("تم تسجيل التحصيل وتحديث رصيد المال بنجاح.");
       router.refresh();
     });
@@ -280,7 +290,7 @@ export function CustomerDebtLedger({
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center gap-2"><Banknote className="h-5 w-5 text-emerald-600" /><h2 className="text-sm font-black text-slate-900">تسجيل تحصيل من العميل</h2></div>
-        <p className="mt-1 text-[11px] font-semibold text-slate-500">سجّل التحصيل وحدد أين وصلت الفلوس فعلياً: الدرج النقدي أو إحدى المحافظ.</p>
+        <p className="mt-1 text-[11px] font-semibold text-slate-500">سجّل التحصيل وحدد أين وصلت الفلوس فعلياً: الدرج النقدي أو محفظة أو حساب بنكي.</p>
         <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <label className="space-y-1.5 text-xs font-bold text-slate-700"><span>المبلغ المدفوع</span><input type="number" min="0.01" step="0.01" max={balance || undefined} value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-emerald-400" placeholder={`0.00 ${currency}`} /></label>
           <label className="space-y-1.5 text-xs font-bold text-slate-700">
@@ -295,12 +305,13 @@ export function CustomerDebtLedger({
           <label className="space-y-1.5 text-xs font-bold text-slate-700"><span>ملاحظة</span><input value={description} onChange={(e) => setDescription(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-emerald-400" placeholder="دفعة على الحساب" /></label>
         </div>
 
-        <div className="mt-4 grid gap-3 rounded-2xl border border-teal-100 bg-teal-50/50 p-4 md:grid-cols-2">
+        <div className="mt-4 grid gap-3 rounded-2xl border border-teal-100 bg-teal-50/50 p-4 md:grid-cols-3">
           <label className="space-y-1.5 text-xs font-bold text-slate-700">
             <span>مكان وصول المال</span>
-            <select value={moneyDestination} onChange={(e) => setMoneyDestination(e.target.value as "DRAWER" | "WALLET" | "OTHER")} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-teal-400">
+            <select value={moneyDestination} onChange={(e) => setMoneyDestination(e.target.value as "DRAWER" | "WALLET" | "BANK" | "OTHER")} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-teal-400">
               <option value="DRAWER">الدرج النقدي</option>
               <option value="WALLET">محفظة إلكترونية</option>
+              <option value="BANK">حساب بنكي</option>
               <option value="OTHER">بدون تحديث رصيد</option>
             </select>
           </label>
@@ -311,7 +322,14 @@ export function CustomerDebtLedger({
               {wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{wallet.name} — {money(wallet.currentBalance)}</option>)}
             </select>
           </label>
-          <p className="text-[11px] font-semibold leading-5 text-teal-700 md:col-span-2">التحصيل ينقص دين العميل مرة واحدة فقط، وهذا الاختيار يحدد مكان المال حتى يظهر صحيحاً في الدرج والمحافظ والتقارير.</p>
+          <label className="space-y-1.5 text-xs font-bold text-slate-700">
+            <span>الحساب البنكي</span>
+            <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} disabled={moneyDestination !== "BANK"} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none disabled:bg-slate-100 disabled:text-slate-400 focus:border-teal-400">
+              <option value="">اختر الحساب عند الحاجة</option>
+              {bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}{account.bankName ? ` — ${account.bankName}` : ""} — {money(account.currentBalance)}</option>)}
+            </select>
+          </label>
+          <p className="text-[11px] font-semibold leading-5 text-teal-700 md:col-span-3">التحصيل ينقص دين العميل مرة واحدة فقط، وهذا الاختيار يحدد مكان المال حتى يظهر صحيحاً في الدرج والمحافظ والحسابات البنكية والتقارير.</p>
         </div>
 
         {sourceChoice === "__CUSTOM__" ? (

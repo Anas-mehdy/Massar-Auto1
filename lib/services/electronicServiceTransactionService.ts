@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { bankAccountService } from "@/lib/services/bankAccountService";
 import { cashDrawerService } from "@/lib/services/cashDrawerService";
 import { financialTransferService } from "@/lib/services/financialTransferService";
 import { sourceDebtService } from "@/lib/services/sourceDebtService";
@@ -7,7 +8,7 @@ import { getShopTimeZone } from "@/lib/shop-timezone";
 import { dayUtcBoundsForTimeZone } from "@/lib/timezone";
 
 export type ElectronicServiceProfitMode = "AUTO_DIFFERENCE" | "FIXED" | "PERCENTAGE" | "NONE";
-export type ElectronicServicePaymentDestination = "DRAWER" | "WALLET" | "OTHER" | "DEBT";
+export type ElectronicServicePaymentDestination = "DRAWER" | "WALLET" | "BANK" | "OTHER" | "DEBT";
 
 export type ElectronicServiceProviderOption = {
   id: string;
@@ -56,6 +57,8 @@ export type ElectronicServiceTransactionRow = {
   paymentDestination: ElectronicServicePaymentDestination;
   walletId: string | null;
   walletName: string | null;
+  bankAccountId: string | null;
+  bankAccountName: string | null;
   debtEntryId: string | null;
   cashDrawerMovementId: string | null;
   financialTransferId: string | null;
@@ -73,6 +76,7 @@ export type ElectronicServiceTransactionRow = {
 type CommonTransactionInput = {
   paymentDestination: ElectronicServicePaymentDestination;
   walletId?: string | null;
+  bankAccountId?: string | null;
   customerId?: string | null;
   customerPhone?: string | null;
   reference?: string | null;
@@ -146,13 +150,15 @@ async function listRecentTransactions(shopId: string, limit = 30) {
     SELECT tx."id", tx."providerId", p."name" AS "providerName", tx."templateId",
       tx."customerId", c."name" AS "customerName", tx."category", tx."serviceName",
       tx."faceValue", tx."providerCost", tx."customerCharge", tx."profit", tx."profitMode", tx."profitValue",
-      tx."paymentDestination", tx."walletId", w."name" AS "walletName", tx."debtEntryId",
+      tx."paymentDestination", tx."walletId", w."name" AS "walletName",
+      tx."bankAccountId", ba."name" AS "bankAccountName", tx."debtEntryId",
       tx."cashDrawerMovementId", tx."financialTransferId", tx."customerPhone", tx."reference", tx."notes",
       tx."status", tx."createdByUserId", u."name" AS "createdByName", tx."createdAt", tx."voidedAt", tx."voidReason"
     FROM "ElectronicServiceTransaction" tx
     JOIN "ElectronicServiceProvider" p ON p."id" = tx."providerId"
     LEFT JOIN "Customer" c ON c."id" = tx."customerId"
     LEFT JOIN "FinancialWallet" w ON w."id" = tx."walletId"
+    LEFT JOIN "BankAccount" ba ON ba."id" = tx."bankAccountId" AND ba."shopId" = tx."shopId"
     LEFT JOIN "User" u ON u."id" = tx."createdByUserId"
     WHERE tx."shopId" = ${shopId}::uuid
     ORDER BY tx."createdAt" DESC
@@ -187,6 +193,7 @@ async function applyIncomingPaymentTx(
     amount: Prisma.Decimal;
     destination: ElectronicServicePaymentDestination;
     walletId?: string | null;
+    bankAccountId?: string | null;
     reference?: string | null;
   },
 ) {
@@ -224,6 +231,24 @@ async function applyIncomingPaymentTx(
     return { cashDrawerMovementId: movementRows[0]?.id ?? null, financialTransferId: null };
   }
 
+  if (input.destination === "BANK") {
+    if (!input.bankAccountId) throw new Error("اختر الحساب البنكي الذي استلم المبلغ.");
+    await bankAccountService.createBankMovementTx(tx, input.shopId, input.userId, {
+      bankAccountId: input.bankAccountId,
+      customerId: input.customerId,
+      type: "ELECTRONIC_SERVICE_PAYMENT",
+      direction: "IN",
+      amount: input.amount,
+      description,
+      reference: nullableText(input.reference),
+      sourceType: "ELECTRONIC_SERVICE",
+      sourceId: input.transactionId,
+      sourceReference,
+      occurredAt: new Date(),
+    });
+    return { cashDrawerMovementId: null, financialTransferId: null };
+  }
+
   if (!input.walletId) throw new Error("اختر المحفظة التي استلمت المبلغ.");
   const walletRows = await tx.$queryRaw<Array<{ id: string; name: string; currentBalance: Prisma.Decimal }>>`
     SELECT "id", "name", "currentBalance"
@@ -258,7 +283,7 @@ export const electronicServiceTransactionService = {
     const wallets = await financialTransferService.listWallets(shopId);
     const timeZone = await getShopTimeZone(shopId);
     const todayBounds = dayUtcBoundsForTimeZone(new Date(), timeZone);
-    const [providers, templates, recentTransactions, customers, todayRows] = await Promise.all([
+    const [providers, templates, recentTransactions, customers, bankAccounts, todayRows] = await Promise.all([
       getProviderOptions(shopId, true),
       listTemplates(shopId, false),
       listRecentTransactions(shopId, 25),
@@ -268,6 +293,7 @@ export const electronicServiceTransactionService = {
         orderBy: { name: "asc" },
         take: 500,
       }),
+      bankAccountService.listAccounts(shopId),
       prisma.$queryRaw<Array<{
         count: number;
         providerCost: Prisma.Decimal;
@@ -295,6 +321,7 @@ export const electronicServiceTransactionService = {
       recentTransactions,
       customers,
       wallets,
+      bankAccounts,
       today: {
         count: today?.count ?? 0,
         providerCost: Number(today?.providerCost ?? 0),
@@ -372,6 +399,8 @@ export const electronicServiceTransactionService = {
       await cashDrawerService.getSnapshot(shopId, 1);
     } else if (input.paymentDestination === "WALLET") {
       await financialTransferService.listWallets(shopId);
+    } else if (input.paymentDestination === "BANK") {
+      await bankAccountService.prepareBankAccounts(shopId);
     }
 
     return prisma.$transaction(async (tx) => {
@@ -452,6 +481,9 @@ export const electronicServiceTransactionService = {
       if (input.paymentDestination === "WALLET" && !input.walletId) {
         throw new Error("اختر المحفظة التي استلمت المبلغ.");
       }
+      if (input.paymentDestination === "BANK" && !input.bankAccountId) {
+        throw new Error("اختر الحساب البنكي الذي استلم المبلغ.");
+      }
 
       const providerRows = await tx.$queryRaw<Array<{ id: string; currentBalance: Prisma.Decimal; isActive: boolean }>>`
         SELECT "id", "currentBalance", "isActive"
@@ -468,12 +500,13 @@ export const electronicServiceTransactionService = {
       const transactionRows = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO "ElectronicServiceTransaction" (
           "shopId", "providerId", "templateId", "createdByUserId", "customerId", "category", "serviceName", "faceValue",
-          "providerCost", "customerCharge", "profit", "profitMode", "profitValue", "paymentDestination", "walletId",
+          "providerCost", "customerCharge", "profit", "profitMode", "profitValue", "paymentDestination", "walletId", "bankAccountId",
           "customerPhone", "reference", "notes", "status", "createdAt"
         ) VALUES (
           ${shopId}::uuid, ${providerId}::uuid, ${templateId}::uuid, ${userId}::uuid, ${customer?.id ?? null}::uuid,
           ${category}, ${serviceName}, ${faceValue}, ${providerCost}, ${customerCharge}, ${profit}, ${profitMode}, ${profitValue},
           ${input.paymentDestination}, ${input.paymentDestination === "WALLET" ? input.walletId ?? null : null}::uuid,
+          ${input.paymentDestination === "BANK" ? input.bankAccountId ?? null : null}::uuid,
           ${effectivePhone}, ${nullableText(input.reference)}, ${nullableText(input.notes)}, 'ACTIVE', NOW()
         ) RETURNING "id"
       `;
@@ -521,6 +554,7 @@ export const electronicServiceTransactionService = {
         amount: customerCharge,
         destination: input.paymentDestination,
         walletId: input.walletId,
+        bankAccountId: input.bankAccountId,
         reference: input.reference,
       });
 
@@ -618,6 +652,16 @@ export const electronicServiceTransactionService = {
             WHERE "id" = ${transfer.id}::uuid
           `;
         }
+      }
+
+      if (operation.paymentDestination === "BANK" && operation.customerCharge.gt(0)) {
+        await bankAccountService.reverseSourceMovementsTx(
+          tx,
+          shopId,
+          "ELECTRONIC_SERVICE",
+          transactionId,
+          userId,
+        );
       }
 
       if (operation.paymentDestination === "DEBT") {

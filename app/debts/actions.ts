@@ -85,8 +85,9 @@ export async function recordDebtPaymentAction(input: {
   saveCustomSource?: boolean;
   description?: string | null;
   reference?: string | null;
-  moneyDestination: "DRAWER" | "WALLET" | "OTHER";
+  moneyDestination: "DRAWER" | "WALLET" | "BANK" | "OTHER";
   walletId?: string;
+  bankAccountId?: string;
   onboarding?: boolean;
 }): Promise<DebtActionResult> {
   try {
@@ -109,6 +110,7 @@ export async function recordDebtPaymentAction(input: {
     revalidatePath(`/debts/${input.customerId}/print`);
     revalidatePath("/transfers");
     revalidatePath("/cash-drawer");
+    revalidatePath("/bank-accounts");
     revalidatePath("/reports");
     revalidatePath("/invoices");
     revalidatePath("/software-services");
@@ -137,6 +139,7 @@ export async function updateDebtLedgerEntryAction(input: {
     revalidatePath(`/debts/${input.customerId}/print`);
     revalidatePath("/transfers");
     revalidatePath("/cash-drawer");
+    revalidatePath("/bank-accounts");
     revalidatePath("/reports");
     revalidatePath("/invoices");
     revalidatePath("/software-services");

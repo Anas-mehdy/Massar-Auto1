@@ -1,4 +1,5 @@
 import { requirePermission } from "@/lib/auth/context";
+import { bankAccountService } from "@/lib/services/bankAccountService";
 import { getCustomerDebtLedger } from "@/lib/services/debtLedgerService";
 import { financialTransferService } from "@/lib/services/financialTransferService";
 import { paymentSourceService } from "@/lib/services/paymentSourceService";
@@ -16,10 +17,11 @@ export default async function CustomerDebtPage({
 }) {
   const auth = await requirePermission("debts:manage");
   const [{ customerId }, query] = await Promise.all([params, searchParams]);
-  const [ledger, paymentSources, wallets] = await Promise.all([
+  const [ledger, paymentSources, wallets, bankAccounts] = await Promise.all([
     getCustomerDebtLedger(customerId),
     paymentSourceService.listPaymentSourceOptions(auth.shop.id),
     financialTransferService.listWallets(auth.shop.id),
+    bankAccountService.listAccounts(auth.shop.id),
   ]);
 
   const hasDebt = ledger.entries.some((entry) =>
@@ -52,6 +54,12 @@ export default async function CustomerDebtPage({
           id: wallet.id,
           name: wallet.name,
           currentBalance: Number(wallet.currentBalance),
+        }))}
+        bankAccounts={bankAccounts.map((account) => ({
+          id: account.id,
+          name: account.name,
+          bankName: account.bankName,
+          currentBalance: Number(account.currentBalance),
         }))}
         balance={ledger.balance}
         currency={auth.shop.currency || "SAR"}

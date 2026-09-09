@@ -8,7 +8,7 @@ import { createSaleAction, type SaleActionState } from "./actions";
 import { Field, inputClassName } from "./_components";
 import { InventorySearchCombobox, type SaleInventoryOption } from "./inventory-search-combobox";
 import { CustomerSearchCombobox, type SaleCustomerOption } from "./customer-search-combobox";
-import { SalePaymentFields, type SaleWalletOption } from "./sale-payment-fields";
+import { SalePaymentFields, type SaleBankAccountOption, type SaleWalletOption } from "./sale-payment-fields";
 
 type InventoryOption = SaleInventoryOption;
 type CustomerMode = "EXISTING" | "NEW" | "CASH";
@@ -36,7 +36,7 @@ function createLine(item?: InventoryOption): SaleLineDraft {
   };
 }
 
-export function SaleForm({ inventoryItems, wallets, currency = "SAR", returnTo }: { inventoryItems: InventoryOption[]; wallets: SaleWalletOption[]; currency?: string; returnTo?: string }) {
+export function SaleForm({ inventoryItems, wallets, bankAccounts, currency = "SAR", returnTo }: { inventoryItems: InventoryOption[]; wallets: SaleWalletOption[]; bankAccounts: SaleBankAccountOption[]; currency?: string; returnTo?: string }) {
   const [state, formAction, isPending] = useActionState(createSaleAction, initialState);
   const [lines, setLines] = useState<SaleLineDraft[]>([]);
   const [customerMode, setCustomerMode] = useState<CustomerMode>("CASH");
@@ -299,7 +299,7 @@ export function SaleForm({ inventoryItems, wallets, currency = "SAR", returnTo }
             <div className="flex justify-between text-xs text-slate-500 font-medium"><span>إجمالي الخصومات:</span><span className="font-numeric text-rose-600 font-bold">{discountTotal > 0 ? formatCurrency(-discountTotal, currency) : formatCurrency(0, currency)}</span></div>
             <div className="flex justify-between text-sm font-bold text-slate-850 pt-3.5 border-t border-slate-200"><span>الإجمالي النهائي:</span><span className="font-numeric text-xl text-primary font-black">{formatCurrency(total, currency)}</span></div>
           </div>
-          <SalePaymentFields total={Math.max(0, total)} wallets={wallets} currency={currency} debtEligible={customerMode === "NEW" || (customerMode === "EXISTING" && Boolean(selectedCustomer))} />
+          <SalePaymentFields total={Math.max(0, total)} wallets={wallets} bankAccounts={bankAccounts} currency={currency} debtEligible={customerMode === "NEW" || (customerMode === "EXISTING" && Boolean(selectedCustomer))} />
           <div className="mt-6 pt-1"><Button type="submit" disabled={isPending || lines.length === 0} className="w-full font-bold shadow-md h-12 rounded-xl text-xs justify-center"><Save className="h-4.5 w-4.5 ml-1.5" />{isPending ? "جاري تسجيل عملية البيع..." : "إتمام وإصدار عملية البيع"}</Button></div>
         </section>
       </div>

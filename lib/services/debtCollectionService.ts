@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/auth/context";
 import { parseSourceDebtReference } from "@/lib/debt-source-reference";
 import { prisma } from "@/lib/prisma";
+import { bankAccountService } from "@/lib/services/bankAccountService";
 import { cashDrawerService } from "@/lib/services/cashDrawerService";
 import {
   collectionMoneyService,
@@ -89,7 +90,8 @@ function trackingToken(entryId: string) {
 
 type TrackedCollection =
   | { destination: "DRAWER"; movementId: string; drawerId: string; amount: Prisma.Decimal }
-  | { destination: "WALLET"; transferId: string; walletId: string; walletName: string; amount: Prisma.Decimal };
+  | { destination: "WALLET"; transferId: string; walletId: string; walletName: string; amount: Prisma.Decimal }
+  | { destination: "BANK"; movementId: string; bankAccountId: string; bankAccountName: string; amount: Prisma.Decimal };
 
 async function findTrackedCollectionTx(
   tx: Prisma.TransactionClient,
@@ -142,6 +144,32 @@ async function findTrackedCollectionTx(
       amount: walletRows[0].walletAmount,
     };
   }
+
+  const bankRows = await tx.$queryRaw<Array<{
+    id: string;
+    bankAccountId: string;
+    bankAccountName: string;
+    amount: Prisma.Decimal;
+  }>>`
+    SELECT m."id", m."bankAccountId", a."name" AS "bankAccountName", m."amount"
+    FROM "BankAccountMovement" m
+    JOIN "BankAccount" a ON a."id" = m."bankAccountId" AND a."shopId" = m."shopId"
+    WHERE m."shopId" = ${shopId}::uuid
+      AND m."status" = 'ACTIVE'
+      AND m."type" = 'DEBT_PAYMENT'
+      AND m."sourceType" = 'DEBT'
+      AND m."sourceId" = ${entryId}
+    LIMIT 1
+  `;
+  if (bankRows[0]) {
+    return {
+      destination: "BANK",
+      movementId: bankRows[0].id,
+      bankAccountId: bankRows[0].bankAccountId,
+      bankAccountName: bankRows[0].bankAccountName,
+      amount: bankRows[0].amount,
+    };
+  }
   return null;
 }
 
@@ -180,6 +208,16 @@ async function syncTrackedCollectionTx(
       WHERE "id" = ${tracked.movementId}::uuid
     `;
     return "الدرج النقدي";
+  }
+
+  if (tracked.destination === "BANK") {
+    await bankAccountService.updateActiveMovementTx(tx, shopId, tracked.movementId, {
+      amount: nextAmount,
+      description: input.description,
+      reference: input.reference ?? null,
+      occurredAt: input.occurredAt,
+    });
+    return tracked.bankAccountName;
   }
 
   const walletRows = await tx.$queryRaw<Array<{ currentBalance: Prisma.Decimal }>>`
@@ -223,12 +261,16 @@ export async function recordPayment(input: {
   reference?: string | null;
   moneyDestination: CollectionMoneyDestination;
   walletId?: string;
+  bankAccountId?: string;
 }) {
   const auth = await requirePermission("debts:manage");
   const amount = parsePositiveAmount(input.amount);
   const occurredAt = parseOptionalDate(input.occurredAt) ?? new Date();
   if (input.moneyDestination === "WALLET" && !input.walletId) {
     throw new Error("اختر المحفظة التي استلمت التحصيل.");
+  }
+  if (input.moneyDestination === "BANK" && !input.bankAccountId) {
+    throw new Error("اختر الحساب البنكي الذي استلم التحصيل.");
   }
 
   await collectionMoneyService.prepareCollectionMoneyAccount(auth.shop.id, input.moneyDestination);
@@ -276,6 +318,7 @@ export async function recordPayment(input: {
       {
         destination: input.moneyDestination,
         walletId: input.walletId,
+        bankAccountId: input.bankAccountId,
         amount,
         reference: input.reference,
         description: `تحصيل دين ${customer.name} ${trackingToken(entryId)}`,
@@ -315,6 +358,7 @@ export async function updateEntry(input: {
   await Promise.all([
     cashDrawerService.getSnapshot(auth.shop.id, 1),
     financialTransferService.listWallets(auth.shop.id),
+    bankAccountService.listAccounts(auth.shop.id),
   ]);
 
   await prisma.$transaction(async (tx) => {
