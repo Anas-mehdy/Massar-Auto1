@@ -1,0 +1,83 @@
+name: Offline V1 verification (no deploy)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/offline-core-v1
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: massar_offline_verify
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d massar_offline_verify"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/massar_offline_verify?schema=public
+      OPENAI_API_KEY: ""
+      NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ""
+      NEXT_PUBLIC_POSTHOG_HOST: ""
+      GROWTH_LIFECYCLE_EMAILS_ENABLED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Clean install
+        run: npm ci --ignore-scripts
+
+      - name: Prisma validate and generate
+        run: |
+          npx prisma validate
+          npx prisma generate
+
+      - name: Build disposable database from current Prisma schema
+        run: npx prisma db push --skip-generate
+
+      - name: Apply Offline V1 sync migration to disposable database
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -d massar_offline_verify -v ON_ERROR_STOP=1 \
+            -f prisma/migrations/20260909121500_add_offline_sync_foundation/migration.sql
+
+      - name: Verify Offline V1 sync schema
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -d massar_offline_verify -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF to_regclass('public."SyncDevice"') IS NULL THEN RAISE EXCEPTION 'SyncDevice missing'; END IF;
+            IF to_regclass('public."SyncMutation"') IS NULL THEN RAISE EXCEPTION 'SyncMutation missing'; END IF;
+            IF to_regclass('public."SyncChange"') IS NULL THEN RAISE EXCEPTION 'SyncChange missing'; END IF;
+          END $$;
+          SQL
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: Full application build
+        run: npm run build
