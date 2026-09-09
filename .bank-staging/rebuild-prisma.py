@@ -145,4 +145,16 @@ elif new_union not in activation_text:
 activation.write_text(activation_text)
 print("ELECTRONIC_SERVICE_ACTIVATION_BANK_TYPE_OK")
 
+# The regression bundle was authored in a local workspace. Keep every assertion intact,
+# but point its source-file reads at the actual checked-out repository in GitHub Actions.
+regression = Path("/tmp/massar-bank/bank-staging-payload/regression-bank-ledger.mjs")
+if not regression.exists():
+    raise SystemExit("bank regression bundle not found")
+regression_text = regression.read_text()
+local_root = "/mnt/data/massar-bank-local"
+if local_root not in regression_text:
+    raise SystemExit("expected local regression root not found")
+regression.write_text(regression_text.replace(local_root, str(Path.cwd())))
+print("BANK_REGRESSION_PATH_REBASED_OK")
+
 print("BANK_COMPAT_REPAIRS_OK")
