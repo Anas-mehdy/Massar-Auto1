@@ -23,6 +23,11 @@ export type InventoryDamageReportRow = {
   createdByUserId: string | null;
   createdByName: string | null;
   createdByEmail: string | null;
+  reversedAt: Date | null;
+  reversedByUserId: string | null;
+  reversedByName: string | null;
+  reversedByEmail: string | null;
+  reversalMovementId: string | null;
 };
 
 type SummaryRow = {
@@ -59,7 +64,9 @@ async function queryInventoryDamageSummary(shopId: string, filters: InventoryDam
     FROM "InventoryDamage" d
     INNER JOIN "InventoryItem" i ON i."id" = d."inventoryItemId"
     LEFT JOIN "User" u ON u."id" = d."createdByUserId"
+    LEFT JOIN "User" ru ON ru."id" = d."reversedByUserId"
     WHERE d."shopId" = ${shopId}::uuid
+      AND d."reversedAt" IS NULL
       AND (${start}::timestamptz IS NULL OR d."createdAt" >= ${start})
       AND (${end}::timestamptz IS NULL OR d."createdAt" < ${end})
       AND (
@@ -71,6 +78,8 @@ async function queryInventoryDamageSummary(shopId: string, filters: InventoryDam
         OR COALESCE(d."note", '') ILIKE ${searchPattern}
         OR COALESCE(u."name", '') ILIKE ${searchPattern}
         OR COALESCE(u."email", '') ILIKE ${searchPattern}
+        OR COALESCE(ru."name", '') ILIKE ${searchPattern}
+        OR COALESCE(ru."email", '') ILIKE ${searchPattern}
       )
   `;
 
@@ -114,10 +123,16 @@ export async function getInventoryDamageReport(
         d."createdAt",
         d."createdByUserId",
         u."name" AS "createdByName",
-        u."email" AS "createdByEmail"
+        u."email" AS "createdByEmail",
+        d."reversedAt",
+        d."reversedByUserId",
+        ru."name" AS "reversedByName",
+        ru."email" AS "reversedByEmail",
+        d."reversalMovementId"
       FROM "InventoryDamage" d
       INNER JOIN "InventoryItem" i ON i."id" = d."inventoryItemId"
       LEFT JOIN "User" u ON u."id" = d."createdByUserId"
+      LEFT JOIN "User" ru ON ru."id" = d."reversedByUserId"
       WHERE d."shopId" = ${shopId}::uuid
         AND (${start}::timestamptz IS NULL OR d."createdAt" >= ${start})
         AND (${end}::timestamptz IS NULL OR d."createdAt" < ${end})
@@ -130,6 +145,8 @@ export async function getInventoryDamageReport(
           OR COALESCE(d."note", '') ILIKE ${searchPattern}
           OR COALESCE(u."name", '') ILIKE ${searchPattern}
           OR COALESCE(u."email", '') ILIKE ${searchPattern}
+          OR COALESCE(ru."name", '') ILIKE ${searchPattern}
+          OR COALESCE(ru."email", '') ILIKE ${searchPattern}
         )
       ORDER BY d."createdAt" DESC, d."id" DESC
     `,
