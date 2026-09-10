@@ -77,7 +77,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pg_dump -h 127.0.0.1 -U postgres -d massar_auto_snapshot --schema-only --no-owner --no-privileges --schema=public > "$RUNNER_TEMP/auto-schema/massar-auto-schema.sql"
+          POSTGRES_CONTAINER="$(docker ps --filter ancestor=postgres:17 --format '{{.ID}}' | head -n1)"
+          test -n "$POSTGRES_CONTAINER"
+          docker exec "$POSTGRES_CONTAINER" pg_dump -U postgres -d massar_auto_snapshot --schema-only --no-owner --no-privileges --schema=public > "$RUNNER_TEMP/auto-schema/massar-auto-schema.sql"
           psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -Atc "select count(*) from pg_catalog.pg_tables where schemaname='public';" > "$RUNNER_TEMP/auto-schema/table-count.txt"
           psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -Atc "select tablename from pg_catalog.pg_tables where schemaname='public' order by tablename;" > "$RUNNER_TEMP/auto-schema/tables.txt"
           psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -AtF '|' -c "select c.relname,a.attnum,a.attname,pg_catalog.format_type(a.atttypid,a.atttypmod),a.attnotnull,coalesce(pg_get_expr(ad.adbin,ad.adrelid),'') from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_attribute a on a.attrelid=c.oid and a.attnum>0 and not a.attisdropped left join pg_attrdef ad on ad.adrelid=c.oid and ad.adnum=a.attnum where n.nspname='public' and c.relkind='r' order by c.relname,a.attnum;" > "$RUNNER_TEMP/auto-schema/columns.txt"
