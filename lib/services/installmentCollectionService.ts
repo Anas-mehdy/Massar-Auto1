@@ -16,6 +16,7 @@ import {
   resolvePaymentSource,
   type PaymentSourceInput,
 } from "@/lib/services/paymentSourceService";
+import { dailyCashCloseService } from "@/lib/services/dailyCashCloseService";
 
 export type AddInstallmentCollectionInput = PaymentSourceInput & {
   clientGeneratedId?: string;
@@ -76,11 +77,12 @@ export async function addPayment(
     throw new Error("اختر المحفظة التي استلمت الدفعة.");
   }
   if (input.moneyDestination === "BANK" && !input.bankAccountId) {
-    throw new Error("اختر الحساب البنكي الذي استلم الدفعة.");
+    throw new Error("اختر الحساب البنكي الذي استلمت الدفعة.");
   }
 
-  await collectionMoneyService.prepareCollectionMoneyAccount(shopId, input.moneyDestination);
   const actualPaidAt = paidDate(input.paidAt);
+  await dailyCashCloseService.assertBusinessDateOpen(shopId, actualPaidAt);
+  await collectionMoneyService.prepareCollectionMoneyAccount(shopId, input.moneyDestination);
 
   await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`
