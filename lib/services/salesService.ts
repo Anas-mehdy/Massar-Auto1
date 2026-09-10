@@ -7,6 +7,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { moneyAccountService, type MoneyAccountDestination } from "@/lib/services/moneyAccountService";
 import { sourceDebtService } from "@/lib/services/sourceDebtService";
+import { dailyCashCloseService } from "@/lib/services/dailyCashCloseService";
 
 export type SaleFilters = { search?: string; status?: SaleStatus | "ALL" };
 export type CreateSaleLineItemInput = { inventoryItemId?: string | null; description: string; quantity: number; unitPrice: string; discountTotal?: string };
@@ -51,6 +52,7 @@ export async function getSaleById(shopId: string, saleId: string) {
 }
 
 export async function createSale(shopId: string, createdByUserId: string | null, input: CreateSaleInput) {
+  await dailyCashCloseService.assertBusinessDateOpen(shopId, new Date());
   if (input.items.length === 0) throw new Error("يجب إضافة بند واحد على الأقل.");
   const subtotal = input.items.reduce((sum, item) => sum.add(decimal(item.unitPrice).mul(item.quantity)), new Prisma.Decimal(0)); const discountTotal = input.items.reduce((sum, item) => sum.add(decimal(item.discountTotal ?? "0")), new Prisma.Decimal(0)); const taxTotal = new Prisma.Decimal(0); const total = subtotal.sub(discountTotal).add(taxTotal); if (total.lt(0)) throw new Error("إجمالي البيع غير صحيح.");
   const paymentDestination = input.paymentDestination ?? "DRAWER";
@@ -128,6 +130,13 @@ export async function createSale(shopId: string, createdByUserId: string | null,
 }
 
 export async function cancelSale(shopId: string, saleId: string, createdByUserId: string | null) {
+  const originalSale = await prisma.sale.findFirst({
+    where: { id: saleId, shopId, deletedAt: null },
+    select: { soldAt: true },
+  });
+  if (!originalSale) throw new Error("عملية البيع غير موجودة.");
+  await dailyCashCloseService.assertBusinessDateOpen(shopId, originalSale.soldAt);
+
   return prisma.$transaction(async (tx) => {
     const sale = await tx.sale.findFirst({ where: { id: saleId, shopId, deletedAt: null }, include: { items: true } }); if (!sale) throw new Error("عملية البيع غير موجودة."); if (sale.status !== SaleStatus.COMPLETED) return sale;
     await sourceDebtService.reverseSourceDebtTx(tx, { shopId, sourceType: "SALE", sourceId: sale.id });
