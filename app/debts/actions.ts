@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { customerService } from "@/lib/services/customerService";
 import { debtCollectionService } from "@/lib/services/debtCollectionService";
 import { createDebtEntry } from "@/lib/services/debtLedgerService";
+import { dailyCashCloseService } from "@/lib/services/dailyCashCloseService";
 import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
 import { captureServerEvent } from "@/lib/analytics/server";
 
@@ -16,6 +17,13 @@ export type CreateDebtCustomerResult =
 
 function messageFromError(error: unknown) {
   return error instanceof Error ? error.message : "حدث خطأ غير متوقع. حاول مرة أخرى.";
+}
+
+function operationDate(value?: string | null) {
+  if (!value?.trim()) return new Date();
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error("تاريخ الحركة غير صالح.");
+  return date;
 }
 
 export async function createDebtCustomerAction(input: {
@@ -55,6 +63,7 @@ export async function createDebtAction(input: {
 }): Promise<DebtActionResult> {
   try {
     const auth = await requirePermission("debts:manage");
+    await dailyCashCloseService.assertBusinessDateOpen(auth.shop.id, operationDate(input.occurredAt));
     await createDebtEntry(input);
     await captureServerEvent({
       event: ANALYTICS_EVENTS.DEBT_CREATED,
@@ -92,6 +101,7 @@ export async function recordDebtPaymentAction(input: {
 }): Promise<DebtActionResult> {
   try {
     const auth = await requirePermission("debts:manage");
+    await dailyCashCloseService.assertBusinessDateOpen(auth.shop.id, operationDate(input.occurredAt));
     await debtCollectionService.recordPayment(input);
     await captureServerEvent({
       event: ANALYTICS_EVENTS.DEBT_PAYMENT_CREATED,
@@ -133,6 +143,18 @@ export async function updateDebtLedgerEntryAction(input: {
   reference?: string | null;
 }): Promise<DebtActionResult> {
   try {
+    const auth = await requirePermission("debts:manage");
+    const existing = await prisma.$queryRaw<Array<{ occurredAt: Date }>>`
+      SELECT "occurredAt" FROM "DebtLedgerEntry"
+      WHERE "id"=${input.entryId}::uuid AND "shopId"=${auth.shop.id}::uuid AND "customerId"=${input.customerId}::uuid
+      LIMIT 1
+    `;
+    if (!existing[0]) throw new Error("حركة الدين غير موجودة.");
+    await dailyCashCloseService.assertBusinessDateOpen(auth.shop.id, existing[0].occurredAt);
+    const nextDate = operationDate(input.occurredAt);
+    if (nextDate.getTime() !== existing[0].occurredAt.getTime()) {
+      await dailyCashCloseService.assertBusinessDateOpen(auth.shop.id, nextDate);
+    }
     await debtCollectionService.updateEntry(input);
     revalidatePath("/debts");
     revalidatePath(`/debts/${input.customerId}`);
@@ -168,6 +190,15 @@ export async function deleteDebtLedgerAction(customerId: string): Promise<DebtAc
         success: false,
         error: "لا يمكن حذف دفتر الدين لأنه يحتوي على مبيعة أو خدمة مرتبطة. ألغِ أو عالج العمليات الأصلية أولاً.",
       };
+    }
+
+    const entryDates = await prisma.$queryRaw<Array<{ occurredAt: Date }>>`
+      SELECT "occurredAt" FROM "DebtLedgerEntry"
+      WHERE "shopId"=${auth.shop.id}::uuid AND "customerId"=${customerId}::uuid AND "isReversed"=FALSE
+      ORDER BY "occurredAt" ASC
+    `;
+    for (const entry of entryDates) {
+      await dailyCashCloseService.assertBusinessDateOpen(auth.shop.id, entry.occurredAt);
     }
 
     const deleted = await prisma.$queryRaw<Array<{ id: string }>>`
