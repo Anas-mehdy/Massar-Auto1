@@ -18,7 +18,7 @@ function money(value: string | number, currency: string) {
 }
 
 export default async function NewSalesReturnPage({ searchParams }: PageProps) {
-  const auth = await requirePermission("sales_returns:manage");
+  const auth = await requirePermission("sales:return");
   const params = await searchParams;
   const saleId = params.saleId ?? "";
   const sale = saleId ? await salesReturnService.getReturnableSale(auth.shop.id, saleId) : null;
