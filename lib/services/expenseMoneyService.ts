@@ -9,6 +9,7 @@ export type CreateExpenseMoneyInput = {
   category: ExpenseCategory;
   amount: string;
   spentAt: Date;
+  movementOccurredAt?: Date;
   notes?: string;
   fundingSource: ExpenseFundingSource;
   fundingWalletId?: string;
@@ -84,7 +85,7 @@ export async function createExpense(
       description,
       movementType: "EXPENSE_PAYMENT",
       contextLabel: `المصروف «${title}»`,
-      occurredAt: input.spentAt,
+      occurredAt: input.movementOccurredAt,
       source: {
         sourceType: "EXPENSE",
         sourceId: expense.id,

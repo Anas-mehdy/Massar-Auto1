@@ -139,7 +139,7 @@ export async function applyIncomingMoneyTx(
       direction: "IN",
       amount,
       type: movementType,
-      occurredAt,
+      occurredAt: input.occurredAt,
       description: input.description,
       reference: input.reference ?? input.source?.sourceReference ?? null,
       sourceType: input.source?.sourceType ?? "MANUAL",
@@ -247,7 +247,7 @@ export async function applyOutgoingMoneyTx(
         direction: "OUT",
         amount,
         type: movementType,
-        occurredAt,
+        occurredAt: input.occurredAt,
         description: input.description,
         reference: input.reference ?? input.source?.sourceReference ?? null,
         sourceType: input.source?.sourceType ?? "SALE_CHANGE",
@@ -260,7 +260,7 @@ export async function applyOutgoingMoneyTx(
       });
     } catch (error) {
       if (contextLabel && error instanceof Error && error.message.includes("رصيداً سالباً")) {
-        throw new Error(`رصيد الحساب البنكي غير كافٍ لتسديد ${contextLabel}.`);
+        throw new Error(`رصيد الحساب البنكي غير كافٍ في تاريخ الحركة لتسديد ${contextLabel}.`);
       }
       throw error;
     }

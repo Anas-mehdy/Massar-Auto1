@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requirePermission } from "@/lib/auth/context";
 import { expenseMoneyService } from "@/lib/services/expenseMoneyService";
-import { timeZoneForCountry, zonedDateTimeToUtc } from "@/lib/timezone";
+import { localDateString, timeZoneForCountry, zonedDateTimeToUtc } from "@/lib/timezone";
 
 const createExpenseSchema = z.object({
   title: z.string().trim().min(1, "اسم المصروف مطلوب").max(120),
@@ -51,12 +51,17 @@ export async function createExpenseAction(formData: FormData) {
   });
   const auth = await requirePermission("expenses:manage");
   const timeZone = timeZoneForCountry(auth.shop.countryCode);
+  const spentAt = localNoonUtc(input.spentAt, timeZone);
+  const movementOccurredAt = input.spentAt === localDateString(new Date(), timeZone)
+    ? undefined
+    : spentAt;
 
   await expenseMoneyService.createExpense(auth.shop.id, auth.user.id, {
     title: input.title,
     category: input.category,
     amount: input.amount.toFixed(2),
-    spentAt: localNoonUtc(input.spentAt, timeZone),
+    spentAt,
+    movementOccurredAt,
     notes: input.notes,
     fundingSource: input.fundingSource,
     fundingWalletId: input.fundingWalletId || undefined,
