@@ -20,7 +20,7 @@ function date(value: Date) {
 }
 
 export default async function SalesReturnsPage({ searchParams }: PageProps) {
-  const auth = await requirePermission("sales_returns:manage");
+  const auth = await requirePermission("sales:return");
   const params = await searchParams;
   const q = params.q?.trim() ?? "";
   const [returns, sales] = await Promise.all([
