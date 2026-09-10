@@ -21,6 +21,7 @@ import {
 export type CreateInstallmentPlanWithCollectionInput = CreateInstallmentPlanInput & {
   downPaymentDestination?: CollectionMoneyDestination;
   downPaymentWalletId?: string;
+  downPaymentBankAccountId?: string;
 };
 
 function emptyToNull(value?: string) {
@@ -70,6 +71,9 @@ export async function createPlan(
   const downDestination = input.downPaymentDestination || "DRAWER";
   if (downCents > 0 && downDestination === "WALLET" && !input.downPaymentWalletId) {
     throw new Error("اختر المحفظة التي استلمت الدفعة الأولى.");
+  }
+  if (downCents > 0 && downDestination === "BANK" && !input.downPaymentBankAccountId) {
+    throw new Error("اختر الحساب البنكي الذي استلم الدفعة الأولى.");
   }
   if (downCents > 0) {
     await collectionMoneyService.prepareCollectionMoneyAccount(shopId, downDestination);
@@ -174,6 +178,7 @@ export async function createPlan(
         {
           destination: downDestination,
           walletId: input.downPaymentWalletId,
+          bankAccountId: input.downPaymentBankAccountId,
           amount: money(downCents),
           reference: generatedPlanNumber,
           description: `دفعة أولى لخطة ${generatedPlanNumber} [INSTALLMENT-DOWN:${payment.id}]`,

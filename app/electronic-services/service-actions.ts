@@ -16,7 +16,7 @@ const nonNegativeMoney = z.string().trim().min(1, "القيمة مطلوبة").r
 
 const uuid = z.string().uuid("المعرف غير صالح");
 const optionalUuid = z.string().trim().optional().refine((value) => !value || z.string().uuid().safeParse(value).success, "المعرف غير صالح");
-const paymentDestination = z.enum(["DRAWER", "WALLET", "OTHER", "DEBT"]);
+const paymentDestination = z.enum(["DRAWER", "WALLET", "BANK", "OTHER", "DEBT"]);
 
 function readString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -35,6 +35,7 @@ function refreshElectronicServices() {
   revalidatePath("/electronic-services/reconcile");
   revalidatePath("/electronic-services/reports");
   revalidatePath("/cash-drawer");
+  revalidatePath("/bank-accounts");
   revalidatePath("/transfers");
   revalidatePath("/debts");
   revalidatePath("/dashboard");
@@ -107,10 +108,12 @@ export async function createElectronicServiceTransactionAction(formData: FormDat
   const financial = z.object({
     paymentDestination,
     walletId: optionalUuid,
+    bankAccountId: optionalUuid,
     customerId: optionalUuid,
   }).safeParse({
     paymentDestination: readString(formData, "paymentDestination") || "DRAWER",
     walletId: readString(formData, "walletId") || undefined,
+    bankAccountId: readString(formData, "bankAccountId") || undefined,
     customerId: readString(formData, "customerId") || undefined,
   });
 
@@ -123,6 +126,7 @@ export async function createElectronicServiceTransactionAction(formData: FormDat
   const common = {
     paymentDestination: financial.data.paymentDestination,
     walletId: financial.data.walletId || undefined,
+    bankAccountId: financial.data.bankAccountId || undefined,
     customerId: financial.data.customerId || undefined,
     customerPhone: readString(formData, "customerPhone") || undefined,
     reference: readString(formData, "reference") || undefined,

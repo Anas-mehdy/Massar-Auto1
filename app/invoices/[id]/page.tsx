@@ -9,9 +9,11 @@ import { InvoiceStatusBadge, PaymentMethodBadge } from "@/components/status-badg
 import { Button } from "@/components/ui/button";
 import { SubmitButton } from "@/components/submit-button";
 import { PaymentSourceField } from "@/components/payment-source-field";
+import { MoneyDestinationField } from "@/components/money-destination-field";
 import { getCurrentShopContext } from "@/lib/current-shop";
 import { isDatabaseConnectionError } from "@/lib/database-errors";
 import { financialTransferService } from "@/lib/services/financialTransferService";
+import { bankAccountService } from "@/lib/services/bankAccountService";
 import { invoiceService } from "@/lib/services/invoiceService";
 import { paymentSourceService } from "@/lib/services/paymentSourceService";
 import { whatsappService } from "@/lib/services/whatsappService";
@@ -28,6 +30,7 @@ export default async function InvoiceDetailsPage({ params, searchParams }: Invoi
   let invoice: Awaited<ReturnType<typeof invoiceService.getInvoiceById>>;
   let paymentSources: Awaited<ReturnType<typeof paymentSourceService.listPaymentSourceOptions>> = [];
   let wallets: Awaited<ReturnType<typeof financialTransferService.listWallets>> = [];
+  let bankAccounts: Awaited<ReturnType<typeof bankAccountService.listAccounts>> = [];
   let currency = "SAR";
   let shopName = "";
   let timeZone = "UTC";
@@ -36,10 +39,11 @@ export default async function InvoiceDetailsPage({ params, searchParams }: Invoi
     currency = context.currency;
     shopName = context.shopName;
     timeZone = context.timeZone;
-    [invoice, paymentSources, wallets] = await Promise.all([
+    [invoice, paymentSources, wallets, bankAccounts] = await Promise.all([
       invoiceService.getInvoiceById(context.shopId, id),
       paymentSourceService.listPaymentSourceOptions(context.shopId),
       financialTransferService.listWallets(context.shopId),
+      bankAccountService.listAccounts(context.shopId),
     ]);
   } catch (error) {
     if (isDatabaseConnectionError(error)) return <DatabaseUnavailable />;
@@ -87,7 +91,12 @@ export default async function InvoiceDetailsPage({ params, searchParams }: Invoi
           <div className="grid gap-4">
             <Field label="المبلغ المدفوع"><input className={`${inputClassName} font-numeric`} name="amount" min="0.01" max={invoice.balanceDue.toString()} required step="0.01" type="number" placeholder="0.00" disabled={!canAddPayment} /></Field>
             <Field label="طريقة الدفع"><select className={selectClassName} name="method" defaultValue="CASH" disabled={!canAddPayment}>{paymentMethodOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
-            <div className="rounded-xl border border-teal-100 bg-teal-50/40 p-3 grid gap-3"><Field label="مكان وصول المال"><select className={selectClassName} name="moneyDestination" defaultValue="DRAWER" disabled={!canAddPayment}><option value="DRAWER">الدرج النقدي</option><option value="WALLET">محفظة إلكترونية</option><option value="OTHER">بدون تحديث رصيد</option></select></Field><Field label="المحفظة" helper="اخترها فقط إذا كان مكان وصول المال محفظة"><select className={selectClassName} name="walletId" defaultValue="" disabled={!canAddPayment}><option value="">اختر المحفظة عند الحاجة</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{wallet.name} — {formatMoney(wallet.currentBalance, currency)}</option>)}</select></Field><p className="text-[10px] font-semibold leading-5 text-teal-700">الدفعة تبقى دفعة واحدة في التقارير؛ هذا الاختيار يحدد فقط أين أصبح المال فعليًا.</p></div>
+            <MoneyDestinationField
+              wallets={wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, balance: Number(wallet.currentBalance) }))}
+              bankAccounts={bankAccounts.map((account) => ({ id: account.id, name: account.name, bankName: account.bankName, balance: Number(account.currentBalance) }))}
+              currency={currency}
+              disabled={!canAddPayment}
+            />
             <PaymentSourceField options={paymentSources} disabled={!canAddPayment} />
             <Field label="رقم المرجع (سند القبض)"><input className={inputClassName} name="reference" placeholder="مثال: تحويل بنكي، شبكة، كاش..." disabled={!canAddPayment} /></Field>
             <Field label="تاريخ الدفع" helper="اتركه فارغاً للاستخدام التلقائي لتاريخ اليوم"><input className={`${inputClassName} font-numeric`} name="paidAt" type="date" disabled={!canAddPayment} /></Field>

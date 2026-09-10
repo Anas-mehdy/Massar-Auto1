@@ -44,7 +44,9 @@ assert(receipt.includes('createReceiptTx'));
 const payment = segment('export async function recordPurchasePayment', 'export async function recordSupplierReturn');
 assert(payment.includes('"balanceDue" = "balanceDue" - ${amount}'));
 assert(payment.includes('requestKey'));
-assert(payment.includes('applyPurchasePaymentMoneyTx'));
+assert(payment.includes('purchaseMoneyService.applyPurchasePaymentTx'));
+assert(payment.includes('"bankAccountId"'));
+assert(payment.includes('input.accountType === "BANK"'));
 
 const physicalReturn = segment('export async function recordSupplierReturn', 'export async function settleSupplierReturn');
 assert(physicalReturn.includes('InventoryMovementType.STOCK_OUT'));
@@ -59,7 +61,7 @@ const settlement = segment('export async function settleSupplierReturn', 'export
 assert(settlement.includes('PAYABLE_REDUCTION'));
 assert(settlement.includes('SUPPLIER_CREDIT'));
 assert(settlement.includes('REFUND'));
-assert(settlement.includes('applySupplierRefundMoneyTx'));
+assert(settlement.includes('purchaseMoneyService.applySupplierRefundTx'));
 assert(settlement.includes('"returnAdjustmentTotal" = "returnAdjustmentTotal" + ${amount}'));
 
 for (const table of ['PurchaseReceipt','SupplierReturn','SupplierReturnSettlement']) {

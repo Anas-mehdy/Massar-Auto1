@@ -505,6 +505,7 @@ model PurchaseInvoice {
   paymentMethod         String?   @db.VarChar(30)
   paymentAccountType    String?   @db.VarChar(20)
   paymentWalletId       String?   @db.Uuid
+  paymentBankAccountId  String?   @db.Uuid
   paymentSourceName     String?
   paymentReference      String?
   postingKey            String?   @db.VarChar(80)
@@ -522,6 +523,7 @@ model PurchaseInvoice {
   @@index([shopId, supplierId, invoiceDate])
   @@index([shopId, supplierId, supplierInvoiceNumber])
   @@index([shopId, deletedAt])
+  @@index([paymentBankAccountId])
 }
 
 model PurchaseItem {
@@ -586,10 +588,12 @@ model PurchasePayment {
   requestFingerprint String?  @db.Char(64)
   accountType       String?   @db.VarChar(20)
   walletId          String?   @db.Uuid
+  bankAccountId     String?   @db.Uuid
   createdAt         DateTime  @default(now())
 
   @@unique([shopId, requestKey])
   @@index([shopId, purchaseInvoiceId, paidAt])
+  @@index([bankAccountId])
 }
 
 model PurchaseReceipt {
@@ -678,6 +682,7 @@ model SupplierReturnSettlement {
   amount            Decimal  @db.Decimal(14, 2)
   accountType       String?  @db.VarChar(20)
   walletId          String?  @db.Uuid
+  bankAccountId     String?   @db.Uuid
   sourceName        String?
   reference         String?
   note              String?
@@ -687,6 +692,7 @@ model SupplierReturnSettlement {
   @@unique([shopId, requestKey])
   @@index([shopId, supplierReturnId, settledAt])
   @@index([shopId, supplierId, type, settledAt])
+  @@index([bankAccountId])
 }
 
 // Private source files/text used only to prepare purchase drafts. No public URL is stored.
@@ -1150,6 +1156,7 @@ model Expense {
   fundingSource        String?         @db.VarChar(16)
   fundingWalletId      String?         @db.Uuid
   fundingWalletName    String?
+  fundingBankAccountId String?         @db.Uuid
   cashDrawerMovementId String?         @db.Uuid
   financialTransferId  String?         @db.Uuid
   createdAt            DateTime        @default(now())
@@ -1166,6 +1173,7 @@ model Expense {
   @@index([fundingWalletId])
   @@index([shopId, deletedAt])
   @@index([createdByUserId])
+  @@index([fundingBankAccountId])
 }
 
 model InstallmentPlan {
@@ -1645,3 +1653,56 @@ model CompatibilityConflictReport {
   @@index([compatibilityId, status, severity])
   @@index([status, createdAt])
 }
+
+model BankAccount {
+  id                  String    @id @default(uuid()) @db.Uuid
+  shopId              String    @db.Uuid
+  name                String
+  bankName            String?
+  openingBalance      Decimal   @default(0) @db.Decimal(14, 2)
+  currentBalance      Decimal   @default(0) @db.Decimal(14, 2)
+  openingBalanceSetAt DateTime?
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?
+
+  @@index([shopId, isActive, createdAt])
+  @@index([shopId, deletedAt])
+}
+
+model BankAccountMovement {
+  id               String    @id @default(uuid()) @db.Uuid
+  shopId           String    @db.Uuid
+  bankAccountId    String    @db.Uuid
+  createdByUserId  String?   @db.Uuid
+  voidedByUserId   String?   @db.Uuid
+  customerId       String?   @db.Uuid
+  type             String
+  direction        String    @db.VarChar(3)
+  amount           Decimal   @db.Decimal(14, 2)
+  balanceBefore    Decimal   @default(0) @db.Decimal(14, 2)
+  balanceAfter     Decimal   @default(0) @db.Decimal(14, 2)
+  description      String?
+  reference        String?
+  sourceType       String    @default("MANUAL")
+  sourceId         String?
+  sourceReference  String?
+  counterpartyType String?
+  counterpartyId   String?
+  counterpartyName String?
+  transferGroupId  String?   @db.Uuid
+  status           String    @default("ACTIVE") @db.VarChar(12)
+  occurredAt       DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  voidedAt         DateTime?
+
+  @@index([shopId, occurredAt, createdAt])
+  @@index([bankAccountId, occurredAt, createdAt])
+  @@index([shopId, sourceType, sourceId])
+  @@index([shopId, customerId, occurredAt])
+  @@index([shopId, transferGroupId])
+  @@index([shopId, status, occurredAt])
+}
+

@@ -1,6 +1,6 @@
 "use client";
 
-import { Banknote, Calculator, CheckCircle2, CreditCard, Layers3, ReceiptText, Sparkles, UserRound, WalletCards, Zap } from "lucide-react";
+import { Banknote, Calculator, CheckCircle2, CreditCard, Landmark, Layers3, ReceiptText, Sparkles, UserRound, WalletCards, Zap } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/format";
@@ -10,8 +10,9 @@ type Provider = { id: string; name: string; currentBalance: number; currencyCode
 type Template = { id: string; providerId: string; providerName: string; currencyCode: string; providerBalance: number; name: string; category: string; faceValue: number | null; providerCost: number; customerCharge: number };
 type Customer = { id: string; name: string; phone: string | null };
 type Wallet = { id: string; name: string; currentBalance: number };
+type BankAccount = { id: string; name: string; bankName: string | null; currentBalance: number };
 type ProfitMode = "AUTO_DIFFERENCE" | "FIXED" | "PERCENTAGE" | "NONE";
-type PaymentDestination = "DRAWER" | "WALLET" | "OTHER" | "DEBT";
+type PaymentDestination = "DRAWER" | "WALLET" | "BANK" | "OTHER" | "DEBT";
 
 const inputClass = "h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 outline-none transition focus:border-teal-400 focus:ring-4 focus:ring-teal-100/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-teal-700 dark:focus:ring-teal-950/50";
 const categories = ["شحن رصيد", "إنترنت وباقات", "دفع فاتورة", "بطاقة / قسيمة", "رسوم ومدفوعات", "خدمة حكومية", "محفظة", "أخرى"];
@@ -22,6 +23,7 @@ export function ElectronicServiceExecutionForm({
   templates,
   customers,
   wallets,
+  bankAccounts,
   defaultCurrency,
   defaultProviderId,
   returnTo,
@@ -30,6 +32,7 @@ export function ElectronicServiceExecutionForm({
   templates: Template[];
   customers: Customer[];
   wallets: Wallet[];
+  bankAccounts: BankAccount[];
   defaultCurrency: string;
   defaultProviderId?: string;
   returnTo?: string;
@@ -44,6 +47,7 @@ export function ElectronicServiceExecutionForm({
   const [paymentDestination, setPaymentDestination] = useState<PaymentDestination>("DRAWER");
   const [customerId, setCustomerId] = useState("");
   const [walletId, setWalletId] = useState(wallets[0]?.id ?? "");
+  const [bankAccountId, setBankAccountId] = useState(bankAccounts[0]?.id ?? "");
 
   const selectedTemplate = useMemo(() => templates.find((template) => template.id === templateId) ?? null, [templateId, templates]);
   const selectedProvider = useMemo(() => providers.find((provider) => provider.id === providerId) ?? null, [providerId, providers]);
@@ -81,14 +85,16 @@ export function ElectronicServiceExecutionForm({
 
     <section className="rounded-[20px] border border-teal-100 bg-teal-50/45 p-4 dark:border-teal-900/60 dark:bg-teal-950/20">
       <div className="mb-3 flex items-center gap-2"><ReceiptText className="h-4 w-4 text-teal-700 dark:text-teal-300" /><div><h3 className="text-xs font-black text-slate-900 dark:text-slate-100">تحصيل المبلغ من العميل</h3><p className="mt-0.5 text-[9px] font-semibold text-slate-400">اختر أين دخل المبلغ فعلياً أو سجله على الدين.</p></div></div>
-      <div className="grid gap-2 sm:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-5">
         <PaymentChoice active={paymentDestination === "DRAWER"} icon={Banknote} label="نقدي" helper="الدرج" onClick={() => setPaymentDestination("DRAWER")} />
         <PaymentChoice active={paymentDestination === "WALLET"} icon={WalletCards} label="محفظة" helper="رصيد إلكتروني" onClick={() => setPaymentDestination("WALLET")} />
+        <PaymentChoice active={paymentDestination === "BANK"} icon={Landmark} label="بنك" helper="حساب بنكي" onClick={() => setPaymentDestination("BANK")} />
         <PaymentChoice active={paymentDestination === "DEBT"} icon={UserRound} label="على الدين" helper="ذمة العميل" onClick={() => setPaymentDestination("DEBT")} />
         <PaymentChoice active={paymentDestination === "OTHER"} icon={CreditCard} label="مصدر آخر" helper="بدون حركة مالية" onClick={() => setPaymentDestination("OTHER")} />
       </div>
       <input type="hidden" name="paymentDestination" value={paymentDestination} />
       {paymentDestination === "WALLET" ? <label className="mt-3 block"><span className="mb-1.5 block text-[10px] font-black text-slate-600 dark:text-slate-300">المحفظة التي استلمت المبلغ *</span><select name="walletId" value={walletId} onChange={(event) => setWalletId(event.target.value)} className={inputClass} required><option value="" disabled>اختر المحفظة</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{wallet.name} — {formatCurrency(wallet.currentBalance, defaultCurrency)}</option>)}</select>{wallets.length === 0 ? <p className="mt-1 text-[9px] font-bold text-rose-600 dark:text-rose-300">لا توجد محفظة نشطة. أضف محفظة أولاً أو اختر طريقة دفع أخرى.</p> : null}</label> : <input type="hidden" name="walletId" value="" />}
+      {paymentDestination === "BANK" ? <label className="mt-3 block"><span className="mb-1.5 block text-[10px] font-black text-slate-600 dark:text-slate-300">الحساب البنكي الذي استلم المبلغ *</span><select name="bankAccountId" value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value)} className={inputClass} required><option value="" disabled>اختر الحساب البنكي</option>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}{account.bankName ? ` — ${account.bankName}` : ""} — {formatCurrency(account.currentBalance, defaultCurrency)}</option>)}</select>{bankAccounts.length === 0 ? <p className="mt-1 text-[9px] font-bold text-rose-600 dark:text-rose-300">لا توجد حسابات بنكية نشطة.</p> : null}</label> : <input type="hidden" name="bankAccountId" value="" />}
       <label className="mt-3 block"><span className="mb-1.5 block text-[10px] font-black text-slate-600 dark:text-slate-300">العميل {paymentDestination === "DEBT" ? "*" : "(اختياري)"}</span><select name="customerId" value={customerId} onChange={(event) => setCustomerId(event.target.value)} className={inputClass} required={paymentDestination === "DEBT"}><option value="">بدون ربط بعميل</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}{customer.phone ? ` — ${customer.phone}` : ""}</option>)}</select>{paymentDestination === "DEBT" ? <p className="mt-1 text-[9px] font-semibold text-amber-700 dark:text-amber-300">سيُضاف المبلغ كاملًا إلى دفتر دين هذا العميل، ويمنع مسار إلغاء العملية بعد تحصيل جزء من الدين.</p> : null}</label>
     </section>
 

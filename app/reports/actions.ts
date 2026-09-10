@@ -5,8 +5,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requirePermission } from "@/lib/auth/context";
-import { reportService } from "@/lib/services/reportService";
-import { timeZoneForCountry, zonedDateTimeToUtc } from "@/lib/timezone";
+import { expenseMoneyService } from "@/lib/services/expenseMoneyService";
+import { localDateString, timeZoneForCountry, zonedDateTimeToUtc } from "@/lib/timezone";
 
 const createExpenseSchema = z.object({
   title: z.string().trim().min(1, "اسم المصروف مطلوب").max(120),
@@ -14,11 +14,15 @@ const createExpenseSchema = z.object({
   amount: z.coerce.number().positive("قيمة المصروف يجب أن تكون أكبر من صفر"),
   spentAt: z.string().date(),
   notes: z.string().trim().max(500).optional(),
-  fundingSource: z.enum(["DRAWER", "WALLET"]),
+  fundingSource: z.enum(["DRAWER", "WALLET", "BANK"]),
   fundingWalletId: z.string().uuid().optional().or(z.literal("")),
+  fundingBankAccountId: z.string().uuid().optional().or(z.literal("")),
 }).superRefine((data, ctx) => {
   if (data.fundingSource === "WALLET" && !data.fundingWalletId) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fundingWalletId"], message: "اختر المحفظة التي سُحب منها المصروف." });
+  }
+  if (data.fundingSource === "BANK" && !data.fundingBankAccountId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fundingBankAccountId"], message: "اختر الحساب البنكي الذي سُحب منه المصروف." });
   }
 });
 
@@ -43,33 +47,42 @@ export async function createExpenseAction(formData: FormData) {
     notes: read(formData, "notes"),
     fundingSource: read(formData, "fundingSource") || "DRAWER",
     fundingWalletId: read(formData, "fundingWalletId"),
+    fundingBankAccountId: read(formData, "fundingBankAccountId"),
   });
   const auth = await requirePermission("expenses:manage");
   const timeZone = timeZoneForCountry(auth.shop.countryCode);
+  const spentAt = localNoonUtc(input.spentAt, timeZone);
+  const movementOccurredAt = input.spentAt === localDateString(new Date(), timeZone)
+    ? undefined
+    : spentAt;
 
-  await reportService.createExpense(auth.shop.id, auth.user.id, {
+  await expenseMoneyService.createExpense(auth.shop.id, auth.user.id, {
     title: input.title,
     category: input.category,
     amount: input.amount.toFixed(2),
-    spentAt: localNoonUtc(input.spentAt, timeZone),
+    spentAt,
+    movementOccurredAt,
     notes: input.notes,
     fundingSource: input.fundingSource,
     fundingWalletId: input.fundingWalletId || undefined,
+    fundingBankAccountId: input.fundingBankAccountId || undefined,
   });
 
   revalidatePath("/reports");
   revalidatePath("/cash-drawer");
   revalidatePath("/transfers");
+  revalidatePath("/bank-accounts");
   redirect("/reports?preset=month&expenseSaved=1");
 }
 
 export async function deleteExpenseAction(formData: FormData) {
   const input = deleteExpenseSchema.parse({ expenseId: read(formData, "expenseId") });
   const auth = await requirePermission("expenses:manage");
-  await reportService.deleteExpense(auth.shop.id, input.expenseId, auth.user.id);
+  await expenseMoneyService.deleteExpense(auth.shop.id, input.expenseId, auth.user.id);
 
   revalidatePath("/reports");
   revalidatePath("/cash-drawer");
   revalidatePath("/transfers");
+  revalidatePath("/bank-accounts");
   redirect("/reports?preset=month&expenseDeleted=1");
 }

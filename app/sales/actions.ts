@@ -28,15 +28,18 @@ const createSaleSchema = z.object({
   customerName: z.string().optional(),
   customerPhone: z.string().optional(),
   items: z.array(rawLineItemSchema).min(1, "يجب إضافة بند واحد على الأقل"),
-  paymentDestination: z.enum(["DRAWER", "WALLET", "DEBT"]).default("DRAWER"),
+  paymentDestination: z.enum(["DRAWER", "WALLET", "BANK", "DEBT"]).default("DRAWER"),
   walletId: z.string().uuid().optional().or(z.literal("")),
+  bankAccountId: z.string().uuid().optional().or(z.literal("")),
   amountReceived: z.string().trim().optional(),
-  changeDestination: z.enum(["DRAWER", "WALLET"]).default("DRAWER"),
+  changeDestination: z.enum(["DRAWER", "WALLET", "BANK"]).default("DRAWER"),
   changeWalletId: z.string().uuid().optional().or(z.literal("")),
+  changeBankAccountId: z.string().uuid().optional().or(z.literal("")),
 }).superRefine((data, ctx) => {
   if (data.customerMode === "EXISTING" && !data.customerId) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "اختر عميلاً موجوداً من القائمة." });
   if (data.customerMode === "NEW" && !data.customerName?.trim()) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "اسم العميل الجديد مطلوب." });
   if (data.paymentDestination === "WALLET" && !data.walletId) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "اختر محفظة استلام المبلغ." });
+  if (data.paymentDestination === "BANK" && !data.bankAccountId) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "اختر الحساب البنكي الذي استلم المبلغ." });
   if (data.paymentDestination === "DEBT" && data.customerMode === "CASH") ctx.addIssue({ code: z.ZodIssueCode.custom, message: "ترحيل المبلغ إلى دفتر الديون يتطلب عميلاً مسجلاً." });
 });
 
@@ -72,19 +75,16 @@ export async function createSaleAction(_state: SaleActionState, formData: FormDa
       items: rawItems,
       paymentDestination: readString(formData, "paymentDestination") || "DRAWER",
       walletId: readString(formData, "walletId"),
+      bankAccountId: readString(formData, "bankAccountId"),
       amountReceived: readString(formData, "amountReceived"),
       changeDestination: readString(formData, "changeDestination") || "DRAWER",
       changeWalletId: readString(formData, "changeWalletId"),
+      changeBankAccountId: readString(formData, "changeBankAccountId"),
     });
 
     if (onboardingMode) {
-      const onboardingTotal = parsed.items.reduce(
-        (sum, item) => sum + (Number(item.unitPrice) * item.quantity) - Number(item.discountTotal || 0),
-        0,
-      );
-      if (!Number.isFinite(onboardingTotal) || onboardingTotal <= 0) {
-        return { error: "أدخل سعراً أكبر من صفر حتى تكون أول عملية بيع حقيقية." };
-      }
+      const onboardingTotal = parsed.items.reduce((sum, item) => sum + (Number(item.unitPrice) * item.quantity) - Number(item.discountTotal || 0), 0);
+      if (!Number.isFinite(onboardingTotal) || onboardingTotal <= 0) return { error: "أدخل سعراً أكبر من صفر حتى تكون أول عملية بيع حقيقية." };
     }
 
     const auth = await requirePermission("sales:create");
@@ -98,24 +98,14 @@ export async function createSaleAction(_state: SaleActionState, formData: FormDa
       items: parsed.items.map((item) => ({ inventoryItemId: item.inventoryItemId, description: item.description ?? "", quantity: item.quantity, unitPrice: String(item.unitPrice), discountTotal: String(item.discountTotal) })),
       paymentDestination: parsed.paymentDestination,
       walletId: parsed.walletId || undefined,
+      bankAccountId: parsed.bankAccountId || undefined,
       amountReceived: parsed.amountReceived || undefined,
       changeDestination: parsed.changeDestination,
       changeWalletId: parsed.changeWalletId || undefined,
+      changeBankAccountId: parsed.changeBankAccountId || undefined,
     });
     saleId = sale.id;
-    await captureServerEvent({
-      event: ANALYTICS_EVENTS.SALE_COMPLETED,
-      distinctId: auth.user.id,
-      shopId: auth.shop.id,
-      countryCode: auth.shop.countryCode,
-      properties: {
-        source: onboardingMode ? "point_of_sale_onboarding" : pointOfSaleReturn ? "point_of_sale" : "sales",
-        onboarding_mode: onboardingMode,
-        payment_destination: parsed.paymentDestination,
-        customer_mode: parsed.customerMode,
-        item_count: parsed.items.length,
-      },
-    });
+    await captureServerEvent({ event: ANALYTICS_EVENTS.SALE_COMPLETED, distinctId: auth.user.id, shopId: auth.shop.id, countryCode: auth.shop.countryCode, properties: { source: onboardingMode ? "point_of_sale_onboarding" : pointOfSaleReturn ? "point_of_sale" : "sales", onboarding_mode: onboardingMode, payment_destination: parsed.paymentDestination, customer_mode: parsed.customerMode, item_count: parsed.items.length } });
   } catch (error) {
     return { error: getErrorMessage(error) };
   }
@@ -124,13 +114,12 @@ export async function createSaleAction(_state: SaleActionState, formData: FormDa
   revalidatePath("/customers");
   revalidatePath("/inventory");
   revalidatePath("/transfers");
+  revalidatePath("/bank-accounts");
   revalidatePath("/cash-drawer");
   revalidatePath("/debts");
   revalidatePath("/reports");
   revalidatePath("/point-of-sale");
-  redirect(pointOfSaleReturn
-    ? pointOfSaleResultPath("sale", { saved: "1", transaction: saleId })
-    : `/sales/${saleId}${onboardingMode ? "?onboarding=1" : ""}`);
+  redirect(pointOfSaleReturn ? pointOfSaleResultPath("sale", { saved: "1", transaction: saleId }) : `/sales/${saleId}${onboardingMode ? "?onboarding=1" : ""}`);
 }
 
 export async function cancelSaleAction(formData: FormData) {
@@ -140,6 +129,8 @@ export async function cancelSaleAction(formData: FormData) {
   revalidatePath("/sales");
   revalidatePath(`/sales/${input.saleId}`);
   revalidatePath("/inventory");
+  revalidatePath("/bank-accounts");
+  revalidatePath("/cash-drawer");
   revalidatePath("/debts");
   revalidatePath("/reports");
   redirect(`/sales/${input.saleId}`);

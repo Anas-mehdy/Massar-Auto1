@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { requirePermission } from "@/lib/auth/context";
+import { bankAccountService } from "@/lib/services/bankAccountService";
 import { inventoryCategoryService } from "@/lib/services/inventoryCategoryService";
 import { purchaseReceivingService } from "@/lib/services/purchaseReceivingService";
 import { supplierService } from "@/lib/services/supplierService";
@@ -15,9 +16,10 @@ type NewPurchasePageProps = { searchParams: Promise<{ draft?: string; copied?: s
 export default async function NewPurchasePage({ searchParams }: NewPurchasePageProps) {
   const params = await searchParams;
   const auth = await requirePermission("inventory:manage");
-  const [suppliers, wallets, drawerBalance, categories, draft] = await Promise.all([
+  const [suppliers, wallets, bankAccounts, drawerBalance, categories, draft] = await Promise.all([
     supplierService.listSuppliers(auth.shop.id),
     purchaseReceivingService.listPurchaseFinancialWallets(auth.shop.id),
+    bankAccountService.listAccounts(auth.shop.id),
     purchaseReceivingService.getPurchaseDrawerBalance(auth.shop.id),
     inventoryCategoryService.listInventoryCategories(auth.shop.id),
     params.draft ? purchaseReceivingService.getPurchaseInvoice(auth.shop.id, params.draft).catch(() => null) : Promise.resolve(null),
@@ -45,6 +47,7 @@ export default async function NewPurchasePage({ searchParams }: NewPurchasePageP
     <PurchaseReceivingForm
       suppliers={suppliers.map((supplier) => ({ id: supplier.id, name: supplier.name, phone: supplier.phone }))}
       wallets={wallets.map(wallet => ({ id: wallet.id, name: wallet.name, currentBalance: wallet.currentBalance.toString() }))}
+      bankAccounts={bankAccounts.map(account => ({ id: account.id, name: account.name, bankName: account.bankName, currentBalance: account.currentBalance.toString() }))}
       drawerBalance={drawerBalance.toString()}
       categories={categories}
       currency={auth.shop.currency}
@@ -62,6 +65,7 @@ export default async function NewPurchasePage({ searchParams }: NewPurchasePageP
         paymentMethod: editableDraft.paymentMethod,
         paymentAccountType: editableDraft.paymentAccountType,
         paymentWalletId: editableDraft.paymentWalletId,
+        paymentBankAccountId: editableDraft.paymentBankAccountId,
         paymentSourceName: editableDraft.paymentSourceName,
         paymentReference: editableDraft.paymentReference,
         lines: editableDraft.items.map((item) => ({

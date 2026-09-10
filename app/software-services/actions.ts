@@ -33,15 +33,18 @@ const createSaleSchema = z.object({
   serviceCost: z.string().trim().optional(),
   notes: z.string().trim().max(1000).optional(),
   deviceKept: z.boolean().optional(),
-  paymentDestination: z.enum(["DRAWER", "WALLET", "DEBT"]).default("DRAWER"),
+  paymentDestination: z.enum(["DRAWER", "WALLET", "BANK", "DEBT"]).default("DRAWER"),
   walletId: z.string().uuid().optional().or(z.literal("")),
+  bankAccountId: z.string().uuid().optional().or(z.literal("")),
   amountReceived: z.string().trim().optional(),
-  changeDestination: z.enum(["DRAWER", "WALLET"]).default("DRAWER"),
+  changeDestination: z.enum(["DRAWER", "WALLET", "BANK"]).default("DRAWER"),
   changeWalletId: z.string().uuid().optional().or(z.literal("")),
+  changeBankAccountId: z.string().uuid().optional().or(z.literal("")),
 }).superRefine((data, ctx) => {
   if (data.customerMode === "EXISTING" && !data.customerId) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "اختر عميلاً موجوداً من القائمة." });
   if (data.customerMode === "NEW" && !data.newCustomerName?.trim()) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "اسم العميل الجديد مطلوب." });
   if (data.paymentDestination === "WALLET" && !data.walletId) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "اختر محفظة استلام المبلغ." });
+  if (data.paymentDestination === "BANK" && !data.bankAccountId) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "اختر الحساب البنكي الذي استلم المبلغ." });
   if (data.paymentDestination === "DEBT" && data.customerMode === "CASH") ctx.addIssue({ code: z.ZodIssueCode.custom, message: "ترحيل الخدمة إلى دفتر الديون يتطلب عميلاً مسجلاً." });
 });
 
@@ -65,9 +68,11 @@ export async function createSoftwareServiceSaleAction(formData: FormData) {
       deviceKept: readString(formData, "deviceKept") === "on",
       paymentDestination: readString(formData, "paymentDestination") || "DRAWER",
       walletId: readString(formData, "walletId"),
+      bankAccountId: readString(formData, "bankAccountId"),
       amountReceived: readString(formData, "amountReceived"),
       changeDestination: readString(formData, "changeDestination") || "DRAWER",
       changeWalletId: readString(formData, "changeWalletId"),
+      changeBankAccountId: readString(formData, "changeBankAccountId"),
     });
 
     const auth = await requirePermission("sales:create");
@@ -86,9 +91,11 @@ export async function createSoftwareServiceSaleAction(formData: FormData) {
       deviceKept: input.deviceKept,
       paymentDestination: input.paymentDestination,
       walletId: input.walletId || undefined,
+      bankAccountId: input.bankAccountId || undefined,
       amountReceived: input.amountReceived || undefined,
       changeDestination: input.changeDestination,
       changeWalletId: input.changeWalletId || undefined,
+      changeBankAccountId: input.changeBankAccountId || undefined,
     });
     revalidatePath("/software-services");
     revalidatePath("/customers");
@@ -97,6 +104,7 @@ export async function createSoftwareServiceSaleAction(formData: FormData) {
     revalidatePath("/reports");
     revalidatePath("/debts");
     revalidatePath("/cash-drawer");
+    revalidatePath("/bank-accounts");
     revalidatePath("/transfers");
     revalidatePath("/point-of-sale");
     redirectTo = pointOfSaleReturn ? pointOfSaleResultPath("software", { saved: "1", transaction: sale.id }) : `/software-services/${sale.id}?created=1`;
@@ -154,6 +162,7 @@ export async function cancelSoftwareServiceSaleAction(formData: FormData) {
     revalidatePath("/invoices");
     revalidatePath("/reports");
     revalidatePath("/cash-drawer");
+    revalidatePath("/bank-accounts");
     revalidatePath("/transfers");
     revalidatePath("/debts");
     redirectTo = "/software-services?cancelled=1";

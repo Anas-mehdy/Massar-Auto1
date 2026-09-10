@@ -13,6 +13,7 @@ import { requirePermission } from "@/lib/auth/context";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { createInstallmentPublicToken } from "@/lib/installment-public-link";
 import { financialTransferService } from "@/lib/services/financialTransferService";
+import { bankAccountService } from "@/lib/services/bankAccountService";
 import { installmentService } from "@/lib/services/installmentService";
 import { paymentSourceService } from "@/lib/services/paymentSourceService";
 import { localDateString, timeZoneForCountry } from "@/lib/timezone";
@@ -28,10 +29,11 @@ export default async function InstallmentDetailsPage({ params, searchParams }: {
   const auth = await requirePermission("invoices:read");
   const timeZone = timeZoneForCountry(auth.shop.countryCode);
   const todayKey = localDateString(new Date(), timeZone);
-  const [plan, paymentSources, wallets] = await Promise.all([
+  const [plan, paymentSources, wallets, bankAccounts] = await Promise.all([
     installmentService.getPlanById(auth.shop.id, id),
     paymentSourceService.listPaymentSourceOptions(auth.shop.id),
     financialTransferService.listWallets(auth.shop.id),
+    bankAccountService.listAccounts(auth.shop.id),
   ]);
   if (!plan) notFound();
 
@@ -86,7 +88,7 @@ export default async function InstallmentDetailsPage({ params, searchParams }: {
           <h2 className="font-black text-slate-900">تسجيل دفعة جديدة</h2>
           <label className="grid gap-2"><span className="text-xs font-bold">المبلغ</span><input name="amount" className="erp-input" type="number" min="0.01" max={plan.balanceDue.toString()} step="0.01" required /></label>
           <label className="grid gap-2"><span className="text-xs font-bold">طريقة الدفع</span><select name="method" className="erp-input" defaultValue={PaymentMethod.CASH}><option value="CASH">نقدي</option><option value="CARD">بطاقة</option><option value="BANK_TRANSFER">تحويل بنكي</option><option value="OTHER">أخرى</option></select></label>
-          <div className="grid gap-3 rounded-xl border border-teal-100 bg-teal-50/40 p-3"><label className="grid gap-2"><span className="text-xs font-bold text-slate-700">مكان وصول المال</span><select name="moneyDestination" className="erp-input" defaultValue="DRAWER"><option value="DRAWER">الدرج النقدي</option><option value="WALLET">محفظة إلكترونية</option><option value="OTHER">بدون تحديث رصيد</option></select></label><label className="grid gap-2"><span className="text-xs font-bold text-slate-700">المحفظة</span><select name="walletId" className="erp-input" defaultValue=""><option value="">اخترها فقط عند التحصيل على محفظة</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{wallet.name} — {formatCurrency(wallet.currentBalance, auth.shop.currency)}</option>)}</select></label><p className="text-[11px] font-semibold leading-5 text-teal-700">القسط يبقى دفعة واحدة محاسبياً؛ الاختيار هنا يحدد فقط أين أصبح المال فعلياً.</p></div>
+          <div className="grid gap-3 rounded-xl border border-teal-100 bg-teal-50/40 p-3"><label className="grid gap-2"><span className="text-xs font-bold text-slate-700">مكان وصول المال</span><select name="moneyDestination" className="erp-input" defaultValue="DRAWER"><option value="DRAWER">الدرج النقدي</option><option value="WALLET">محفظة إلكترونية</option><option value="BANK">حساب بنكي</option><option value="OTHER">بدون تحديث رصيد</option></select></label><label className="grid gap-2"><span className="text-xs font-bold text-slate-700">المحفظة</span><select name="walletId" className="erp-input" defaultValue=""><option value="">اخترها فقط عند التحصيل على محفظة</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{wallet.name} — {formatCurrency(wallet.currentBalance, auth.shop.currency)}</option>)}</select></label><label className="grid gap-2"><span className="text-xs font-bold text-slate-700">الحساب البنكي</span><select name="bankAccountId" className="erp-input" defaultValue=""><option value="">اختره فقط عند التحصيل على البنك</option>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}{account.bankName ? ` — ${account.bankName}` : ""} — {formatCurrency(account.currentBalance, auth.shop.currency)}</option>)}</select></label><p className="text-[11px] font-semibold leading-5 text-teal-700">القسط يبقى دفعة واحدة محاسبياً؛ الاختيار هنا يحدد فقط أين أصبح المال فعلياً.</p></div>
           <PaymentSourceField options={paymentSources} />
           <label className="grid gap-2"><span className="text-xs font-bold">المرجع</span><input name="reference" className="erp-input" placeholder="اختياري" /></label>
           <label className="grid gap-2"><span className="text-xs font-bold">تاريخ الدفع</span><input name="paidAt" className="erp-input" type="date" /></label>

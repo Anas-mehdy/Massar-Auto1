@@ -52,6 +52,7 @@ type ElectronicServiceFinancialRow = {
   profit: Prisma.Decimal;
   drawerCollected: Prisma.Decimal;
   walletCollected: Prisma.Decimal;
+  bankCollected: Prisma.Decimal;
   otherCollected: Prisma.Decimal;
   deferred: Prisma.Decimal;
 };
@@ -250,6 +251,7 @@ export async function getFinancialReport(shopId: string, range: FinancialRange) 
         COALESCE(SUM(tx."profit"), 0) AS "profit",
         COALESCE(SUM(tx."customerCharge") FILTER (WHERE tx."paymentDestination" = 'DRAWER'), 0) AS "drawerCollected",
         COALESCE(SUM(tx."customerCharge") FILTER (WHERE tx."paymentDestination" = 'WALLET'), 0) AS "walletCollected",
+        COALESCE(SUM(tx."customerCharge") FILTER (WHERE tx."paymentDestination" = 'BANK'), 0) AS "bankCollected",
         COALESCE(SUM(tx."customerCharge") FILTER (WHERE tx."paymentDestination" = 'OTHER'), 0) AS "otherCollected",
         COALESCE(SUM(tx."customerCharge") FILTER (WHERE tx."paymentDestination" = 'DEBT'), 0) AS "deferred"
       FROM "ElectronicServiceTransaction" tx
@@ -266,9 +268,10 @@ export async function getFinancialReport(shopId: string, range: FinancialRange) 
   const electronicServiceProfit = money(decimalNumber(electronicService?.profit));
   const electronicServiceDrawerCollected = money(decimalNumber(electronicService?.drawerCollected));
   const electronicServiceWalletCollected = money(decimalNumber(electronicService?.walletCollected));
+  const electronicServiceBankCollected = money(decimalNumber(electronicService?.bankCollected));
   const electronicServiceOtherCollected = money(decimalNumber(electronicService?.otherCollected));
   const electronicServiceImmediateCollected = money(
-    electronicServiceDrawerCollected + electronicServiceWalletCollected + electronicServiceOtherCollected,
+    electronicServiceDrawerCollected + electronicServiceWalletCollected + electronicServiceBankCollected + electronicServiceOtherCollected,
   );
   const electronicServiceDeferred = money(decimalNumber(electronicService?.deferred));
   const electronicServiceOutstanding = money(debtSummary.electronicServiceOutstanding);
@@ -361,6 +364,12 @@ export async function getFinancialReport(shopId: string, range: FinancialRange) 
     paymentSources.set(
       "خدمات إلكترونية — محفظة",
       (paymentSources.get("خدمات إلكترونية — محفظة") ?? 0) + electronicServiceWalletCollected,
+    );
+  }
+  if (electronicServiceBankCollected > 0) {
+    paymentSources.set(
+      "خدمات إلكترونية — حساب بنكي",
+      (paymentSources.get("خدمات إلكترونية — حساب بنكي") ?? 0) + electronicServiceBankCollected,
     );
   }
   if (electronicServiceOtherCollected > 0) {

@@ -1,11 +1,12 @@
 import { PaymentMethod, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requestFingerprint } from "@/lib/idempotency";
+import { bankAccountService } from "@/lib/services/bankAccountService";
 import { cashDrawerService } from "@/lib/services/cashDrawerService";
 import { financialTransferService } from "@/lib/services/financialTransferService";
 
 export type SupplierLedgerEntryType = "OPENING_BALANCE" | "PAYMENT" | "ADJUSTMENT_DEBIT" | "ADJUSTMENT_CREDIT";
-export type SupplierPaymentAccountType = "DRAWER" | "WALLET";
+export type SupplierPaymentAccountType = "DRAWER" | "WALLET" | "BANK";
 
 export type SupplierLedgerEvent = {
   id: string;
@@ -233,27 +234,32 @@ export async function createOpeningBalance(shopId: string, userId: string, suppl
 }
 
 export async function recordSupplierPayment(shopId: string, userId: string, supplierId: string, input: {
-  requestKey: string; amount: string | number; occurredAt: string | Date; accountType: SupplierPaymentAccountType; walletId?: string | null; description?: string | null; reference?: string | null;
+  requestKey: string; amount: string | number; occurredAt: string | Date; accountType: SupplierPaymentAccountType; walletId?: string | null; bankAccountId?: string | null; movementOccurredAt?: Date; description?: string | null; reference?: string | null;
 }) {
   const requestKey = assertRequestKey(input.requestKey);
   const amount = positiveMoney(input.amount);
   const occurredAt = safeDate(input.occurredAt, "تاريخ الدفعة");
   const walletId = input.accountType === "WALLET" ? nullableText(input.walletId) : null;
+  const bankAccountId = input.accountType === "BANK" ? nullableText(input.bankAccountId) : null;
   if (input.accountType === "WALLET" && !walletId) throw new Error("اختر المحفظة التي ستخرج منها الدفعة.");
+  if (input.accountType === "BANK" && !bankAccountId) throw new Error("اختر الحساب البنكي الذي ستخرج منه الدفعة.");
 
   let sourceName = "الدرج النقدي";
   if (input.accountType === "DRAWER") {
-    // Ensures the runtime-managed CashDrawer tables/row exist before entering the atomic payment transaction.
     await cashDrawerService.getSnapshot(shopId, 1);
-  } else {
-    // Ensures FinancialWallet / FinancialTransfer are present and validates the wallet belongs to this shop.
+  } else if (input.accountType === "WALLET") {
     const wallets = await financialTransferService.listWallets(shopId);
     const selectedWallet = wallets.find((wallet) => wallet.id === walletId);
     if (!selectedWallet) throw new Error("المحفظة المحددة غير موجودة أو غير نشطة.");
     sourceName = selectedWallet.name;
+  } else {
+    const accounts = await bankAccountService.listAccounts(shopId);
+    const selectedBank = accounts.find((account) => account.id === bankAccountId);
+    if (!selectedBank) throw new Error("الحساب البنكي المحدد غير موجود أو متوقف.");
+    sourceName = selectedBank.name;
   }
 
-  const fingerprint = requestFingerprint({ supplierId, amount: amount.toFixed(2), occurredAt: occurredAt.toISOString(), accountType: input.accountType, walletId, description: nullableText(input.description), reference: nullableText(input.reference) });
+  const fingerprint = requestFingerprint({ supplierId, amount: amount.toFixed(2), occurredAt: occurredAt.toISOString(), accountType: input.accountType, walletId, bankAccountId, description: nullableText(input.description), reference: nullableText(input.reference) });
   return prisma.$transaction(async (tx) => {
     const supplier = await ensureSupplier(tx, shopId, supplierId, true);
     const prior = await tx.$queryRaw<Array<{ id: string; requestFingerprint: string | null }>>`
@@ -276,8 +282,8 @@ export async function recordSupplierPayment(shopId: string, userId: string, supp
 
     const manualAppliedAmount = Prisma.Decimal.min(amount, manualOutstanding);
     const entryRows = await tx.$queryRaw<Array<{ id: string }>>`
-      INSERT INTO "SupplierLedgerEntry" ("shopId","supplierId","createdByUserId","type","amount","manualAppliedAmount","occurredAt","description","reference","accountType","sourceName","walletId","requestKey","requestFingerprint")
-      VALUES (${shopId}::uuid,${supplierId}::uuid,${userId}::uuid,'PAYMENT',${amount},${manualAppliedAmount},${occurredAt},${nullableText(input.description) ?? `دفعة للمورد ${supplier.name}`},${nullableText(input.reference)},${input.accountType},${sourceName},${walletId}::uuid,${requestKey},${fingerprint}) RETURNING "id"
+      INSERT INTO "SupplierLedgerEntry" ("shopId","supplierId","createdByUserId","type","amount","manualAppliedAmount","occurredAt","description","reference","accountType","sourceName","walletId","bankAccountId","requestKey","requestFingerprint")
+      VALUES (${shopId}::uuid,${supplierId}::uuid,${userId}::uuid,'PAYMENT',${amount},${manualAppliedAmount},${occurredAt},${nullableText(input.description) ?? `دفعة للمورد ${supplier.name}`},${nullableText(input.reference)},${input.accountType},${sourceName},${walletId}::uuid,${bankAccountId}::uuid,${requestKey},${fingerprint}) RETURNING "id"
     `;
     const entryId = entryRows[0].id;
 
@@ -291,8 +297,8 @@ export async function recordSupplierPayment(shopId: string, userId: string, supp
       const paymentFingerprint = requestFingerprint({ supplierLedgerEntryId: entryId, purchaseId: invoice.id, amount: allocation.toFixed(2) });
       const method = input.accountType === "DRAWER" ? PaymentMethod.CASH : PaymentMethod.BANK_TRANSFER;
       await tx.$executeRaw`
-        INSERT INTO "PurchasePayment" ("shopId","purchaseInvoiceId","createdByUserId","method","sourceName","amount","reference","note","paidAt","requestKey","requestFingerprint","accountType","walletId")
-        VALUES (${shopId}::uuid,${invoice.id}::uuid,${userId}::uuid,${method},${sourceName},${allocation},${nullableText(input.reference)},${`دفعة من كشف حساب المورد [SUPPLIER-LEDGER:${entryId}]`},${occurredAt},${paymentKey},${paymentFingerprint},${input.accountType},${walletId}::uuid)
+        INSERT INTO "PurchasePayment" ("shopId","purchaseInvoiceId","createdByUserId","method","sourceName","amount","reference","note","paidAt","requestKey","requestFingerprint","accountType","walletId","bankAccountId")
+        VALUES (${shopId}::uuid,${invoice.id}::uuid,${userId}::uuid,${method},${sourceName},${allocation},${nullableText(input.reference)},${`دفعة من كشف حساب المورد [SUPPLIER-LEDGER:${entryId}]`},${occurredAt},${paymentKey},${paymentFingerprint},${input.accountType},${walletId}::uuid,${bankAccountId}::uuid)
       `;
       await tx.$executeRaw`
         UPDATE "PurchaseInvoice" SET "amountPaid"="amountPaid"+${allocation}, "balanceDue"="balanceDue"-${allocation}, "updatedAt"=NOW(), "version"="version"+1
@@ -316,7 +322,7 @@ export async function recordSupplierPayment(shopId: string, userId: string, supp
         VALUES (${shopId}::uuid,${drawer.id}::uuid,${userId}::uuid,'SUPPLIER_PAYMENT','OUT',${amount},${nullableText(input.description) ?? `دفعة للمورد ${supplier.name}`},${nullableText(input.reference)},'SUPPLIER',${supplierId},${supplier.name},'ACTIVE',${occurredAt}) RETURNING "id"
       `;
       await tx.$executeRaw`UPDATE "SupplierLedgerEntry" SET "cashDrawerMovementId"=${movementRows[0].id}::uuid, "updatedAt"=NOW() WHERE "id"=${entryId}::uuid`;
-    } else {
+    } else if (input.accountType === "WALLET") {
       const wallets = await tx.$queryRaw<Array<{ id: string; name: string; currentBalance: Prisma.Decimal }>>`
         SELECT "id","name","currentBalance" FROM "FinancialWallet"
         WHERE "id"=${walletId}::uuid AND "shopId"=${shopId}::uuid AND "deletedAt" IS NULL AND "isActive"=TRUE FOR UPDATE
@@ -331,6 +337,34 @@ export async function recordSupplierPayment(shopId: string, userId: string, supp
         VALUES (${shopId}::uuid,${wallet.id}::uuid,${userId}::uuid,'WALLET_WITHDRAWAL',${amount},${amount},0,'NONE',FALSE,${`${nullableText(input.description) ?? `دفعة للمورد ${supplier.name}`} [SUPPLIER-LEDGER:${entryId}]`},'SUPPLIER',${supplierId},${supplier.name},'ACTIVE',${occurredAt},NOW()) RETURNING "id"
       `;
       await tx.$executeRaw`UPDATE "SupplierLedgerEntry" SET "financialTransferId"=${transferRows[0].id}::uuid, "sourceName"=${wallet.name}, "updatedAt"=NOW() WHERE "id"=${entryId}::uuid`;
+    } else {
+      try {
+        const movement = await bankAccountService.createBankMovementTx(tx, shopId, userId, {
+          bankAccountId: bankAccountId!,
+          direction: "OUT",
+          amount,
+          type: "SUPPLIER_PAYMENT",
+          description: nullableText(input.description) ?? `دفعة للمورد ${supplier.name}`,
+          reference: nullableText(input.reference),
+          sourceType: "SUPPLIER",
+          sourceId: supplierId,
+          sourceReference: supplier.name,
+          counterpartyType: "SUPPLIER",
+          counterpartyId: supplierId,
+          counterpartyName: supplier.name,
+          occurredAt: input.movementOccurredAt,
+        });
+        await tx.$executeRaw`
+          UPDATE "SupplierLedgerEntry"
+          SET "bankAccountMovementId"=${movement.movementId}::uuid, "sourceName"=${sourceName}, "updatedAt"=NOW()
+          WHERE "id"=${entryId}::uuid
+        `;
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("رصيداً سالباً")) {
+          throw new Error(`رصيد الحساب البنكي ${sourceName} غير كافٍ في تاريخ الحركة لدفع المورد.`);
+        }
+        throw error;
+      }
     }
     return { id: entryId, alreadyApplied: false };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 20_000 });

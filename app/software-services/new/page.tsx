@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { getCurrentShopContext } from "@/lib/current-shop";
+import { bankAccountService } from "@/lib/services/bankAccountService";
 import { financialTransferService } from "@/lib/services/financialTransferService";
 import { softwareServiceService } from "@/lib/services/softwareServiceService";
 import { SoftwareServiceForm } from "../_software-service-form";
@@ -14,9 +15,10 @@ type Props = { searchParams: Promise<{ error?: string }> };
 export default async function NewSoftwareServicePage({ searchParams }: Props) {
   const query = await searchParams;
   const context = await getCurrentShopContext();
-  const [catalog, wallets] = await Promise.all([
+  const [catalog, wallets, bankAccounts] = await Promise.all([
     softwareServiceService.listCatalog(context.shopId),
     financialTransferService.listWallets(context.shopId),
+    bankAccountService.listAccounts(context.shopId),
   ]);
 
   return (
@@ -44,6 +46,7 @@ export default async function NewSoftwareServicePage({ searchParams }: Props) {
           defaultCost: item.defaultCost?.toString() ?? null,
         }))}
         wallets={wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, balance: Number(wallet.currentBalance) }))}
+        bankAccounts={bankAccounts.map((account) => ({ id: account.id, name: account.name, bankName: account.bankName, balance: Number(account.currentBalance) }))}
         currency={context.currency || "SAR"}
       />
     </div>

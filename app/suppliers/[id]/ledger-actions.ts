@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requirePermission } from "@/lib/auth/context";
 import { supplierLedgerService } from "@/lib/services/supplierLedgerService";
-import { timeZoneForCountry, zonedDateTimeToUtc } from "@/lib/timezone";
+import { localDateString, timeZoneForCountry, zonedDateTimeToUtc } from "@/lib/timezone";
 
 const uuid = z.string().uuid();
 const requestKey = z.string().trim().min(12).max(120);
@@ -26,6 +26,7 @@ function revalidateSupplierMoney(supplierId: string) {
   revalidatePath("/inventory/purchases");
   revalidatePath("/inventory/purchases/[id]", "page");
   revalidatePath("/cash-drawer");
+  revalidatePath("/bank-accounts");
   revalidatePath("/transfers");
   revalidatePath("/financial-transfers");
   revalidatePath("/reports");
@@ -53,19 +54,25 @@ export async function addSupplierOpeningDebtAction(input: {
 }
 
 export async function paySupplierAccountAction(input: {
-  supplierId: string; requestKey: string; amount: string; occurredAt: string; accountType: "DRAWER" | "WALLET"; walletId?: string; description?: string; reference?: string;
+  supplierId: string; requestKey: string; amount: string; occurredAt: string; accountType: "DRAWER" | "WALLET" | "BANK"; walletId?: string; bankAccountId?: string; description?: string; reference?: string;
 }) {
   try {
     const auth = await requirePermission("inventory:manage");
     const parsed = z.object({
       supplierId: uuid, requestKey, amount: z.coerce.number().positive().transform(String), occurredAt: z.string().date(),
-      accountType: z.enum(["DRAWER","WALLET"]), walletId: z.string().uuid().optional().or(z.literal("")),
+      accountType: z.enum(["DRAWER","WALLET","BANK"]), walletId: z.string().uuid().optional().or(z.literal("")), bankAccountId: z.string().uuid().optional().or(z.literal("")),
       description: z.string().trim().max(500).optional(), reference: z.string().trim().max(180).optional(),
     }).parse(input);
+    if (parsed.accountType === "WALLET" && !parsed.walletId) throw new Error("اختر المحفظة التي ستخرج منها الدفعة.");
+    if (parsed.accountType === "BANK" && !parsed.bankAccountId) throw new Error("اختر الحساب البنكي الذي ستخرج منه الدفعة.");
+    const timeZone = timeZoneForCountry(auth.shop.countryCode);
+    const occurredAt = localNoonUtc(parsed.occurredAt, auth.shop.countryCode);
+    const movementOccurredAt = parsed.occurredAt === localDateString(new Date(), timeZone) ? undefined : occurredAt;
     const result = await supplierLedgerService.recordSupplierPayment(auth.shop.id, auth.user.id, parsed.supplierId, {
       requestKey: parsed.requestKey, amount: parsed.amount,
-      occurredAt: localNoonUtc(parsed.occurredAt, auth.shop.countryCode), accountType: parsed.accountType,
+      occurredAt, movementOccurredAt, accountType: parsed.accountType,
       walletId: parsed.accountType === "WALLET" ? parsed.walletId || null : null,
+      bankAccountId: parsed.accountType === "BANK" ? parsed.bankAccountId || null : null,
       description: parsed.description, reference: parsed.reference,
     });
     revalidateSupplierMoney(parsed.supplierId);

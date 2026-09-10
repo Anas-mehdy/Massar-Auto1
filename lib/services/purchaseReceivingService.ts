@@ -15,7 +15,7 @@ import {
   movingWeightedAverage,
 } from "@/lib/purchase-costing";
 import { requestFingerprint } from "@/lib/idempotency";
-import { cashDrawerService } from "@/lib/services/cashDrawerService";
+import { purchaseMoneyService } from "@/lib/services/purchaseMoneyService";
 import { inventoryCategoryService } from "@/lib/services/inventoryCategoryService";
 import {
   resolveImportedMatch,
@@ -60,6 +60,7 @@ export type PurchaseDraftInput = {
   amountPaid?: string | number | null;
   paymentAccountType?: PurchaseMoneyAccountType | null;
   paymentWalletId?: string | null;
+  paymentBankAccountId?: string | null;
   paymentMethod?: PaymentMethod | null;
   paymentSourceName?: string | null;
   paymentReference?: string | null;
@@ -74,7 +75,7 @@ export type PurchaseListFilters = {
 export type PurchaseReceiptMode = "FULL" | "PARTIAL";
 export type PurchaseReceiptLineInput = { purchaseItemId: string; quantity: number };
 export type InitialPurchaseReceiptLineInput = { sortOrder: number; quantity: number };
-export type PurchaseMoneyAccountType = "DRAWER" | "WALLET" | "OTHER";
+export type PurchaseMoneyAccountType = "DRAWER" | "WALLET" | "BANK" | "OTHER";
 export type SupplierReturnSettlementType = "PAYABLE_REDUCTION" | "SUPPLIER_CREDIT" | "REFUND";
 
 export type RecordPurchaseReceiptInput = {
@@ -94,6 +95,7 @@ export type RecordPurchasePaymentInput = {
   paidAt: string | Date;
   accountType: PurchaseMoneyAccountType;
   walletId?: string | null;
+  bankAccountId?: string | null;
 };
 
 export type RecordSupplierReturnInput = {
@@ -115,6 +117,7 @@ export type SettleSupplierReturnInput = {
   settledAt: string | Date;
   accountType?: PurchaseMoneyAccountType | null;
   walletId?: string | null;
+  bankAccountId?: string | null;
   sourceName?: string | null;
   reference?: string | null;
   note?: string | null;
@@ -192,6 +195,7 @@ export type PurchaseDetail = {
   version: number;
   paymentAccountType: PurchaseMoneyAccountType | null;
   paymentWalletId: string | null;
+  paymentBankAccountId: string | null;
   paymentMethod: PaymentMethod | null;
   paymentSourceName: string | null;
   paymentReference: string | null;
@@ -261,6 +265,7 @@ export type PurchaseDetail = {
     paidAt: Date;
     accountType: PurchaseMoneyAccountType | null;
     walletId: string | null;
+    bankAccountId: string | null;
     createdByName: string | null;
   }>;
   receipts: Array<{
@@ -287,7 +292,7 @@ export type PurchaseDetail = {
     createdByName: string | null;
     lines: Array<{ purchaseItemId: string; quantity: number; unitCostSnapshot: Prisma.Decimal; inventoryValue: Prisma.Decimal; netMerchandiseValue: Prisma.Decimal; lineTotal: Prisma.Decimal }>;
     settlements: Array<{
-      id: string; type: SupplierReturnSettlementType; amount: Prisma.Decimal; accountType: PurchaseMoneyAccountType | null;
+      id: string; type: SupplierReturnSettlementType; amount: Prisma.Decimal; accountType: PurchaseMoneyAccountType | null; bankAccountId: string | null;
       sourceName: string | null; reference: string | null; settledAt: Date; createdByName: string | null;
     }>;
   }>;
@@ -672,11 +677,16 @@ export async function findDuplicateSupplierInvoice(
 export async function saveDraft(shopId: string, userId: string, currency: string, input: PurchaseDraftInput) {
   const totals = calculate(input, false);
   const paymentAccountType = input.paymentAccountType ?? (input.paymentMethod === PaymentMethod.CASH ? "DRAWER" : "OTHER");
-  if (!["DRAWER", "WALLET", "OTHER"].includes(paymentAccountType)) throw new Error("مصدر الدفع غير صالح.");
+  if (!["DRAWER", "WALLET", "BANK", "OTHER"].includes(paymentAccountType)) throw new Error("مصدر الدفع غير صالح.");
   const paymentWalletId = paymentAccountType === "WALLET" ? nullableText(input.paymentWalletId) : null;
+  const paymentBankAccountId = paymentAccountType === "BANK" ? nullableText(input.paymentBankAccountId) : null;
   if (paymentWalletId) {
     const wallets = await prisma.$queryRaw<Array<{id:string}>>`SELECT "id" FROM "FinancialWallet" WHERE "id"=${paymentWalletId}::uuid AND "shopId"=${shopId}::uuid AND "deletedAt" IS NULL AND "isActive"=TRUE`;
     if (!wallets.length) throw new Error("المحفظة المختارة غير موجودة أو غير نشطة.");
+  }
+  if (paymentBankAccountId) {
+    const accounts = await prisma.$queryRaw<Array<{id:string}>>`SELECT "id" FROM "BankAccount" WHERE "id"=${paymentBankAccountId}::uuid AND "shopId"=${shopId}::uuid AND "deletedAt" IS NULL AND "isActive"=TRUE`;
+    if (!accounts.length) throw new Error("الحساب البنكي المختار غير موجود أو غير نشط.");
   }
   const supplier = await validateSupplier(shopId, input.supplierId);
   const existingIds = totals.lines.flatMap((line) => line.inventoryItemId ? [line.inventoryItemId] : []);
@@ -716,7 +726,7 @@ export async function saveDraft(shopId: string, userId: string, currency: string
           "subtotal" = ${totals.subtotal}, "discountTotal" = ${totals.discountTotal},
           "extraCostsTotal" = ${totals.extraCostsTotal}, "total" = ${totals.total},
           "amountPaid" = ${totals.amountPaid}, "balanceDue" = ${totals.balanceDue},
-          "paymentAccountType" = ${paymentAccountType}, "paymentWalletId" = ${paymentWalletId}::uuid,
+          "paymentAccountType" = ${paymentAccountType}, "paymentWalletId" = ${paymentWalletId}::uuid, "paymentBankAccountId"=${paymentBankAccountId}::uuid,
           "paymentMethod" = ${input.paymentMethod ?? null}, "paymentSourceName" = ${nullableText(input.paymentSourceName)},
           "paymentReference" = ${nullableText(input.paymentReference)},
           "updatedAt" = NOW(), "version" = ${nextVersion}
@@ -728,11 +738,11 @@ export async function saveDraft(shopId: string, userId: string, currency: string
         INSERT INTO "PurchaseInvoice" (
           "shopId", "supplierId", "supplierNameSnapshot", "createdByUserId", "supplierInvoiceNumber",
           "invoiceDate", "notes", "currency", "status", "subtotal", "discountTotal", "extraCostsTotal",
-          "total", "amountPaid", "balanceDue", "paymentAccountType", "paymentWalletId", "paymentMethod", "paymentSourceName", "paymentReference"
+          "total", "amountPaid", "balanceDue", "paymentAccountType", "paymentWalletId", "paymentBankAccountId", "paymentMethod", "paymentSourceName", "paymentReference"
         ) VALUES (
           ${shopId}::uuid, ${supplier?.id ?? null}::uuid, ${supplierNameSnapshot}, ${userId}::uuid, ${supplierInvoiceNumber},
           ${invoiceDate}, ${notes}, ${currency}, 'DRAFT', ${totals.subtotal}, ${totals.discountTotal}, ${totals.extraCostsTotal},
-          ${totals.total}, ${totals.amountPaid}, ${totals.balanceDue}, ${paymentAccountType}, ${paymentWalletId}::uuid, ${input.paymentMethod ?? null},
+          ${totals.total}, ${totals.amountPaid}, ${totals.balanceDue}, ${paymentAccountType}, ${paymentWalletId}::uuid, ${paymentBankAccountId}::uuid, ${input.paymentMethod ?? null},
           ${nullableText(input.paymentSourceName)}, ${nullableText(input.paymentReference)}
         ) RETURNING "id", "version"
       `;
@@ -794,6 +804,7 @@ type LockedPurchase = {
   balanceDue: Prisma.Decimal;
   paymentAccountType: PurchaseMoneyAccountType | null;
   paymentWalletId: string | null;
+  paymentBankAccountId: string | null;
   paymentMethod: PaymentMethod | null;
   paymentSourceName: string | null;
   paymentReference: string | null;
@@ -1095,15 +1106,16 @@ export async function postPurchaseInvoice(
     WHERE "id" = ${purchaseId}::uuid AND "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL LIMIT 1
   `;
   if (!previewRows[0]) throw new Error("فاتورة الشراء غير موجودة.");
-  if (previewRows[0].amountPaid.gt(0) && (previewRows[0].paymentAccountType ?? (previewRows[0].paymentMethod === PaymentMethod.CASH ? "DRAWER" : "OTHER")) === "DRAWER") {
-    await cashDrawerService.getSnapshot(shopId, 1);
+  if (previewRows[0].amountPaid.gt(0)) {
+    const previewAccountType = previewRows[0].paymentAccountType ?? (previewRows[0].paymentMethod === PaymentMethod.CASH ? "DRAWER" : "OTHER");
+    await purchaseMoneyService.preparePurchaseMoneyAccount(shopId, previewAccountType);
   }
 
   return prisma.$transaction(async (tx) => {
     const lockedRows = await tx.$queryRaw<LockedPurchase[]>`
       SELECT "id", "supplierId", "supplierNameSnapshot", "supplierInvoiceNumber", "invoiceDate", "status", "currency",
         "subtotal", "discountTotal", "extraCostsTotal", "total", "amountPaid", COALESCE("returnAdjustmentTotal", 0) AS "returnAdjustmentTotal", "balanceDue",
-        "paymentAccountType", "paymentWalletId", "paymentMethod"::text AS "paymentMethod", "paymentSourceName", "paymentReference", "postingKey", "postingFingerprint"
+        "paymentAccountType", "paymentWalletId", "paymentBankAccountId", "paymentMethod"::text AS "paymentMethod", "paymentSourceName", "paymentReference", "postingKey", "postingFingerprint"
       FROM "PurchaseInvoice"
       WHERE "id" = ${purchaseId}::uuid AND "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL
       FOR UPDATE
@@ -1236,16 +1248,18 @@ export async function postPurchaseInvoice(
 
     if (purchase.amountPaid.gt(0) && purchase.paymentMethod) {
       const accountType = purchase.paymentAccountType ?? (purchase.paymentMethod === PaymentMethod.CASH ? "DRAWER" : "OTHER");
-      if (!["DRAWER", "WALLET", "OTHER"].includes(accountType)) throw new Error("مصدر الدفع غير صالح.");
+      if (!["DRAWER", "WALLET", "BANK", "OTHER"].includes(accountType)) throw new Error("مصدر الدفع غير صالح.");
       const walletId = accountType === "WALLET" ? purchase.paymentWalletId : null;
+      const bankAccountId = accountType === "BANK" ? purchase.paymentBankAccountId : null;
       if (accountType === "WALLET" && !walletId) throw new Error("اختر المحفظة التي خرجت منها الدفعة.");
+      if (accountType === "BANK" && !bankAccountId) throw new Error("اختر الحساب البنكي الذي خرجت منه الدفعة.");
       const initialPaymentKey = `${normalizedPostingKey}:payment`;
-      const initialPaymentFingerprint = requestFingerprint({ purchaseId, amount: purchase.amountPaid.toFixed(2), method: purchase.paymentMethod, accountType, walletId, reference: purchase.paymentReference ?? null });
+      const initialPaymentFingerprint = requestFingerprint({ purchaseId, amount: purchase.amountPaid.toFixed(2), method: purchase.paymentMethod, accountType, walletId, bankAccountId, reference: purchase.paymentReference ?? null });
       await tx.$executeRaw`
-        INSERT INTO "PurchasePayment" ("shopId","purchaseInvoiceId","createdByUserId","method","sourceName","amount","reference","note","paidAt","requestKey","requestFingerprint","accountType","walletId")
-        VALUES (${shopId}::uuid,${purchaseId}::uuid,${userId}::uuid,${purchase.paymentMethod},${nullableText(purchase.paymentSourceName)},${purchase.amountPaid},${nullableText(purchase.paymentReference)},'دفعة اعتماد فاتورة شراء',NOW(),${initialPaymentKey},${initialPaymentFingerprint},${accountType},${walletId}::uuid)
+        INSERT INTO "PurchasePayment" ("shopId","purchaseInvoiceId","createdByUserId","method","sourceName","amount","reference","note","paidAt","requestKey","requestFingerprint","accountType","walletId","bankAccountId")
+        VALUES (${shopId}::uuid,${purchaseId}::uuid,${userId}::uuid,${purchase.paymentMethod},${nullableText(purchase.paymentSourceName)},${purchase.amountPaid},${nullableText(purchase.paymentReference)},'دفعة اعتماد فاتورة شراء',NOW(),${initialPaymentKey},${initialPaymentFingerprint},${accountType},${walletId}::uuid,${bankAccountId}::uuid)
       `;
-      await applyPurchasePaymentMoneyTx(tx, { shopId, userId, purchaseId, supplierInvoiceNumber: purchase.supplierInvoiceNumber, accountType, walletId, amount: purchase.amountPaid, sourceName: purchase.paymentSourceName, reference: purchase.paymentReference });
+      await purchaseMoneyService.applyPurchasePaymentTx(tx, { shopId, userId, purchaseId, sourceReference: purchase.supplierInvoiceNumber ?? purchaseId, accountType, walletId, bankAccountId, amount: purchase.amountPaid, reference: purchase.paymentReference });
     }
 
     const receiptLines: ReceiptTxLine[] = preparedLines.map((line) => {
@@ -1333,11 +1347,11 @@ export async function recordPurchasePayment(shopId: string, userId: string, purc
   const amount = money(input.amount);
   if (amount.lte(0)) throw new Error("قيمة الدفعة يجب أن تكون أكبر من صفر.");
   const paidAt = safeOperationDate(input.paidAt, "تاريخ الدفعة");
-  if (!(["DRAWER", "WALLET", "OTHER"] as const).includes(input.accountType)) throw new Error("الحساب المالي المحدد غير صالح.");
+  if (!(["DRAWER", "WALLET", "BANK", "OTHER"] as const).includes(input.accountType)) throw new Error("الحساب المالي المحدد غير صالح.");
   if (input.accountType === "WALLET" && !nullableText(input.walletId)) throw new Error("اختر المحفظة التي خرجت منها الدفعة.");
-
-  if (input.accountType === "DRAWER") await cashDrawerService.getSnapshot(shopId, 1);
-  const fingerprint = requestFingerprint({ purchaseId, amount: amount.toFixed(2), method: input.method, sourceName: nullableText(input.sourceName), reference: nullableText(input.reference), paidAt: paidAt.toISOString(), accountType: input.accountType, walletId: nullableText(input.walletId) });
+  if (input.accountType === "BANK" && !nullableText(input.bankAccountId)) throw new Error("اختر الحساب البنكي الذي خرجت منه الدفعة.");
+  await purchaseMoneyService.preparePurchaseMoneyAccount(shopId, input.accountType);
+  const fingerprint = requestFingerprint({ purchaseId, amount: amount.toFixed(2), method: input.method, sourceName: nullableText(input.sourceName), reference: nullableText(input.reference), paidAt: paidAt.toISOString(), accountType: input.accountType, walletId: nullableText(input.walletId), bankAccountId: nullableText(input.bankAccountId) });
 
   return prisma.$transaction(async (tx) => {
     const purchaseRows = await tx.$queryRaw<LockedPurchase[]>`
@@ -1360,18 +1374,15 @@ export async function recordPurchasePayment(shopId: string, userId: string, purc
 
     const paymentRows = await tx.$queryRaw<Array<{ id: string }>>`
       INSERT INTO "PurchasePayment" (
-        "shopId", "purchaseInvoiceId", "createdByUserId", "method", "sourceName", "amount", "reference", "note", "paidAt", "requestKey", "requestFingerprint", "accountType", "walletId"
+        "shopId", "purchaseInvoiceId", "createdByUserId", "method", "sourceName", "amount", "reference", "note", "paidAt", "requestKey", "requestFingerprint", "accountType", "walletId", "bankAccountId"
       ) VALUES (
         ${shopId}::uuid, ${purchaseId}::uuid, ${userId}::uuid, ${input.method}, ${nullableText(input.sourceName)}, ${amount},
-        ${nullableText(input.reference)}, 'دفعة لاحقة على فاتورة شراء', ${paidAt}, ${requestKey}, ${fingerprint}, ${input.accountType}, ${nullableText(input.walletId)}::uuid
+        ${nullableText(input.reference)}, 'دفعة لاحقة على فاتورة شراء', ${paidAt}, ${requestKey}, ${fingerprint}, ${input.accountType}, ${nullableText(input.walletId)}::uuid, ${nullableText(input.bankAccountId)}::uuid
       ) RETURNING "id"
     `;
     const paymentId = paymentRows[0]?.id;
     if (!paymentId) throw new Error("تعذر تسجيل الدفعة.");
-    await applyPurchasePaymentMoneyTx(tx, {
-      shopId, userId, purchaseId, supplierInvoiceNumber: purchase.supplierInvoiceNumber,
-      accountType: input.accountType, walletId: input.walletId, amount, sourceName: input.sourceName, reference: input.reference,
-    });
+    await purchaseMoneyService.applyPurchasePaymentTx(tx, { shopId, userId, purchaseId, sourceReference: purchase.supplierInvoiceNumber ?? purchaseId, accountType: input.accountType, walletId: input.walletId, bankAccountId: input.bankAccountId, amount, reference: input.reference, occurredAt: paidAt });
     await tx.$executeRaw`
       UPDATE "PurchaseInvoice" SET "amountPaid" = "amountPaid" + ${amount}, "balanceDue" = "balanceDue" - ${amount},
         "updatedAt" = NOW(), "version" = "version" + 1
@@ -1516,12 +1527,13 @@ export async function settleSupplierReturn(shopId: string, userId: string, suppl
   const settledAt = safeOperationDate(input.settledAt, "تاريخ التسوية");
   if (!(["PAYABLE_REDUCTION", "SUPPLIER_CREDIT", "REFUND"] as const).includes(input.type)) throw new Error("نوع التسوية غير صالح.");
   if (input.type === "REFUND") {
-    if (!input.accountType || !(["DRAWER", "WALLET", "OTHER"] as const).includes(input.accountType)) throw new Error("حدد أين وصل مبلغ الاسترداد.");
+    if (!input.accountType || !(["DRAWER", "WALLET", "BANK", "OTHER"] as const).includes(input.accountType)) throw new Error("حدد أين وصل مبلغ الاسترداد.");
     if (input.accountType === "WALLET" && !nullableText(input.walletId)) throw new Error("اختر المحفظة التي وصل إليها المبلغ.");
+    if (input.accountType === "BANK" && !nullableText(input.bankAccountId)) throw new Error("اختر الحساب البنكي الذي وصل إليه المبلغ.");
     if (input.accountType === "OTHER" && !nullableText(input.sourceName)) throw new Error("اكتب مصدر استلام المبلغ الخارجي.");
-    if (input.accountType === "DRAWER") await cashDrawerService.getSnapshot(shopId, 1);
+    if (input.accountType !== "OTHER") await purchaseMoneyService.preparePurchaseMoneyAccount(shopId, input.accountType);
   }
-  const fingerprint = requestFingerprint({ supplierReturnId, type: input.type, amount: amount.toFixed(2), settledAt: settledAt.toISOString(), accountType: input.type === "REFUND" ? input.accountType ?? null : null, walletId: input.type === "REFUND" ? nullableText(input.walletId) : null, sourceName: nullableText(input.sourceName), reference: nullableText(input.reference), note: nullableText(input.note) });
+  const fingerprint = requestFingerprint({ supplierReturnId, type: input.type, amount: amount.toFixed(2), settledAt: settledAt.toISOString(), accountType: input.type === "REFUND" ? input.accountType ?? null : null, walletId: input.type === "REFUND" ? nullableText(input.walletId) : null, bankAccountId: input.type === "REFUND" ? nullableText(input.bankAccountId) : null, sourceName: nullableText(input.sourceName), reference: nullableText(input.reference), note: nullableText(input.note) });
 
   return prisma.$transaction(async (tx) => {
     const returnRows = await tx.$queryRaw<Array<{
@@ -1566,20 +1578,22 @@ export async function settleSupplierReturn(shopId: string, userId: string, suppl
         WHERE "id" = ${supplierReturn.purchaseInvoiceId}::uuid AND "shopId" = ${shopId}::uuid
       `;
     } else if (input.type === "REFUND") {
-      await applySupplierRefundMoneyTx(tx, {
-        shopId, userId, purchaseId: supplierReturn.purchaseInvoiceId, supplierReturnId, supplierInvoiceNumber: supplierReturn.supplierInvoiceNumber,
-        accountType: input.accountType!, walletId: input.walletId, amount, sourceName: input.sourceName, reference: input.reference,
+      await purchaseMoneyService.applySupplierRefundTx(tx, {
+        shopId, userId, purchaseId: supplierReturn.purchaseInvoiceId, supplierReturnId,
+        sourceReference: supplierReturn.supplierInvoiceNumber ?? supplierReturn.purchaseInvoiceId,
+        accountType: input.accountType!, walletId: input.walletId, bankAccountId: input.bankAccountId, amount,
+        reference: input.reference, occurredAt: settledAt,
       });
     }
 
     const rows = await tx.$queryRaw<Array<{ id: string }>>`
       INSERT INTO "SupplierReturnSettlement" (
         "shopId", "supplierReturnId", "purchaseInvoiceId", "supplierId", "createdByUserId", "requestKey", "requestFingerprint", "type", "amount",
-        "accountType", "walletId", "sourceName", "reference", "note", "settledAt"
+        "accountType", "walletId", "bankAccountId", "sourceName", "reference", "note", "settledAt"
       ) VALUES (
         ${shopId}::uuid, ${supplierReturnId}::uuid, ${supplierReturn.purchaseInvoiceId}::uuid, ${supplierReturn.supplierId}::uuid,
         ${userId}::uuid, ${requestKey}, ${fingerprint}, ${input.type}, ${amount}, ${input.type === "REFUND" ? input.accountType ?? null : null},
-        ${input.type === "REFUND" ? nullableText(input.walletId) : null}::uuid, ${nullableText(input.sourceName)}, ${nullableText(input.reference)},
+        ${input.type === "REFUND" ? nullableText(input.walletId) : null}::uuid, ${input.type === "REFUND" ? nullableText(input.bankAccountId) : null}::uuid, ${nullableText(input.sourceName)}, ${nullableText(input.reference)},
         ${nullableText(input.note)}, ${settledAt}
       ) RETURNING "id"
     `;
@@ -1594,7 +1608,7 @@ export async function getPurchaseInvoice(shopId: string, purchaseId: string): Pr
   type InvoiceRow = Omit<PurchaseDetail, "items" | "payments" | "receipts" | "supplierReturns">;
   const invoices = await prisma.$queryRaw<InvoiceRow[]>(Prisma.sql`
     SELECT p."id", p."supplierId", p."supplierNameSnapshot", s."name" AS "supplierName", p."supplierInvoiceNumber",
-      p."paymentAccountType", p."paymentWalletId", p."invoiceDate", p."notes", p."currency", p."status", p."subtotal", p."discountTotal", p."extraCostsTotal",
+      p."paymentAccountType", p."paymentWalletId", p."paymentBankAccountId", p."invoiceDate", p."notes", p."currency", p."status", p."subtotal", p."discountTotal", p."extraCostsTotal",
       p."total", p."amountPaid", COALESCE(p."returnAdjustmentTotal", 0) AS "returnAdjustmentTotal", p."balanceDue", p."postedAt", p."createdAt", p."updatedAt", p."version",
       CASE
         WHEN COALESCE((SELECT SUM(pi2."receivedQuantity") FROM "PurchaseItem" pi2 WHERE pi2."shopId" = ${shopId}::uuid AND pi2."purchaseInvoiceId" = p."id"), 0) = 0 THEN 'NONE'

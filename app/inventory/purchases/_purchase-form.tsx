@@ -80,8 +80,9 @@ type InitialDraft = {
   extraCostsTotal: string;
   amountPaid: string;
   paymentMethod: PaymentMethodValue | null;
-  paymentAccountType: "DRAWER" | "WALLET" | "OTHER" | null;
+  paymentAccountType: "DRAWER" | "WALLET" | "BANK" | "OTHER" | null;
   paymentWalletId: string | null;
+  paymentBankAccountId: string | null;
   paymentSourceName: string | null;
   paymentReference: string | null;
   lines: Array<{
@@ -168,6 +169,7 @@ function existingPatch(item: InventoryResult, options: { unitCost?: string; sale
 export function PurchaseReceivingForm({
   suppliers: initialSuppliers,
   wallets,
+  bankAccounts,
   drawerBalance,
   categories,
   currency,
@@ -175,6 +177,7 @@ export function PurchaseReceivingForm({
 }: {
   suppliers: SupplierOption[];
   wallets: { id: string; name: string; currentBalance: string }[];
+  bankAccounts: { id: string; name: string; bankName: string | null; currentBalance: string }[];
   drawerBalance: string;
   categories: CategoryOption[];
   currency: string;
@@ -192,10 +195,11 @@ export function PurchaseReceivingForm({
   const [discountTotal, setDiscountTotal] = useState(initialDraft?.discountTotal ?? "0");
   const [extraCostsTotal, setExtraCostsTotal] = useState(initialDraft?.extraCostsTotal ?? "0");
   const [amountPaid, setAmountPaid] = useState(initialDraft?.amountPaid ?? "0");
-  const [paymentAccountType, setPaymentAccountType] = useState<"DRAWER" | "WALLET" | "OTHER">(initialDraft?.paymentAccountType ?? (initialDraft?.paymentMethod && initialDraft.paymentMethod !== "CASH" ? "OTHER" : "DRAWER"));
+  const [paymentAccountType, setPaymentAccountType] = useState<"DRAWER" | "WALLET" | "BANK" | "OTHER">(initialDraft?.paymentAccountType ?? (initialDraft?.paymentMethod && initialDraft.paymentMethod !== "CASH" ? "OTHER" : "DRAWER"));
   const [paymentWalletId, setPaymentWalletId] = useState(initialDraft?.paymentWalletId ?? "");
-  const paymentMethod: PaymentMethodValue = paymentAccountType === "DRAWER" ? "CASH" : paymentAccountType === "WALLET" ? "BANK_TRANSFER" : "OTHER";
-  const paymentSourceName = paymentAccountType === "DRAWER" ? "الدرج النقدي" : paymentAccountType === "WALLET" ? wallets.find(wallet => wallet.id === paymentWalletId)?.name ?? "" : "دفع خارج النظام";
+  const [paymentBankAccountId, setPaymentBankAccountId] = useState(initialDraft?.paymentBankAccountId ?? "");
+  const paymentMethod: PaymentMethodValue = paymentAccountType === "DRAWER" ? "CASH" : paymentAccountType === "BANK" ? "BANK_TRANSFER" : paymentAccountType === "WALLET" ? "OTHER" : "OTHER";
+  const paymentSourceName = paymentAccountType === "DRAWER" ? "الدرج النقدي" : paymentAccountType === "WALLET" ? wallets.find(wallet => wallet.id === paymentWalletId)?.name ?? "" : paymentAccountType === "BANK" ? bankAccounts.find(account => account.id === paymentBankAccountId)?.name ?? "" : "دفع خارج النظام";
   const [paymentReference, setPaymentReference] = useState(initialDraft?.paymentReference ?? "");
   const [lines, setLines] = useState<FormLine[]>(() => {
     const loaded = (initialDraft?.lines ?? []).map((line) => {
@@ -329,6 +333,7 @@ export function PurchaseReceivingForm({
     paymentMethod,
     paymentAccountType,
     paymentWalletId: paymentAccountType === "WALLET" ? paymentWalletId || null : null,
+    paymentBankAccountId: paymentAccountType === "BANK" ? paymentBankAccountId || null : null,
     paymentSourceName: paymentSourceName || null,
     paymentReference: paymentReference || null,
     lines: activeLines.map((line) => ({
@@ -352,7 +357,7 @@ export function PurchaseReceivingForm({
       manualExtraCostAllocation: line.manualExtraCostAllocation.trim() ? line.manualExtraCostAllocation : null,
       salePrice: line.salePrice.trim() ? line.salePrice : null,
     })),
-  }), [supplierId, supplierInvoiceNumber, invoiceDate, notes, discountTotal, extraCostsTotal, amountPaid, paymentMethod, paymentAccountType, paymentWalletId, paymentSourceName, paymentReference, activeLines]);
+  }), [supplierId, supplierInvoiceNumber, invoiceDate, notes, discountTotal, extraCostsTotal, amountPaid, paymentMethod, paymentAccountType, paymentWalletId, paymentBankAccountId, paymentSourceName, paymentReference, activeLines]);
 
   payloadRef.current = payload;
 
@@ -635,6 +640,7 @@ export function PurchaseReceivingForm({
     if (validation.supplier || validation.discount || validation.amountPaid || validation.lines || validation.matching || partialReceiptError) { postingBarrierRef.current = false; setPosting(false); showApprovalError(validation.supplier || validation.discount || validation.amountPaid || validation.lines || validation.matching || partialReceiptError || "تحقق من البيانات."); return; }
     if (duplicateNewBarcodes.size) { postingBarrierRef.current = false; setPosting(false); showApprovalError("يوجد باركود مكرر بين أصناف جديدة. راجع البنود قبل الاعتماد."); return; }
     if (num(amountPaid) > 0 && paymentAccountType === "WALLET" && !paymentWalletId) { postingBarrierRef.current = false; setPosting(false); showApprovalError("اختر المحفظة التي خرجت منها الدفعة."); return; }
+    if (num(amountPaid) > 0 && paymentAccountType === "BANK" && !paymentBankAccountId) { postingBarrierRef.current = false; setPosting(false); showApprovalError("اختر الحساب البنكي الذي خرجت منه الدفعة."); return; }
 
     if (duplicate && !window.confirm("يوجد رقم فاتورة مشابه لنفس المورد. هل راجعت الفاتورة وتريد المتابعة بالاعتماد؟")) { postingBarrierRef.current = false; setPosting(false); return; }
     const result = await postPurchaseInvoiceAction({
@@ -775,8 +781,9 @@ export function PurchaseReceivingForm({
         <div className="mt-4 grid items-start gap-4 sm:grid-cols-2">
           <label className="grid gap-1.5 text-xs font-bold">المدفوع الآن<input data-purchase-field type="number" min="0" max={finalTotal} step="0.01" value={amountPaid} onKeyDown={enterToNext} onChange={(e) => { setAmountPaid(e.target.value); markDirty(); }} className="erp-input font-numeric" /><span className="text-slate-500">لدفع جزء من الفاتورة، اكتب المبلغ هنا.</span>{validation.amountPaid && <span className="text-rose-600">{validation.amountPaid}</span>}</label>
           {num(amountPaid) > 0 && <>
-            <label className="grid gap-1.5 text-xs font-bold">من أين تم الدفع؟<select data-purchase-field value={paymentAccountType} onChange={(e) => { setPaymentAccountType(e.target.value as typeof paymentAccountType); markDirty(); }} className="erp-input"><option value="DRAWER">من الدرج النقدي</option><option value="WALLET">من محفظة</option><option value="OTHER">دفع خارج النظام — بدون خصم</option></select></label>
+            <label className="grid gap-1.5 text-xs font-bold">من أين تم الدفع؟<select data-purchase-field value={paymentAccountType} onChange={(e) => { setPaymentAccountType(e.target.value as typeof paymentAccountType); markDirty(); }} className="erp-input"><option value="DRAWER">من الدرج النقدي</option><option value="WALLET">من محفظة</option><option value="BANK">من حساب بنكي</option><option value="OTHER">دفع خارج النظام — بدون خصم</option></select></label>
             {paymentAccountType === "WALLET" && <label className="grid gap-1.5 text-xs font-bold">المحفظة<select data-purchase-field value={paymentWalletId} onChange={(e) => { setPaymentWalletId(e.target.value); markDirty(); }} className="erp-input"><option value="">اختر المحفظة</option>{wallets.map(wallet => <option key={wallet.id} value={wallet.id}>{wallet.name} — {money(num(wallet.currentBalance), currency)}</option>)}</select>{wallets.length === 0 && <span className="text-amber-700">لا توجد محافظ نشطة. أضف محفظة من صفحة التحويلات.</span>}</label>}
+            {paymentAccountType === "BANK" && <label className="grid gap-1.5 text-xs font-bold">الحساب البنكي<select data-purchase-field value={paymentBankAccountId} onChange={(e) => { setPaymentBankAccountId(e.target.value); markDirty(); }} className="erp-input"><option value="">اختر الحساب البنكي</option>{bankAccounts.map(account => <option key={account.id} value={account.id}>{account.name} — {money(num(account.currentBalance), currency)}</option>)}</select>{bankAccounts.length === 0 && <span className="text-amber-700">لا توجد حسابات بنكية نشطة.</span>}</label>}
             <label className="grid gap-1.5 text-xs font-bold">مرجع الدفع (اختياري)<input data-purchase-field value={paymentReference} onChange={(e) => { setPaymentReference(e.target.value); markDirty(); }} className="erp-input" /></label>
           </>}
         </div>

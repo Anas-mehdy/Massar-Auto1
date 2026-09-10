@@ -24,6 +24,7 @@ import { reportService } from "@/lib/services/reportService";
 import { getTransferCommissionReportSummary } from "@/lib/services/transferCommissionReportService";
 import { financialTransferService } from "@/lib/services/financialTransferService";
 import { cashDrawerService } from "@/lib/services/cashDrawerService";
+import { bankAccountService } from "@/lib/services/bankAccountService";
 import {
   dateInputEndUtcForTimeZone,
   dateInputStartUtcForTimeZone,
@@ -110,11 +111,12 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const auth = await requirePermission("reports:read");
   const timeZone = timeZoneForCountry(auth.shop.countryCode);
   const range = resolveRange(params, timeZone);
-  const [report, damageSummary, transferCommission, wallets, drawer] = await Promise.all([
+  const [report, damageSummary, transferCommission, wallets, bankAccounts, drawer] = await Promise.all([
     reportService.getFinancialReport(auth.shop.id, range),
     getInventoryDamageReportSummary(auth.shop.id, range.start, range.end),
     getTransferCommissionReportSummary(auth.shop.id, range.start, range.end),
     financialTransferService.listWallets(auth.shop.id).catch(() => []),
+    bankAccountService.listAccounts(auth.shop.id, { includeInactive: true }).catch(() => []),
     cashDrawerService.getSnapshot(auth.shop.id, 1).catch(() => null),
   ]);
   const currency = auth.shop.currency || "SAR";
@@ -129,6 +131,10 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const rangeStartInput = dateInputValueForTimeZone(range.start, timeZone);
   const rangeEndInput = dateInputValueForTimeZone(rangeLastInstant, timeZone);
   const todayInput = dateInputValueForTimeZone(new Date(), timeZone);
+  const walletLiquidity = wallets.reduce((sum, wallet) => sum + Number(wallet.currentBalance), 0);
+  const bankLiquidity = bankAccounts.reduce((sum, account) => sum + Number(account.currentBalance), 0);
+  const drawerLiquidity = drawer?.currentBalance ?? 0;
+  const totalLiquidity = drawerLiquidity + walletLiquidity + bankLiquidity;
 
   return (
     <div className="space-y-7">
@@ -194,6 +200,14 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         <MetricCard label="قيمة المخزون الحالية" helper="بسعر التكلفة وليس البيع" value={formatCurrency(report.metrics.inventoryValue, currency)} icon={Landmark} tone="slate" />
       </section>
 
+      <section className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-5 shadow-sm dark:border-emerald-900/50 dark:bg-emerald-950/15">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="text-sm font-black text-slate-900 dark:text-slate-100">السيولة الحالية</h2><p className="mt-1 text-[10px] font-bold text-slate-400">أين توجد أموال المتجر الآن. التحويل بين هذه الحسابات لا يُحسب إيراداً أو مصروفاً.</p></div>
+          <div className="font-numeric text-xl font-black text-emerald-700 dark:text-emerald-300">{formatCurrency(totalLiquidity, currency)}</div>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3"><ElectronicMetric label="الدرج النقدي" value={formatCurrency(drawerLiquidity, currency)} /><ElectronicMetric label="المحافظ" value={formatCurrency(walletLiquidity, currency)} /><ElectronicMetric label="الحسابات البنكية" value={formatCurrency(bankLiquidity, currency)} /></div>
+      </section>
+
       <section className="rounded-2xl border border-cyan-200 bg-gradient-to-br from-cyan-50 via-white to-teal-50/60 p-5 shadow-sm dark:border-cyan-900/60 dark:from-slate-950 dark:via-slate-950 dark:to-cyan-950/25">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
@@ -247,7 +261,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
                       <td>{categoryLabels[expense.category]}</td>
                       <td>{formatDate(expense.spentAt, timeZone)}</td>
                       <td className="font-numeric font-black text-rose-700">{formatCurrency(expense.amount, currency)}</td>
-                      <td className="text-xs font-bold text-slate-600 dark:text-slate-300">{expense.fundingSource === "DRAWER" ? "الدرج النقدي" : expense.fundingSource === "WALLET" ? `محفظة — ${expense.fundingWalletName || "محفظة إلكترونية"}` : "غير محدد (مصروف سابق)"}</td>
+                      <td className="text-xs font-bold text-slate-600 dark:text-slate-300">{expense.fundingSource === "DRAWER" ? "الدرج النقدي" : expense.fundingSource === "WALLET" ? `محفظة — ${expense.fundingWalletName || "محفظة إلكترونية"}` : expense.fundingSource === "BANK" ? `حساب بنكي — ${bankAccounts.find((account) => account.id === expense.fundingBankAccountId)?.name || "حساب بنكي"}` : "غير محدد (مصروف سابق)"}</td>
                       <td>{expense.createdByUser?.name || "-"}</td>
                       {canManageExpenses && <td><form action={deleteExpenseAction}><input type="hidden" name="expenseId" value={expense.id} /><Button type="submit" size="sm" variant="outline" className="rounded-lg border-rose-200 text-rose-700 hover:bg-rose-50"><Trash2 className="h-3.5 w-3.5 ml-1" />حذف</Button></form></td>}
                     </tr>
@@ -262,6 +276,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
           <ExpenseForm
             categories={Object.entries(categoryLabels).map(([value, label]) => ({ value, label }))}
             wallets={wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, balance: Number(wallet.currentBalance) }))}
+            bankAccounts={bankAccounts.filter((account) => account.isActive).map((account) => ({ id: account.id, name: account.name, bankName: account.bankName, balance: Number(account.currentBalance) }))}
             currency={currency}
             todayInput={todayInput}
             drawerBalance={drawer?.currentBalance ?? null}

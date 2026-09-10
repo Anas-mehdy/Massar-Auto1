@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { requirePermission } from "@/lib/auth/context";
+import { bankAccountService } from "@/lib/services/bankAccountService";
 import { formatCurrency } from "@/lib/format";
 import { purchaseReceivingService } from "@/lib/services/purchaseReceivingService";
 import { ClonePurchaseButton } from "../_clone-purchase-button";
@@ -30,12 +31,13 @@ export default async function PurchaseDetailPage({ params, searchParams }: Purch
   const receiptState = invoice.receiptStatus === "COMPLETE" ? "مستلمة بالكامل" : invoice.receiptStatus === "PARTIAL" ? "مستلمة جزئياً" : "لم تُستلم بعد";
   const itemNameById = new Map(invoice.items.map((item) => [item.id, item.inventoryItemName ?? item.newItemName ?? "صنف"]));
 
-  const [walletRows, paymentSources] = canManage && invoice.status === "POSTED"
+  const [walletRows, bankAccountRows, paymentSources] = canManage && invoice.status === "POSTED"
     ? await Promise.all([
         purchaseReceivingService.listPurchaseFinancialWallets(auth.shop.id),
+        bankAccountService.listAccounts(auth.shop.id),
         purchaseReceivingService.listPaymentSources(auth.shop.id),
       ])
-    : [[], []];
+    : [[], [], []];
 
   return <div className="space-y-6">
     <PageHeader
@@ -81,6 +83,7 @@ export default async function PurchaseDetailPage({ params, searchParams }: Purch
       items={invoice.items.map((item) => ({ id: item.id, name: item.inventoryItemName ?? item.newItemName ?? "صنف", orderedQuantity: item.orderedQuantity, receivedQuantity: item.receivedQuantity, returnedQuantity: item.returnedQuantity, remainingQuantity: item.remainingQuantity, returnableQuantity: item.returnableQuantity, unitCost: item.unitCost.toString() }))}
       supplierReturns={invoice.supplierReturns.map((item) => ({ id: item.id, reason: item.reason, totalValue: item.totalValue.toString(), remainingSettlementValue: item.remainingSettlementValue.toString(), returnedAt: item.returnedAt.toISOString() }))}
       wallets={walletRows.map((wallet) => ({ id: wallet.id, name: wallet.name, currentBalance: wallet.currentBalance.toString() }))}
+      bankAccounts={bankAccountRows.map((account) => ({ id: account.id, name: account.name, bankName: account.bankName, currentBalance: account.currentBalance.toString() }))}
       paymentSources={paymentSources}
     />}
 

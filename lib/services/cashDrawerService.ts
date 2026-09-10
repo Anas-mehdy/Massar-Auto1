@@ -10,6 +10,8 @@ export type CashDrawerMovementType =
   | "MANUAL_OUT"
   | "WALLET_TRANSFER_IN"
   | "WALLET_TRANSFER_OUT"
+  | "BANK_TRANSFER_IN"
+  | "BANK_TRANSFER_OUT"
   | "SALE_CASH"
   | "INVOICE_PAYMENT"
   | "INSTALLMENT_PAYMENT"
@@ -32,6 +34,7 @@ export type CashDrawerSourceType =
   | "SUPPLIER_RETURN"
   | "EXPENSE"
   | "CASH_DRAWER_TRANSFER"
+  | "BANK_TRANSFER"
   | "MANUAL"
   | "SUPPLIER";
 

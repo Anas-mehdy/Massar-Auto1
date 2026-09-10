@@ -8,14 +8,15 @@ import { formatCurrency } from "@/lib/format";
 import { recordPurchasePaymentAction } from "@/app/inventory/purchases/actions";
 
 type Invoice = { id: string; number: string | null; date: string; total: string; paid: string; due: string };
-type Props = { invoices: Invoice[]; outstanding: string; credit: string; currency: string; canPay: boolean; wallets: {id: string; name: string; currentBalance: string}[]; drawerBalance: string };
+type Props = { invoices: Invoice[]; outstanding: string; credit: string; currency: string; canPay: boolean; wallets: {id: string; name: string; currentBalance: string}[]; bankAccounts: {id: string; name: string; bankName: string | null; currentBalance: string}[]; drawerBalance: string };
 
-export function SupplierPurchaseAccount({ invoices, outstanding, credit, currency, canPay, wallets, drawerBalance }: Props) {
+export function SupplierPurchaseAccount({ invoices, outstanding, credit, currency, canPay, wallets, bankAccounts, drawerBalance }: Props) {
   const router = useRouter();
   const [selectedId, setSelectedId] = useState("");
   const [amount, setAmount] = useState("");
-  const [account, setAccount] = useState<"DRAWER" | "WALLET" | "OTHER">("DRAWER");
+  const [account, setAccount] = useState<"DRAWER" | "WALLET" | "BANK" | "OTHER">("DRAWER");
   const [walletId, setWalletId] = useState("");
+  const [bankAccountId, setBankAccountId] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [busy, setBusy] = useState(false);
@@ -29,12 +30,13 @@ export function SupplierPurchaseAccount({ invoices, outstanding, credit, currenc
     if (busyRef.current || !invoice) return;
     if (!Number.isFinite(Number(amount)) || Number(amount) <= 0 || Number(amount) > Number(invoice.due)) { setError("أدخل مبلغاً أكبر من صفر ولا يتجاوز الدين المتبقي."); return; }
     if (account === "WALLET" && !walletId) { setError("اختر المحفظة."); return; }
-    const signature = JSON.stringify([invoice.id, amount, account, account === "WALLET" ? walletId : null]);
+    if (account === "BANK" && !bankAccountId) { setError("اختر الحساب البنكي."); return; }
+    const signature = JSON.stringify([invoice.id, amount, account, account === "WALLET" ? walletId : null, account === "BANK" ? bankAccountId : null]);
     if (attempt.current?.signature !== signature) attempt.current = {signature, key: crypto.randomUUID(), paidAt: new Date().toISOString()};
     const request = attempt.current;
     busyRef.current = true; setBusy(true); setError(""); setSuccess("");
     try {
-      const result = await recordPurchasePaymentAction({ purchaseId: invoice.id, requestKey: request.key, paidAt: request.paidAt, amount, accountType: account, walletId: account === "WALLET" ? walletId : null, method: account === "DRAWER" ? "CASH" : account === "WALLET" ? "BANK_TRANSFER" : "OTHER", sourceName: account === "DRAWER" ? "الدرج النقدي" : account === "WALLET" ? wallets.find(wallet => wallet.id === walletId)?.name : "دفع خارج النظام" });
+      const result = await recordPurchasePaymentAction({ purchaseId: invoice.id, requestKey: request.key, paidAt: request.paidAt, amount, accountType: account, walletId: account === "WALLET" ? walletId : null, bankAccountId: account === "BANK" ? bankAccountId : null, method: account === "DRAWER" ? "CASH" : account === "OTHER" ? "OTHER" : "BANK_TRANSFER", sourceName: account === "DRAWER" ? "الدرج النقدي" : account === "WALLET" ? wallets.find(wallet => wallet.id === walletId)?.name : account === "BANK" ? bankAccounts.find(bank => bank.id === bankAccountId)?.name : "دفع خارج النظام" });
       if (!result.ok) { setError(result.error); return; }
       attempt.current = null; setSelectedId(""); setAmount(""); setSuccess("تم تسجيل الدفعة وتحديث دين المورد."); router.refresh();
     } catch { setError("تعذر تأكيد النتيجة. أعد المحاولة بنفس البيانات للتحقق من الدفعة دون تكرارها."); }
@@ -53,9 +55,10 @@ export function SupplierPurchaseAccount({ invoices, outstanding, credit, currenc
       <dl className="mt-3 grid grid-cols-3 gap-2 text-xs"><div><dt>الإجمالي</dt><dd className="mt-1 font-numeric font-bold">{money(item.total)}</dd></div><div><dt>المدفوع</dt><dd className="mt-1 font-numeric font-bold">{money(item.paid)}</dd></div><div><dt>المتبقي علينا</dt><dd className="mt-1 font-numeric font-bold text-amber-700 dark:text-amber-300">{money(item.due)}</dd></div></dl>
       {selectedId === item.id && <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-700"><div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1 text-xs font-bold">المبلغ المدفوع<input disabled={busy} type="number" min="0.01" max={item.due} step="0.01" className="erp-input" value={amount} onChange={event => setAmount(event.target.value)} /></label>
-        <label className="grid gap-1 text-xs font-bold">الدفع من<select disabled={busy} className="erp-input" value={account} onChange={event => setAccount(event.target.value as typeof account)}><option value="DRAWER">الدرج النقدي</option><option value="WALLET">محفظة</option><option value="OTHER">خارج النظام — بدون خصم</option></select></label>
+        <label className="grid gap-1 text-xs font-bold">الدفع من<select disabled={busy} className="erp-input" value={account} onChange={event => { setAccount(event.target.value as typeof account); setWalletId(""); setBankAccountId(""); }}><option value="DRAWER">الدرج النقدي</option><option value="WALLET">محفظة</option><option value="BANK">حساب بنكي</option><option value="OTHER">خارج النظام — بدون خصم</option></select></label>
         {account === "WALLET" && <label className="grid gap-1 text-xs font-bold">اختر المحفظة<select disabled={busy} className="erp-input" value={walletId} onChange={event => setWalletId(event.target.value)}><option value="">اختر المحفظة</option>{wallets.map(wallet => <option value={wallet.id} key={wallet.id}>{wallet.name} — {money(wallet.currentBalance)}</option>)}</select></label>}
-      </div><p className="mt-2 text-xs text-slate-500">{account === "DRAWER" ? `رصيد الدرج: ${money(drawerBalance)}` : account === "OTHER" ? "هذه الدفعة تسدد الدين دون تغيير أرصدة الدرج أو المحافظ." : "تُسجّل حركة خصم من المحفظة المختارة."} · المتبقي بعد الدفعة: {money(Math.max(0, Number(item.due) - Number(amount || 0)))}</p>{error && <p role="alert" className="mt-2 text-sm text-rose-600">{error}</p>}<div className="mt-3 flex gap-2"><Button type="button" disabled={busy} onClick={() => void pay()}>{busy ? "جارٍ تسجيل الدفعة…" : "تأكيد الدفعة"}</Button><Button type="button" variant="ghost" disabled={busy} onClick={() => setSelectedId("")}>إلغاء</Button></div></div>}
+        {account === "BANK" && <label className="grid gap-1 text-xs font-bold">اختر الحساب البنكي<select disabled={busy} className="erp-input" value={bankAccountId} onChange={event => setBankAccountId(event.target.value)}><option value="">اختر الحساب البنكي</option>{bankAccounts.map(bank => <option value={bank.id} key={bank.id}>{bank.bankName ? `${bank.bankName} — ` : ""}{bank.name} — {money(bank.currentBalance)}</option>)}</select></label>}
+      </div><p className="mt-2 text-xs text-slate-500">{account === "DRAWER" ? `رصيد الدرج: ${money(drawerBalance)}` : account === "OTHER" ? "هذه الدفعة تسدد الدين دون تغيير أرصدة الدرج أو المحافظ أو البنوك." : account === "BANK" ? "تُسجّل حركة خصم من الحساب البنكي المختار ومرتبطة بفاتورة الشراء." : "تُسجّل حركة خصم من المحفظة المختارة."} · المتبقي بعد الدفعة: {money(Math.max(0, Number(item.due) - Number(amount || 0)))}</p>{error && <p role="alert" className="mt-2 text-sm text-rose-600">{error}</p>}<div className="mt-3 flex gap-2"><Button type="button" disabled={busy} onClick={() => void pay()}>{busy ? "جارٍ تسجيل الدفعة…" : "تأكيد الدفعة"}</Button><Button type="button" variant="ghost" disabled={busy} onClick={() => setSelectedId("")}>إلغاء</Button></div></div>}
     </article>)}</div>}
   </section>;
 }

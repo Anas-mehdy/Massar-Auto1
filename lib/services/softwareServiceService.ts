@@ -53,9 +53,11 @@ export type CreateSoftwareServiceSaleInput = {
   deviceKept?: boolean;
   paymentDestination?: SoftwareServicePaymentDestination;
   walletId?: string;
+  bankAccountId?: string;
   amountReceived?: string;
   changeDestination?: Exclude<MoneyAccountDestination, "OTHER">;
   changeWalletId?: string;
+  changeBankAccountId?: string;
 };
 
 function decimal(value: string | number | Prisma.Decimal) {
@@ -245,8 +247,15 @@ export async function createSale(
   if (!isDebtSale && amountReceived.lt(salePrice)) throw new Error("المبلغ المستلم أقل من سعر الخدمة. اختر «دفتر الديون» إذا كان العميل سيدفع لاحقاً.");
   const changeAmount = isDebtSale ? new Prisma.Decimal(0) : amountReceived.sub(salePrice);
   const changeDestination = input.changeDestination ?? "DRAWER";
-  const costDestination = paymentDestination === "WALLET" ? "WALLET" : "DRAWER";
+  const costDestination: Exclude<MoneyAccountDestination, "OTHER"> =
+    paymentDestination === "WALLET" ? "WALLET" : paymentDestination === "BANK" ? "BANK" : "DRAWER";
   const costWalletId = paymentDestination === "WALLET" ? input.walletId : undefined;
+  const costBankAccountId = paymentDestination === "BANK" ? input.bankAccountId : undefined;
+
+  if (paymentDestination === "WALLET" && !input.walletId) throw new Error("اختر محفظة استلام المبلغ.");
+  if (paymentDestination === "BANK" && !input.bankAccountId) throw new Error("اختر الحساب البنكي الذي استلم المبلغ.");
+  if (changeAmount.gt(0) && changeDestination === "WALLET" && !input.changeWalletId) throw new Error("اختر محفظة إرجاع الباقي.");
+  if (changeAmount.gt(0) && changeDestination === "BANK" && !input.changeBankAccountId) throw new Error("اختر الحساب البنكي الذي سيُرجع منه الباقي.");
 
   if (!isDebtSale) await moneyAccountService.prepareMoneyAccounts(shopId, paymentDestination);
   if (changeAmount.gt(0)) await moneyAccountService.prepareMoneyAccounts(shopId, changeDestination);
@@ -337,6 +346,22 @@ export async function createSale(
       customerPhone: customer?.phone ?? null,
     };
 
+    const moneyEndpoints: Array<{
+      destination: Exclude<MoneyAccountDestination, "OTHER">;
+      walletId?: string;
+      bankAccountId?: string;
+    }> = [];
+    if (paymentDestination !== "DEBT") {
+      moneyEndpoints.push({ destination: paymentDestination, walletId: input.walletId, bankAccountId: input.bankAccountId });
+    }
+    if (changeAmount.gt(0)) {
+      moneyEndpoints.push({ destination: changeDestination, walletId: input.changeWalletId, bankAccountId: input.changeBankAccountId });
+    }
+    if (serviceCost?.gt(0)) {
+      moneyEndpoints.push({ destination: costDestination, walletId: costWalletId, bankAccountId: costBankAccountId });
+    }
+    if (moneyEndpoints.length) await moneyAccountService.lockMoneyAccountEndpointsTx(tx, shopId, moneyEndpoints);
+
     if (isDebtSale) {
       if (customer) {
         await sourceDebtService.createSourceDebtTx(tx, {
@@ -354,6 +379,7 @@ export async function createSale(
       const sourceName = await moneyAccountService.applyIncomingMoneyTx(tx, shopId, createdByUserId, {
         destination: paymentDestination,
         walletId: input.walletId,
+        bankAccountId: input.bankAccountId,
         amount: amountReceived,
         reference: invoice.invoiceNumber,
         description: `تحصيل خدمة سوفتوير ${serviceName} — فاتورة ${invoice.invoiceNumber}`,
@@ -364,6 +390,7 @@ export async function createSale(
         await moneyAccountService.applyOutgoingMoneyTx(tx, shopId, createdByUserId, {
           destination: changeDestination,
           walletId: input.changeWalletId,
+          bankAccountId: input.changeBankAccountId,
           amount: changeAmount,
           reference: invoice.invoiceNumber,
           description: `إرجاع باقي خدمة سوفتوير ${serviceName} — فاتورة ${invoice.invoiceNumber}`,
@@ -376,8 +403,8 @@ export async function createSale(
           shopId,
           invoiceId: invoice.id,
           createdByUserId,
-          method: paymentDestination === "DRAWER" ? PaymentMethod.CASH : PaymentMethod.OTHER,
-          sourceName: sourceName || (paymentDestination === "DRAWER" ? "الدرج النقدي" : "محفظة إلكترونية"),
+          method: paymentDestination === "DRAWER" ? PaymentMethod.CASH : paymentDestination === "BANK" ? PaymentMethod.BANK_TRANSFER : PaymentMethod.OTHER,
+          sourceName: sourceName || (paymentDestination === "DRAWER" ? "الدرج النقدي" : paymentDestination === "BANK" ? "حساب بنكي" : "محفظة إلكترونية"),
           amount: salePrice,
           reference: invoice.invoiceNumber,
           note: `تحصيل مباشر عند بيع خدمة سوفتوير: ${serviceName}`,
@@ -399,10 +426,11 @@ export async function createSale(
       await moneyAccountService.applyOutgoingMoneyTx(tx, shopId, createdByUserId, {
         destination: costDestination,
         walletId: costWalletId,
+        bankAccountId: costBankAccountId,
         amount: serviceCost,
         reference: invoice.invoiceNumber,
         description: `دفع تكلفة خدمة سوفتوير ${serviceName} — فاتورة ${invoice.invoiceNumber}`,
-        drawerType: "SOFTWARE_SERVICE_COST",
+        movementType: "SOFTWARE_SERVICE_COST",
         contextLabel: "تكلفة خدمة السوفتوير",
         source,
       });
