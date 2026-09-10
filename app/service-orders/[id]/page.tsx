@@ -12,6 +12,8 @@ import {
   formatAutoMoney,
 } from "@/lib/auto/service-order-ui";
 import { autoServiceOrderService } from "@/lib/services/autoServiceOrderService";
+import { serviceInspectionService } from "@/lib/services/serviceInspectionService";
+import { InspectionForm } from "../_inspection-form";
 import {
   addServiceLaborLineAction,
   addServicePartLineAction,
@@ -29,10 +31,33 @@ type QuoteRow = { id: string; quoteNumber: string; revision: number; status: str
 
 const inputClass = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100";
 
+const inspectionTypeLabels: Record<string, string> = {
+  INITIAL: "فحص أولي",
+  FINAL: "فحص نهائي",
+  OTHER: "فحص إضافي",
+};
+
+const inspectionResultLabels: Record<string, string> = {
+  OK: "سليم",
+  WARNING: "يحتاج انتباه",
+  FAIL: "يحتاج إصلاح/تبديل",
+  NOT_CHECKED: "لم يفحص",
+};
+
+const inspectionResultClasses: Record<string, string> = {
+  OK: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  WARNING: "border-amber-200 bg-amber-50 text-amber-800",
+  FAIL: "border-red-200 bg-red-50 text-red-800",
+  NOT_CHECKED: "border-slate-200 bg-slate-50 text-slate-600",
+};
+
 export default async function ServiceOrderPage({ params }: PageProps) {
   const auth = await requirePermission("service_orders:read");
   const { id } = await params;
-  const order = await autoServiceOrderService.getServiceOrderById(auth.shop.id, id);
+  const [order, inspections] = await Promise.all([
+    autoServiceOrderService.getServiceOrderById(auth.shop.id, id),
+    serviceInspectionService.listServiceInspections(auth.shop.id, id),
+  ]);
   if (!order) notFound();
 
   const laborLines = order.laborLines as LaborRow[];
@@ -76,6 +101,42 @@ export default async function ServiceOrderPage({ params }: PageProps) {
         <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4"><div className="flex items-center gap-2 text-xs font-black text-amber-800"><Gauge className="h-4 w-4" />العداد عند الدخول</div><div className="mt-2 text-lg font-black text-slate-950">{order.odometerAtIntake != null ? `${order.odometerAtIntake.toLocaleString("ar")} كم` : "-"}</div><div className="text-xs text-slate-500">وقود: {order.fuelLevelPercent != null ? `${Number(order.fuelLevelPercent)}%` : "-"}</div></div>
         <div className="rounded-2xl border border-violet-100 bg-violet-50/60 p-4"><div className="text-xs font-black text-violet-800">التكلفة الحالية</div><div className="mt-2 text-lg font-black text-slate-950">{formatAutoMoney(partsTotal + laborTotal, auth.shop.currency)}</div><div className="text-xs text-slate-500">قطع {formatAutoMoney(partsTotal, auth.shop.currency)} • عمل {formatAutoMoney(laborTotal, auth.shop.currency)}</div></div>
       </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 p-5">
+          <h2 className="flex items-center gap-2 font-black text-slate-950"><ClipboardCheck className="h-4 w-4 text-emerald-700" />الفحص الفني</h2>
+          <p className="mt-1 text-xs font-semibold text-slate-500">سجّل الفحص الأولي أو النهائي ببنود واضحة تبقى محفوظة ضمن تاريخ أمر الصيانة.</p>
+        </div>
+        <div className="p-4 sm:p-5"><InspectionForm serviceOrderId={order.id} /></div>
+        {inspections.length ? (
+          <div className="border-t border-slate-100 p-4 sm:p-5">
+            <h3 className="mb-4 text-sm font-black text-slate-800">الفحوصات السابقة</h3>
+            <div className="space-y-4">
+              {inspections.map((inspection) => (
+                <div key={inspection.id} className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="font-black text-slate-900">{inspectionTypeLabels[inspection.inspectionType] ?? inspection.inspectionType}</div>
+                      <div className="mt-1 text-xs font-semibold text-slate-500">{inspection.inspectorName ? `بواسطة ${inspection.inspectorName} • ` : ""}{formatAutoDate(inspection.inspectedAt ?? inspection.createdAt)}</div>
+                    </div>
+                    {inspection.summary ? <div className="max-w-xl text-xs font-bold leading-6 text-slate-600">{inspection.summary}</div> : null}
+                  </div>
+                  <div className="mt-4 grid gap-2">
+                    {inspection.items.map((item) => (
+                      <div key={item.id} className="grid gap-2 rounded-xl border border-slate-100 bg-white p-3 md:grid-cols-[minmax(140px,1fr)_auto_minmax(180px,1.4fr)_auto] md:items-center">
+                        <div className="font-black text-slate-800">{item.component}</div>
+                        <span className={`w-fit rounded-full border px-2.5 py-1 text-[11px] font-black ${inspectionResultClasses[item.result] ?? inspectionResultClasses.NOT_CHECKED}`}>{inspectionResultLabels[item.result] ?? item.result}</span>
+                        <div className="text-xs leading-6 text-slate-600">{item.recommendedAction || item.notes || "لا توجد ملاحظات إضافية"}</div>
+                        <div className="text-xs font-black text-slate-700">{item.estimatedCost != null ? formatAutoMoney(item.estimatedCost, auth.shop.currency) : "-"}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </section>
 
       <div className="grid gap-6 xl:grid-cols-2">
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
