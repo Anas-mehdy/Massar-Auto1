@@ -51,7 +51,7 @@ jobs:
           DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
           SQL
 
-      - name: Build Prisma baseline from the validated pre-purchase schema
+      - name: Build Prisma baseline from validated historical schema
         shell: bash
         run: |
           set -euo pipefail
@@ -60,7 +60,7 @@ jobs:
           npx prisma migrate diff --from-empty --to-schema-datamodel "$RUNNER_TEMP/auto-schema/base.prisma" --script > "$RUNNER_TEMP/auto-schema/baseline.sql"
           psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/auto-schema/baseline.sql"
 
-      - name: Converge SQL-managed schema from repository migrations
+      - name: Converge SQL-managed objects from repository migrations
         shell: bash
         run: |
           set -u
@@ -70,23 +70,22 @@ jobs:
             psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -v ON_ERROR_STOP=0 -f "$f" >> "$RUNNER_TEMP/auto-schema/replay-errors.log" 2>&1 || true
           done
 
-      - name: Reconcile Prisma-managed objects to current main schema
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script > "$RUNNER_TEMP/auto-schema/current-prisma-sync.sql"
-          if [ -s "$RUNNER_TEMP/auto-schema/current-prisma-sync.sql" ]; then
-            psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/auto-schema/current-prisma-sync.sql"
-          fi
-          npx prisma validate
+      - name: Validate current Prisma schema
+        run: npx prisma validate
 
-      - name: Export schema-only snapshot
+      - name: Export schema-only snapshot and fingerprints
         shell: bash
         run: |
           set -euo pipefail
           pg_dump -h 127.0.0.1 -U postgres -d massar_auto_snapshot --schema-only --no-owner --no-privileges --schema=public > "$RUNNER_TEMP/auto-schema/massar-auto-schema.sql"
           psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -Atc "select count(*) from pg_catalog.pg_tables where schemaname='public';" > "$RUNNER_TEMP/auto-schema/table-count.txt"
           psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -Atc "select tablename from pg_catalog.pg_tables where schemaname='public' order by tablename;" > "$RUNNER_TEMP/auto-schema/tables.txt"
+          psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -AtF '|' -c "select c.relname,a.attnum,a.attname,pg_catalog.format_type(a.atttypid,a.atttypmod),a.attnotnull,coalesce(pg_get_expr(ad.adbin,ad.adrelid),'') from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_attribute a on a.attrelid=c.oid and a.attnum>0 and not a.attisdropped left join pg_attrdef ad on ad.adrelid=c.oid and ad.adnum=a.attnum where n.nspname='public' and c.relkind='r' order by c.relname,a.attnum;" > "$RUNNER_TEMP/auto-schema/columns.txt"
+          psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -AtF '|' -c "select c.relname,con.conname,con.contype,pg_get_constraintdef(con.oid,true) from pg_constraint con join pg_class c on c.oid=con.conrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' order by c.relname,con.conname;" > "$RUNNER_TEMP/auto-schema/constraints.txt"
+          psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -AtF '|' -c "select tablename,indexname,indexdef from pg_indexes where schemaname='public' order by tablename,indexname;" > "$RUNNER_TEMP/auto-schema/indexes.txt"
+          psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -AtF '|' -c "select p.proname,pg_get_function_identity_arguments(p.oid),pg_get_functiondef(p.oid) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' order by p.proname,pg_get_function_identity_arguments(p.oid);" > "$RUNNER_TEMP/auto-schema/functions.txt"
+          psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -AtF '|' -c "select c.relname,t.tgname,pg_get_triggerdef(t.oid,true) from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and not t.tgisinternal order by c.relname,t.tgname;" > "$RUNNER_TEMP/auto-schema/triggers.txt"
+          sha256sum "$RUNNER_TEMP/auto-schema/columns.txt" "$RUNNER_TEMP/auto-schema/constraints.txt" "$RUNNER_TEMP/auto-schema/indexes.txt" > "$RUNNER_TEMP/auto-schema/fingerprints.sha256"
           echo "Schema table count: $(cat "$RUNNER_TEMP/auto-schema/table-count.txt")"
           cat "$RUNNER_TEMP/auto-schema/tables.txt"
 
@@ -98,6 +97,11 @@ jobs:
             ${{ runner.temp }}/auto-schema/massar-auto-schema.sql
             ${{ runner.temp }}/auto-schema/table-count.txt
             ${{ runner.temp }}/auto-schema/tables.txt
-            ${{ runner.temp }}/auto-schema/current-prisma-sync.sql
+            ${{ runner.temp }}/auto-schema/columns.txt
+            ${{ runner.temp }}/auto-schema/constraints.txt
+            ${{ runner.temp }}/auto-schema/indexes.txt
+            ${{ runner.temp }}/auto-schema/functions.txt
+            ${{ runner.temp }}/auto-schema/triggers.txt
+            ${{ runner.temp }}/auto-schema/fingerprints.sha256
             ${{ runner.temp }}/auto-schema/replay-errors.log
           retention-days: 1
