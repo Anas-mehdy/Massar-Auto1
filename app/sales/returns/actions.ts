@@ -45,7 +45,7 @@ function errorMessage(error: unknown) {
 export async function createSalesReturnAction(formData: FormData) {
   const saleId = read(formData, "saleId");
   try {
-    const auth = await requirePermission("sales_returns:manage");
+    const auth = await requirePermission("sales:return");
     let lines: unknown = [];
     try { lines = JSON.parse(read(formData, "lines") || "[]"); } catch { throw new Error("بنود المرتجع غير صالحة."); }
     const refundAccountType = read(formData, "refundAccountType");
