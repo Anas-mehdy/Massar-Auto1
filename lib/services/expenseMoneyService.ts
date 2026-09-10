@@ -1,6 +1,7 @@
 import { ExpenseCategory, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { moneyAccountService, type MoneyAccountDestination } from "@/lib/services/moneyAccountService";
+import { dailyCashCloseService } from "@/lib/services/dailyCashCloseService";
 
 export type ExpenseFundingSource = Exclude<MoneyAccountDestination, "OTHER">;
 
@@ -52,6 +53,7 @@ export async function createExpense(
     throw new Error("اختر الحساب البنكي الذي سُحب منه المصروف.");
   }
 
+  await dailyCashCloseService.assertBusinessDateOpen(shopId, input.movementOccurredAt ?? input.spentAt);
   await moneyAccountService.prepareMoneyAccounts(shopId, input.fundingSource);
   const notes = clean(input.notes);
   const categoryLabel = expenseCategoryLabels[input.category];
@@ -98,6 +100,13 @@ export async function createExpense(
 }
 
 export async function deleteExpense(shopId: string, expenseId: string, voidedByUserId?: string | null) {
+  const existing = await prisma.expense.findFirst({
+    where: { id: expenseId, shopId, deletedAt: null },
+    select: { id: true, spentAt: true },
+  });
+  if (!existing) throw new Error("المصروف غير موجود.");
+  await dailyCashCloseService.assertBusinessDateOpen(shopId, existing.spentAt);
+
   return prisma.$transaction(async (tx) => {
     const expense = await tx.expense.findFirst({
       where: { id: expenseId, shopId, deletedAt: null },
