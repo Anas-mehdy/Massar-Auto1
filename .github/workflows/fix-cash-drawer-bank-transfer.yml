@@ -1,0 +1,61 @@
+name: Fix cash drawer bank transfers on preview
+
+on:
+  push:
+    branches:
+      - preview/purchase-receiving
+    paths:
+      - .github/workflows/fix-cash-drawer-bank-transfer.yml
+      - .github/scripts/fix-cash-drawer-bank.py
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-verify:
+    if: github.event.head_commit.message == 'chore(preview): stage cash drawer bank transfer fix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public
+      OPENAI_API_KEY: ""
+      NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ""
+      NEXT_PUBLIC_POSTHOG_HOST: ""
+      GROWTH_LIFECYCLE_EMAILS_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply cash drawer bank transfer integration
+        run: python .github/scripts/fix-cash-drawer-bank.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Prisma validate and generate
+        run: |
+          npx prisma validate
+          npx prisma generate
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Full application build
+        run: npm run build
+
+      - name: Commit clean fix to preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/fix-cash-drawer-bank-transfer.yml .github/scripts/fix-cash-drawer-bank.py
+          git add app/cash-drawer/actions.ts app/cash-drawer/page.tsx app/cash-drawer/_liquidity-transfer-form.tsx
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix(finance): expose bank transfers from cash drawer"
+          git push origin HEAD:preview/purchase-receiving
