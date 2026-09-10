@@ -17,6 +17,7 @@ import {
   installmentService,
   type CreateInstallmentPlanInput,
 } from "@/lib/services/installmentService";
+import { dailyCashCloseService } from "@/lib/services/dailyCashCloseService";
 
 export type CreateInstallmentPlanWithCollectionInput = CreateInstallmentPlanInput & {
   downPaymentDestination?: CollectionMoneyDestination;
@@ -73,9 +74,10 @@ export async function createPlan(
     throw new Error("اختر المحفظة التي استلمت الدفعة الأولى.");
   }
   if (downCents > 0 && downDestination === "BANK" && !input.downPaymentBankAccountId) {
-    throw new Error("اختر الحساب البنكي الذي استلم الدفعة الأولى.");
+    throw new Error("اختر الحساب البنكي الذي استلمت الدفعة الأولى.");
   }
   if (downCents > 0) {
+    await dailyCashCloseService.assertBusinessDateOpen(shopId, new Date());
     await collectionMoneyService.prepareCollectionMoneyAccount(shopId, downDestination);
   }
 
