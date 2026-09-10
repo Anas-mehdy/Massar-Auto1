@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { assertBusinessDateOpenTx } from "@/lib/services/businessDateLockService";
 import { moneyAccountService } from "@/lib/services/moneyAccountService";
 
 export type PurchaseMoneyAccountType = "DRAWER" | "WALLET" | "BANK" | "OTHER";
@@ -22,7 +23,10 @@ export async function applyPurchasePaymentTx(
     occurredAt?: Date;
   },
 ) {
+  const occurredAt = input.occurredAt ?? new Date();
+  await assertBusinessDateOpenTx(tx, input.shopId, occurredAt);
   if (input.accountType === "OTHER") return null;
+
   return moneyAccountService.applyOutgoingMoneyTx(tx, input.shopId, input.userId, {
     destination: input.accountType,
     walletId: input.walletId ?? undefined,
@@ -32,7 +36,7 @@ export async function applyPurchasePaymentTx(
     description: `دفع فاتورة شراء — ${input.sourceReference}`,
     movementType: "PURCHASE_PAYMENT",
     contextLabel: `فاتورة الشراء ${input.sourceReference}`,
-    occurredAt: input.occurredAt,
+    occurredAt,
     source: {
       sourceType: "PURCHASE",
       sourceId: input.purchaseId,
@@ -57,7 +61,10 @@ export async function applySupplierRefundTx(
     occurredAt?: Date;
   },
 ) {
+  const occurredAt = input.occurredAt ?? new Date();
+  await assertBusinessDateOpenTx(tx, input.shopId, occurredAt);
   if (input.accountType === "OTHER") return null;
+
   return moneyAccountService.applyIncomingMoneyTx(tx, input.shopId, input.userId, {
     destination: input.accountType,
     walletId: input.walletId ?? undefined,
@@ -67,7 +74,7 @@ export async function applySupplierRefundTx(
     description: `مبلغ مسترد من مورد — ${input.sourceReference}`,
     drawerType: "INVOICE_PAYMENT",
     movementType: "SUPPLIER_REFUND",
-    occurredAt: input.occurredAt,
+    occurredAt,
     source: {
       sourceType: "SUPPLIER_RETURN",
       sourceId: input.supplierReturnId,
