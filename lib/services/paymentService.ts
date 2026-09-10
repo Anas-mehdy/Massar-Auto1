@@ -2,6 +2,7 @@ import { InvoiceStatus, PaymentMethod, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { moneyAccountService, type MoneyAccountDestination } from "./moneyAccountService";
 import { resolvePaymentSource, type PaymentSourceInput } from "./paymentSourceService";
+import { dailyCashCloseService } from "./dailyCashCloseService";
 
 export type AddPaymentInput = PaymentSourceInput & {
   amount: string;
@@ -72,8 +73,9 @@ export async function addPayment(
   const destination: MoneyAccountDestination = input.moneyDestination ?? "OTHER";
   if (destination === "WALLET" && !input.walletId) throw new Error("اختر المحفظة التي استلمت الدفعة.");
   if (destination === "BANK" && !input.bankAccountId) throw new Error("اختر الحساب البنكي الذي استلم الدفعة.");
-  await moneyAccountService.prepareMoneyAccounts(shopId, destination);
   const actualPaidAt = dateOrNow(input.paidAt);
+  await dailyCashCloseService.assertBusinessDateOpen(shopId, actualPaidAt);
+  await moneyAccountService.prepareMoneyAccounts(shopId, destination);
 
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`
