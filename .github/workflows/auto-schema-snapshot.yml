@@ -1,0 +1,103 @@
+name: Auto schema snapshot (no deploy)
+
+on:
+  push:
+    branches:
+      - bootstrap/auto-schema
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: massar_auto_snapshot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d massar_auto_snapshot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/massar_auto_snapshot?schema=public
+      PGPASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Prepare disposable PostgreSQL roles
+        run: |
+          psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          SQL
+
+      - name: Build Prisma baseline from the validated pre-purchase schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/auto-schema"
+          git show 2b3d5bc049eaaeedd92e4834150a7fd2b619b53d:prisma/schema.prisma > "$RUNNER_TEMP/auto-schema/base.prisma"
+          npx prisma migrate diff --from-empty --to-schema-datamodel "$RUNNER_TEMP/auto-schema/base.prisma" --script > "$RUNNER_TEMP/auto-schema/baseline.sql"
+          psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/auto-schema/baseline.sql"
+
+      - name: Converge SQL-managed schema from repository migrations
+        shell: bash
+        run: |
+          set -u
+          : > "$RUNNER_TEMP/auto-schema/replay-errors.log"
+          for f in $(find prisma/migrations -mindepth 2 -maxdepth 2 -name migration.sql | sort); do
+            echo "=== $f ===" >> "$RUNNER_TEMP/auto-schema/replay-errors.log"
+            psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -v ON_ERROR_STOP=0 -f "$f" >> "$RUNNER_TEMP/auto-schema/replay-errors.log" 2>&1 || true
+          done
+
+      - name: Reconcile Prisma-managed objects to current main schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script > "$RUNNER_TEMP/auto-schema/current-prisma-sync.sql"
+          if [ -s "$RUNNER_TEMP/auto-schema/current-prisma-sync.sql" ]; then
+            psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/auto-schema/current-prisma-sync.sql"
+          fi
+          npx prisma validate
+
+      - name: Export schema-only snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          pg_dump -h 127.0.0.1 -U postgres -d massar_auto_snapshot --schema-only --no-owner --no-privileges --schema=public > "$RUNNER_TEMP/auto-schema/massar-auto-schema.sql"
+          psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -Atc "select count(*) from pg_catalog.pg_tables where schemaname='public';" > "$RUNNER_TEMP/auto-schema/table-count.txt"
+          psql -h 127.0.0.1 -U postgres -d massar_auto_snapshot -Atc "select tablename from pg_catalog.pg_tables where schemaname='public' order by tablename;" > "$RUNNER_TEMP/auto-schema/tables.txt"
+          echo "Schema table count: $(cat "$RUNNER_TEMP/auto-schema/table-count.txt")"
+          cat "$RUNNER_TEMP/auto-schema/tables.txt"
+
+      - name: Upload schema artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: massar-auto-schema-snapshot
+          path: |
+            ${{ runner.temp }}/auto-schema/massar-auto-schema.sql
+            ${{ runner.temp }}/auto-schema/table-count.txt
+            ${{ runner.temp }}/auto-schema/tables.txt
+            ${{ runner.temp }}/auto-schema/current-prisma-sync.sql
+            ${{ runner.temp }}/auto-schema/replay-errors.log
+          retention-days: 1
