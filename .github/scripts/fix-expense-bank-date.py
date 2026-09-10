@@ -8,7 +8,7 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 # 1) Keep Expense.spentAt as the accounting/reporting date, but use the DB clock
-# for the actual money movement when the selected date is the shop's current day.
+# for the actual bank movement when the selected date is the shop's current day.
 actions_path = Path("app/reports/actions.ts")
 actions = actions_path.read_text()
 actions = replace_once(
@@ -52,15 +52,25 @@ expense_path.write_text(expense)
 # can use PostgreSQL NOW() inside the transaction. Drawer/wallet behavior is unchanged.
 money_path = Path("lib/services/moneyAccountService.ts")
 money = money_path.read_text()
-needle = '      type: movementType,\n      occurredAt,\n      description: input.description,'
-replacement = '      type: movementType,\n      occurredAt: input.occurredAt,\n      description: input.description,'
-count = money.count(needle)
-if count != 2:
-    raise SystemExit(f"bank occurredAt forwarding: expected 2 matches, found {count}")
-money = money.replace(needle, replacement)
-money = money.replace(
+
+# Incoming BANK call is indented one level less than the outgoing BANK call.
+money = replace_once(
+    money,
+    '      type: movementType,\n      occurredAt,\n      description: input.description,',
+    '      type: movementType,\n      occurredAt: input.occurredAt,\n      description: input.description,',
+    "incoming bank occurredAt forwarding",
+)
+money = replace_once(
+    money,
+    '        type: movementType,\n        occurredAt,\n        description: input.description,',
+    '        type: movementType,\n        occurredAt: input.occurredAt,\n        description: input.description,',
+    "outgoing bank occurredAt forwarding",
+)
+money = replace_once(
+    money,
     'throw new Error(`رصيد الحساب البنكي غير كافٍ لتسديد ${contextLabel}.`);',
     'throw new Error(`رصيد الحساب البنكي غير كافٍ في تاريخ الحركة لتسديد ${contextLabel}.`);',
+    "historical bank balance message",
 )
 money_path.write_text(money)
 
