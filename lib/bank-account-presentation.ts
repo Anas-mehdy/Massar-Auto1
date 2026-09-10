@@ -14,6 +14,7 @@ export function bankMovementLabel(type: string) {
     EXPENSE: "مصروف",
     EXPENSE_PAYMENT: "دفع مصروف",
     PURCHASE_PAYMENT: "دفع مشتريات",
+    SUPPLIER_PAYMENT: "دفعة للمورد",
     SUPPLIER_REFUND: "استرداد مورد",
     ELECTRONIC_SERVICE_PAYMENT: "تحصيل خدمة إلكترونية",
     SOFTWARE_SERVICE_PAYMENT: "تحصيل خدمة سوفتوير",

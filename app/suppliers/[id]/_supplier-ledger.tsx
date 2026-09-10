@@ -17,7 +17,7 @@ type LedgerEvent = {
 type Props = {
   supplierId: string; currency: string; today: string; canManage: boolean;
   manualOutstanding: number; purchaseOutstanding: number; supplierCredit: number; totalPayable: number; netBalance: number;
-  events: LedgerEvent[]; drawerBalance: number; wallets: Array<{ id: string; name: string; currentBalance: number }>;
+  events: LedgerEvent[]; drawerBalance: number; wallets: Array<{ id: string; name: string; currentBalance: number }>; bankAccounts: Array<{ id: string; name: string; bankName: string | null; currentBalance: number }>;
 };
 
 type Attempt = { signature: string; key: string };
@@ -30,10 +30,12 @@ export function SupplierLedgerPanel(props: Props) {
   const paymentAttempt = useRef<Attempt | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [accountType, setAccountType] = useState<"DRAWER" | "WALLET">("DRAWER");
+  const [accountType, setAccountType] = useState<"DRAWER" | "WALLET" | "BANK">("DRAWER");
   const [walletId, setWalletId] = useState("");
+  const [bankAccountId, setBankAccountId] = useState("");
   const money = (value: number) => formatCurrency(value, props.currency);
   const selectedWallet = props.wallets.find((wallet) => wallet.id === walletId);
+  const selectedBankAccount = props.bankAccounts.find((account) => account.id === bankAccountId);
   const visibleBalance = props.netBalance >= 0 ? props.netBalance : Math.abs(props.netBalance);
   const balanceLabel = props.netBalance >= 0 ? "الصافي المستحق علينا" : "صافي رصيد لنا لدى المورد";
 
@@ -89,20 +91,21 @@ export function SupplierLedgerPanel(props: Props) {
         event.preventDefault();
         const form = event.currentTarget;
         const data = new FormData(form);
-        const payload = { amount: String(data.get("amount") || ""), occurredAt: String(data.get("occurredAt") || ""), accountType, walletId: accountType === "WALLET" ? walletId : undefined, description: String(data.get("description") || ""), reference: String(data.get("reference") || "") };
+        const payload = { amount: String(data.get("amount") || ""), occurredAt: String(data.get("occurredAt") || ""), accountType, walletId: accountType === "WALLET" ? walletId : undefined, bankAccountId: accountType === "BANK" ? bankAccountId : undefined, description: String(data.get("description") || ""), reference: String(data.get("reference") || "") };
         const signature = JSON.stringify(payload);
         if (paymentAttempt.current?.signature !== signature) paymentAttempt.current = { signature, key: crypto.randomUUID() };
         const attempt = paymentAttempt.current;
-        void run(() => paySupplierAccountAction({ supplierId: props.supplierId, requestKey: attempt.key, ...payload }), "تم تسجيل دفعة المورد وخصمها من مصدر المال المختار.", () => { paymentAttempt.current = null; form.reset(); setAccountType("DRAWER"); setWalletId(""); });
+        void run(() => paySupplierAccountAction({ supplierId: props.supplierId, requestKey: attempt.key, ...payload }), "تم تسجيل دفعة المورد وخصمها من مصدر المال المختار.", () => { paymentAttempt.current = null; form.reset(); setAccountType("DRAWER"); setWalletId(""); setBankAccountId(""); });
       }}>
         <div className="mb-4 flex items-start gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-100 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300"><ArrowUpRight className="h-4 w-4" /></span><div><h3 className="text-sm font-black text-slate-900 dark:text-slate-100">دفع دفعة للمورد</h3><p className="mt-1 text-[10px] font-bold text-slate-400">تُوزّع على الدين السابق أولًا ثم أقدم فواتير الشراء، وتُسجّل حركة السحب بنفس اللحظة.</p></div></div>
         <div className="grid gap-3 sm:grid-cols-2"><Field label="المبلغ"><input name="amount" required type="number" min="0.01" max={Math.max(0, props.totalPayable)} step="0.01" className="erp-input font-numeric" /></Field><Field label="تاريخ الدفع"><input name="occurredAt" required type="date" defaultValue={props.today} className="erp-input font-numeric" /></Field>
-          <Field label="الدفع من"><select className="erp-input" value={accountType} onChange={(event) => { setAccountType(event.target.value as "DRAWER" | "WALLET"); setWalletId(""); }}><option value="DRAWER">الدرج النقدي — {money(props.drawerBalance)}</option><option value="WALLET">محفظة إلكترونية</option></select></Field>
-          {accountType === "WALLET" ? <Field label="المحفظة"><select required className="erp-input" value={walletId} onChange={(event) => setWalletId(event.target.value)}><option value="">اختر المحفظة</option>{props.wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{wallet.name} — {money(wallet.currentBalance)}</option>)}</select></Field> : <div className="rounded-xl border border-slate-200 bg-white/70 p-3 text-[10px] font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">سيتم الخصم من الدرج النقدي وتسجيل حركة خروج مرتبطة بهذا المورد.</div>}
+          <Field label="الدفع من"><select className="erp-input" value={accountType} onChange={(event) => { setAccountType(event.target.value as "DRAWER" | "WALLET" | "BANK"); setWalletId(""); setBankAccountId(""); }}><option value="DRAWER">الدرج النقدي — {money(props.drawerBalance)}</option><option value="WALLET">محفظة إلكترونية</option><option value="BANK">حساب بنكي</option></select></Field>
+          {accountType === "WALLET" ? <Field label="المحفظة"><select required className="erp-input" value={walletId} onChange={(event) => setWalletId(event.target.value)}><option value="">اختر المحفظة</option>{props.wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{wallet.name} — {money(wallet.currentBalance)}</option>)}</select></Field> : accountType === "BANK" ? <Field label="الحساب البنكي"><select required className="erp-input" value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value)}><option value="">اختر الحساب البنكي</option>{props.bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bankName ? `${account.bankName} — ` : ""}{account.name} — {money(account.currentBalance)}</option>)}</select></Field> : <div className="rounded-xl border border-slate-200 bg-white/70 p-3 text-[10px] font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">سيتم الخصم من الدرج النقدي وتسجيل حركة خروج مرتبطة بهذا المورد.</div>}
           <Field label="مرجع (اختياري)"><input name="reference" className="erp-input" placeholder="رقم سند أو حوالة" /></Field><Field label="البيان"><input name="description" className="erp-input" placeholder="مثال: دفعة حساب للمورد" /></Field>
         </div>
         {accountType === "WALLET" && selectedWallet ? <p className="mt-2 text-[10px] font-bold text-teal-700 dark:text-teal-300">سيتم السحب من {selectedWallet.name} — الرصيد الحالي {money(selectedWallet.currentBalance)}.</p> : null}
-        <Button disabled={busy || props.totalPayable <= 0 || (accountType === "WALLET" && !walletId)} type="submit" className="mt-4 h-11 w-full rounded-xl font-black">تأكيد دفع المورد</Button>
+        {accountType === "BANK" && selectedBankAccount ? <p className="mt-2 text-[10px] font-bold text-teal-700 dark:text-teal-300">سيتم السحب من {selectedBankAccount.name} — الرصيد الحالي {money(selectedBankAccount.currentBalance)}، وتسجيل حركة بنكية مرتبطة بالمورد.</p> : null}
+        <Button disabled={busy || props.totalPayable <= 0 || (accountType === "WALLET" && !walletId) || (accountType === "BANK" && !bankAccountId)} type="submit" className="mt-4 h-11 w-full rounded-xl font-black">تأكيد دفع المورد</Button>
       </form>
     </div>}
 

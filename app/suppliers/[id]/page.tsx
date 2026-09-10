@@ -13,6 +13,7 @@ import { SupplierPurchaseAccount } from "./_purchase-account";
 import { SupplierLedgerPanel } from "./_supplier-ledger";
 import { purchaseReceivingService } from "@/lib/services/purchaseReceivingService";
 import { supplierLedgerService } from "@/lib/services/supplierLedgerService";
+import { bankAccountService } from "@/lib/services/bankAccountService";
 import { supplierService } from "@/lib/services/supplierService";
 import { dateInputValueForTimeZone } from "@/lib/timezone";
 import { updateSupplierAction, deleteSupplierAction } from "../actions";
@@ -54,11 +55,12 @@ export default async function SupplierDetailsPage({
 
   const canReadPurchases = context.permissions.includes("inventory:read");
   const canPayPurchases = context.permissions.includes("inventory:manage");
-  const [purchaseAccount, wallets, drawerBalance, supplierLedger] = await Promise.all([
+  const [purchaseAccount, wallets, drawerBalance, supplierLedger, bankAccounts] = await Promise.all([
     canReadPurchases ? purchaseReceivingService.getSupplierPurchaseAccount(context.shopId, id) : null,
     canReadPurchases && canPayPurchases ? purchaseReceivingService.listPurchaseFinancialWallets(context.shopId) : [],
     canReadPurchases && canPayPurchases ? purchaseReceivingService.getPurchaseDrawerBalance(context.shopId) : null,
     canReadPurchases ? supplierLedgerService.getSupplierLedger(context.shopId, id) : null,
+    canReadPurchases && canPayPurchases ? bankAccountService.listAccounts(context.shopId) : [],
   ]);
   const todayInput = dateInputValueForTimeZone(new Date(), context.timeZone);
 
@@ -99,10 +101,11 @@ export default async function SupplierDetailsPage({
         netBalance={supplierLedger.netBalance}
         drawerBalance={Number(drawerBalance ?? 0)}
         wallets={wallets.map(wallet => ({ id: wallet.id, name: wallet.name, currentBalance: Number(wallet.currentBalance) }))}
+        bankAccounts={bankAccounts.map(account => ({ id: account.id, name: account.name, bankName: account.bankName, currentBalance: Number(account.currentBalance) }))}
         events={supplierLedger.events.map(({ occurredAt, dueAt, ...event }) => ({ ...event, occurredAt: occurredAt.toISOString(), occurredLabel: formatDate(occurredAt, context.timeZone), dueLabel: dueAt ? formatDate(dueAt, context.timeZone) : null }))}
       />}
 
-      {purchaseAccount && <SupplierPurchaseAccount currency={currency} canPay={canPayPurchases} outstanding={purchaseAccount.outstanding.toString()} credit={purchaseAccount.credit.toString()} drawerBalance={drawerBalance?.toString() ?? "0"} wallets={wallets.map(wallet => ({ id: wallet.id, name: wallet.name, currentBalance: wallet.currentBalance.toString() }))} invoices={purchaseAccount.invoices.map(invoice => ({ id: invoice.id, number: invoice.number, date: invoice.date.toISOString(), total: invoice.total.toString(), paid: invoice.paid.toString(), due: invoice.due.toString() }))} />}
+      {purchaseAccount && <SupplierPurchaseAccount currency={currency} canPay={canPayPurchases} outstanding={purchaseAccount.outstanding.toString()} credit={purchaseAccount.credit.toString()} drawerBalance={drawerBalance?.toString() ?? "0"} wallets={wallets.map(wallet => ({ id: wallet.id, name: wallet.name, currentBalance: wallet.currentBalance.toString() }))} bankAccounts={bankAccounts.map(account => ({ id: account.id, name: account.name, bankName: account.bankName, currentBalance: account.currentBalance.toString() }))} invoices={purchaseAccount.invoices.map(invoice => ({ id: invoice.id, number: invoice.number, date: invoice.date.toISOString(), total: invoice.total.toString(), paid: invoice.paid.toString(), due: invoice.due.toString() }))} />}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="erp-section flex items-center gap-4">
