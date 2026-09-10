@@ -1,6 +1,5 @@
 import {
   ArrowDownLeft,
-  ArrowLeftRight,
   ArrowUpRight,
   Banknote,
   ExternalLink,
@@ -12,13 +11,15 @@ import {
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
-import { requirePermission } from "@/lib/auth/context";
+import { can, requirePermission } from "@/lib/auth/context";
 import { formatCurrency } from "@/lib/format";
 import { cashDrawerMovementLabel, cashDrawerSourceHref, cashDrawerSourceLinkLabel } from "@/lib/cash-drawer-presentation";
 import { cashDrawerService, type CashDrawerMovementRow } from "@/lib/services/cashDrawerService";
+import { bankAccountService } from "@/lib/services/bankAccountService";
 import { financialTransferService } from "@/lib/services/financialTransferService";
 import { timeZoneForCountry } from "@/lib/shop-timezone";
-import { addCashMovementAction, setOpeningBalanceAction, transferCashWalletAction, updateOpeningBalanceAction } from "./actions";
+import { addCashMovementAction, setOpeningBalanceAction, updateOpeningBalanceAction } from "./actions";
+import { CashLiquidityTransferForm } from "./_liquidity-transfer-form";
 
 export const dynamic = "force-dynamic";
 type CashDrawerPageProps = { searchParams: Promise<{ error?: string; openingSaved?: string; openingUpdated?: string; movementSaved?: string; transferSaved?: string }> };
@@ -34,11 +35,15 @@ function movementTone(movement: CashDrawerMovementRow) {
 export default async function CashDrawerPage({ searchParams }: CashDrawerPageProps) {
   const params = await searchParams;
   const auth = await requirePermission("sales:create");
-  const wallets = await financialTransferService.listWallets(auth.shop.id);
-  const drawer = await cashDrawerService.getAuditSnapshot(auth.shop.id, 150);
+  const canManageBankAccounts = can(auth, "expenses:manage");
+  const [wallets, drawer, bankAccounts] = await Promise.all([
+    financialTransferService.listWallets(auth.shop.id),
+    cashDrawerService.getAuditSnapshot(auth.shop.id, 150),
+    canManageBankAccounts ? bankAccountService.listAccounts(auth.shop.id) : Promise.resolve([]),
+  ]);
   const currency = auth.shop.currency || "SAR";
   const timeZone = timeZoneForCountry(auth.shop.countryCode);
-  const successText = params.openingUpdated ? "تم تعديل الرصيد الافتتاحي وتحديث رصيد الدرج بمقدار الفرق." : params.openingSaved ? "تم تسجيل الرصيد الافتتاحي للدرج." : params.movementSaved ? "تم تسجيل حركة الدرج وتحديث الرصيد." : params.transferSaved ? "تم التحويل بين الدرج والمحفظة بنجاح." : null;
+  const successText = params.openingUpdated ? "تم تعديل الرصيد الافتتاحي وتحديث رصيد الدرج بمقدار الفرق." : params.openingSaved ? "تم تسجيل الرصيد الافتتاحي للدرج." : params.movementSaved ? "تم تسجيل حركة الدرج وتحديث الرصيد." : params.transferSaved ? "تم تحويل السيولة بنجاح." : null;
 
   return <div className="space-y-6">
     <PageHeader eyebrow="المالية • السيولة النقدية" title="الدرج النقدي" description="رصيد الكاش الفعلي وسجل كامل لكل مبلغ دخل إلى الدرج أو خرج منه، مع ربط الحركة بمصدرها الأصلي." />
@@ -59,7 +64,12 @@ export default async function CashDrawerPage({ searchParams }: CashDrawerPagePro
     <section className="grid gap-5 xl:grid-cols-2">
       <form action={addCashMovementAction} className="rounded-[22px] border border-slate-200 bg-white p-5 shadow-sm"><div className="mb-5 flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700"><Plus className="h-5 w-5" /></span><div><h2 className="text-base font-black text-slate-900">حركة نقدية يدوية</h2><p className="mt-0.5 text-sm font-semibold text-slate-400">إضافة أو سحب كاش لسبب خارج عمليات البيع والتحصيل الآلية.</p></div></div><div className="grid gap-3 sm:grid-cols-2"><label className="grid gap-1.5 text-sm font-bold text-slate-700">نوع الحركة<select name="direction" className="erp-input" defaultValue="IN"><option value="IN">إضافة إلى الدرج</option><option value="OUT">سحب من الدرج</option></select></label><label className="grid gap-1.5 text-sm font-bold text-slate-700">المبلغ<input name="amount" type="number" min="0.01" step="0.01" required className="erp-input font-numeric" /></label><label className="grid gap-1.5 text-sm font-bold text-slate-700 sm:col-span-2">سبب الحركة<input name="description" required className="erp-input" placeholder="مثال: سحب المالك أو إضافة تمويل نقدي" /></label><label className="grid gap-1.5 text-sm font-bold text-slate-700 sm:col-span-2">مرجع اختياري<input name="reference" className="erp-input" placeholder="رقم إيصال أو ملاحظة مرجعية" /></label></div><Button type="submit" className="mt-4 h-11 w-full rounded-xl font-black">حفظ الحركة</Button></form>
 
-      <form action={transferCashWalletAction} className="rounded-[22px] border border-cyan-100 bg-gradient-to-b from-cyan-50/60 to-white p-5 shadow-sm"><div className="mb-5 flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-100 text-cyan-700"><ArrowLeftRight className="h-5 w-5" /></span><div><h2 className="text-base font-black text-slate-900">تحويل بين الدرج والمحفظة</h2><p className="mt-0.5 text-sm font-semibold text-slate-400">نقل سيولة فقط؛ لا يُحسب كدخل أو مصروف.</p></div></div>{wallets.length === 0 ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">أضف محفظة من صفحة المحافظ والتحويلات أولاً.</div> : <><div className="grid gap-3 sm:grid-cols-2"><label className="grid gap-1.5 text-sm font-bold text-slate-700">اتجاه التحويل<select name="direction" className="erp-input" defaultValue="DRAWER_TO_WALLET"><option value="DRAWER_TO_WALLET">من الدرج إلى المحفظة</option><option value="WALLET_TO_DRAWER">من المحفظة إلى الدرج</option></select></label><label className="grid gap-1.5 text-sm font-bold text-slate-700">المحفظة<select name="walletId" className="erp-input" required defaultValue=""><option value="" disabled>اختر المحفظة</option>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{wallet.name} — {formatCurrency(Number(wallet.currentBalance), currency)}</option>)}</select></label><label className="grid gap-1.5 text-sm font-bold text-slate-700">المبلغ<input name="amount" type="number" min="0.01" step="0.01" required className="erp-input font-numeric" /></label><label className="grid gap-1.5 text-sm font-bold text-slate-700">ملاحظة<input name="notes" className="erp-input" placeholder="اختياري" /></label></div><Button type="submit" className="mt-4 h-11 w-full rounded-xl bg-cyan-700 font-black hover:bg-cyan-800">تنفيذ التحويل</Button></>}</form>
+      <CashLiquidityTransferForm
+        wallets={wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, balance: Number(wallet.currentBalance) }))}
+        bankAccounts={bankAccounts.map((account) => ({ id: account.id, name: account.name, bankName: account.bankName, balance: Number(account.currentBalance) }))}
+        currency={currency}
+        canManageBank={canManageBankAccounts}
+      />
     </section>
 
     <section className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4"><div><h2 className="text-base font-black text-slate-900">سجل حركات الدرج</h2><p className="mt-1 text-sm font-semibold text-slate-400">آخر {drawer.movements.length} حركة، بما فيها الحركات الملغاة لأغراض التدقيق.</p></div><span className="rounded-full border border-teal-100 bg-teal-50 px-3 py-1.5 text-xs font-black text-teal-700">الرصيد {formatCurrency(drawer.currentBalance, currency)}</span></div>

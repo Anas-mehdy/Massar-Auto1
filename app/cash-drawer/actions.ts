@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requirePermission } from "@/lib/auth/context";
 import { cashDrawerService } from "@/lib/services/cashDrawerService";
+import { bankAccountService } from "@/lib/services/bankAccountService";
 import { openingBalanceAdjustmentService } from "@/lib/services/openingBalanceAdjustmentService";
 
 const moneySchema = z.string().trim().min(1, "المبلغ مطلوب").refine((value) => {
@@ -29,6 +30,7 @@ function refreshCashViews() {
   revalidatePath("/transfers");
   revalidatePath("/reports");
   revalidatePath("/dashboard");
+  revalidatePath("/bank-accounts");
 }
 
 export async function setOpeningBalanceAction(formData: FormData) {
@@ -87,20 +89,46 @@ export async function addCashMovementAction(formData: FormData) {
 
 export async function transferCashWalletAction(formData: FormData) {
   const parsed = z.object({
-    walletId: z.string().uuid("اختر محفظة صالحة"),
-    direction: z.enum(["DRAWER_TO_WALLET", "WALLET_TO_DRAWER"]),
+    walletId: z.string().uuid("اختر محفظة صالحة").optional().or(z.literal("")),
+    bankAccountId: z.string().uuid("اختر حساباً بنكياً صالحاً").optional().or(z.literal("")),
+    direction: z.enum(["DRAWER_TO_WALLET", "WALLET_TO_DRAWER", "DRAWER_TO_BANK", "BANK_TO_DRAWER"]),
     amount: positiveMoneySchema,
     notes: z.string().trim().max(500, "الملاحظة طويلة جداً").optional(),
   }).safeParse({
     walletId: readString(formData, "walletId"),
+    bankAccountId: readString(formData, "bankAccountId"),
     direction: readString(formData, "direction"),
     amount: readString(formData, "amount"),
     notes: readString(formData, "notes") || undefined,
   });
   if (!parsed.success) redirect(`/cash-drawer?error=${encodeURIComponent(errorMessage(parsed.error))}`);
-  const auth = await requirePermission("sales:create");
+
+  const isBankTransfer = parsed.data.direction === "DRAWER_TO_BANK" || parsed.data.direction === "BANK_TO_DRAWER";
+  const auth = await requirePermission(isBankTransfer ? "expenses:manage" : "sales:create");
+
   try {
-    await cashDrawerService.transferWithWallet(auth.shop.id, auth.user.id, parsed.data);
+    if (parsed.data.direction === "DRAWER_TO_BANK" || parsed.data.direction === "BANK_TO_DRAWER") {
+      const bankAccountId = parsed.data.bankAccountId || undefined;
+      if (!bankAccountId) throw new Error("اختر حساباً بنكياً صالحاً.");
+      const drawerToBank = parsed.data.direction === "DRAWER_TO_BANK";
+      await bankAccountService.transferMoney(auth.shop.id, auth.user.id, {
+        fromType: drawerToBank ? "DRAWER" : "BANK",
+        fromId: drawerToBank ? undefined : bankAccountId,
+        toType: drawerToBank ? "BANK" : "DRAWER",
+        toId: drawerToBank ? bankAccountId : undefined,
+        amount: parsed.data.amount,
+        note: parsed.data.notes,
+      });
+    } else {
+      const walletId = parsed.data.walletId || undefined;
+      if (!walletId) throw new Error("اختر محفظة صالحة.");
+      await cashDrawerService.transferWithWallet(auth.shop.id, auth.user.id, {
+        walletId,
+        direction: parsed.data.direction,
+        amount: parsed.data.amount,
+        notes: parsed.data.notes,
+      });
+    }
   } catch (error) {
     redirect(`/cash-drawer?error=${encodeURIComponent(errorMessage(error))}`);
   }
