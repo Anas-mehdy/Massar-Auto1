@@ -114,9 +114,9 @@ function nullableText(value?: string | null) {
 }
 
 function validDate(value: Date | undefined) {
-  const date = value ?? new Date();
-  if (Number.isNaN(date.getTime())) throw new Error("تاريخ الحركة غير صالح.");
-  return date;
+  if (!value) return undefined;
+  if (Number.isNaN(value.getTime())) throw new Error("تاريخ الحركة غير صالح.");
+  return value;
 }
 
 function accountName(value: string) {
@@ -225,7 +225,7 @@ export async function createBankMovementTx(
   input: CreateBankMovementTxInput,
 ) {
   const amount = positiveAmount(input.amount);
-  const occurredAt = validDate(input.occurredAt);
+  const occurredAt = validDate(input.occurredAt) ?? null;
   const account = await lockBankAccountTx(tx, shopId, input.bankAccountId, input.requireActiveAccount !== false);
 
   const rows = await tx.$queryRaw<Array<{ id: string }>>`
@@ -239,7 +239,7 @@ export async function createBankMovementTx(
       ${nullableText(input.sourceType) ?? "MANUAL"}, ${nullableText(input.sourceId)},
       ${nullableText(input.sourceReference) ?? nullableText(input.reference)}, ${nullableText(input.counterpartyType)},
       ${nullableText(input.counterpartyId)}, ${nullableText(input.counterpartyName)}, ${input.transferGroupId ?? null}::uuid,
-      ${occurredAt}
+      COALESCE(${occurredAt}::timestamp, NOW()::timestamp)
     )
     RETURNING "id"
   `;
@@ -594,14 +594,17 @@ export async function transferMoney(
   if (input.fromType !== "BANK" && input.toType !== "BANK") throw new Error("يجب أن يكون أحد طرفي التحويل حساباً بنكياً.");
   if (input.fromType === input.toType && input.fromId && input.fromId === input.toId) throw new Error("لا يمكن التحويل إلى نفس الحساب.");
   await Promise.all([prepareTransferEndpoint(shopId, input.fromType), prepareTransferEndpoint(shopId, input.toType)]);
-  const occurredAt = validDate(input.occurredAt);
+  const requestedOccurredAt = validDate(input.occurredAt);
   const note = nullableText(input.note);
   const reference = nullableText(input.reference);
 
   return prisma.$transaction(async (tx) => {
-    const groupRows = await tx.$queryRaw<Array<{ id: string }>>`SELECT gen_random_uuid()::text AS "id"`;
+    const groupRows = await tx.$queryRaw<Array<{ id: string; occurredAt: Date }>>`
+      SELECT gen_random_uuid()::text AS "id", NOW()::timestamp AS "occurredAt"
+    `;
     const groupId = groupRows[0]?.id;
-    if (!groupId) throw new Error("تعذر إنشاء مرجع التحويل.");
+    const occurredAt = requestedOccurredAt ?? groupRows[0]?.occurredAt;
+    if (!groupId || !occurredAt) throw new Error("تعذر إنشاء مرجع أو وقت التحويل.");
 
     // Stable lock order protects opposite concurrent transfers (A→B / B→A) from deadlocks.
     const descriptors = [

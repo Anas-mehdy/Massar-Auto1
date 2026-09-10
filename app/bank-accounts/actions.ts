@@ -5,18 +5,20 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requirePermission } from "@/lib/auth/context";
 import { bankAccountService } from "@/lib/services/bankAccountService";
-import { timeZoneForCountry, zonedDateTimeToUtc } from "@/lib/timezone";
+import { localDateString, timeZoneForCountry, zonedDateTimeToUtc } from "@/lib/timezone";
 
 function read(formData: FormData, key: string) { const value = formData.get(key); return typeof value === "string" ? value : ""; }
 function errorMessage(error: unknown) { if (error instanceof z.ZodError) return error.issues[0]?.message ?? "البيانات غير صحيحة."; return error instanceof Error ? error.message : "تعذر تنفيذ العملية."; }
 function refreshFinancialViews() { for (const path of ["/bank-accounts","/cash-drawer","/transfers","/reports","/dashboard","/invoices","/installments","/debts"]) revalidatePath(path); }
 function dateOrNow(value: string | undefined, timeZone: string) {
-  if (!value?.trim()) return new Date();
+  if (!value?.trim()) return undefined;
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
   if (!match) throw new Error("تاريخ الحركة غير صحيح.");
   const [year, month, day] = match.slice(1).map(Number);
   const check = new Date(Date.UTC(year, month - 1, day));
   if (check.getUTCFullYear() !== year || check.getUTCMonth() + 1 !== month || check.getUTCDate() !== day) throw new Error("تاريخ الحركة غير صحيح.");
+  const normalized = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  if (normalized === localDateString(new Date(), timeZone)) return undefined;
   return zonedDateTimeToUtc({ year, month, day, hour: 12 }, timeZone);
 }
 const nonNegativeMoney = z.string().trim().refine((value) => Number.isFinite(Number((value || "0").replace(",", "."))) && Number((value || "0").replace(",", ".")) >= 0, "الرصيد الافتتاحي غير صحيح.");
