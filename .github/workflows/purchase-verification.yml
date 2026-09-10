@@ -75,8 +75,9 @@ jobs:
 
       # The historical migration chain cannot reconstruct main (Shop.currency is
       # absent before the subscription migration). Test the purchase upgrade from
-      # the pinned pre-purchase Prisma schema, without changing legacy migrations.
-      - name: Apply purchase migrations over main schema in disposable CI Postgres
+      # the pinned pre-purchase Prisma schema, then apply every finance migration
+      # required by the current preview on top of that disposable baseline.
+      - name: Apply purchase and bank migrations over main schema in disposable CI Postgres
         shell: bash
         run: |
           set -euo pipefail
@@ -94,6 +95,9 @@ jobs:
           done
           cp -R prisma/migrations/20260908002000_add_supplier_ledger "$ci_schema_dir/migrations/"
           cp -R prisma/migrations/20260908150000_link_expenses_to_funding_source "$ci_schema_dir/migrations/"
+          cp -R prisma/migrations/20260909220000_bank_accounts "$ci_schema_dir/migrations/"
+          cp -R prisma/migrations/20260910150000_supplier_ledger_bank_payments "$ci_schema_dir/migrations/"
+          cp -R prisma/migrations/20260910153000_purchase_bank_account_constraints "$ci_schema_dir/migrations/"
           npx prisma migrate deploy --schema "$ci_schema_dir/schema.prisma"
 
       - name: TypeScript
