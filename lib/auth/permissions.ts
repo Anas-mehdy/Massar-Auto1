@@ -1,7 +1,11 @@
 import { MembershipRole } from "@prisma/client";
 
 /**
- * Typed application-wide permissions for Phase 2 RBAC.
+ * Typed application-wide permissions.
+ *
+ * During the automotive transition we keep the legacy Massar permissions so the
+ * cloned application continues to compile while new vehicle/workshop routes are
+ * moved to the dedicated permission set below.
  */
 export type AppPermission =
   | "repairs:read"
@@ -10,9 +14,21 @@ export type AppPermission =
   | "repairs:update_status"
   | "repairs:assign"
   | "repairs:delete"
+  | "vehicles:read"
+  | "vehicles:manage"
+  | "vehicles:delete"
+  | "service_orders:read"
+  | "service_orders:create"
+  | "service_orders:update"
+  | "service_orders:update_status"
+  | "service_orders:assign"
+  | "service_orders:delete"
+  | "quotes:read"
+  | "quotes:manage"
   | "sales:read"
   | "sales:create"
   | "sales:cancel"
+  | "sales:return"
   | "electronic_services:read"
   | "electronic_services:execute"
   | "electronic_services:manage"
@@ -20,6 +36,10 @@ export type AppPermission =
   | "inventory:use_parts"
   | "inventory:manage"
   | "inventory:adjust"
+  | "warehouse:read"
+  | "warehouse:manage"
+  | "warehouse:transfer"
+  | "warehouse:stocktake"
   | "invoices:read"
   | "invoices:pay"
   | "invoices:void"
@@ -29,6 +49,9 @@ export type AppPermission =
   | "reports:read"
   | "expenses:manage"
   | "debts:manage"
+  | "finance:vouchers"
+  | "cash:close"
+  | "cash:reopen"
   | "shop:settings"
   | "team:read"
   | "team:invite"
@@ -42,9 +65,21 @@ export const ALL_APP_PERMISSIONS: readonly AppPermission[] = [
   "repairs:update_status",
   "repairs:assign",
   "repairs:delete",
+  "vehicles:read",
+  "vehicles:manage",
+  "vehicles:delete",
+  "service_orders:read",
+  "service_orders:create",
+  "service_orders:update",
+  "service_orders:update_status",
+  "service_orders:assign",
+  "service_orders:delete",
+  "quotes:read",
+  "quotes:manage",
   "sales:read",
   "sales:create",
   "sales:cancel",
+  "sales:return",
   "electronic_services:read",
   "electronic_services:execute",
   "electronic_services:manage",
@@ -52,6 +87,10 @@ export const ALL_APP_PERMISSIONS: readonly AppPermission[] = [
   "inventory:use_parts",
   "inventory:manage",
   "inventory:adjust",
+  "warehouse:read",
+  "warehouse:manage",
+  "warehouse:transfer",
+  "warehouse:stocktake",
   "invoices:read",
   "invoices:pay",
   "invoices:void",
@@ -61,6 +100,9 @@ export const ALL_APP_PERMISSIONS: readonly AppPermission[] = [
   "reports:read",
   "expenses:manage",
   "debts:manage",
+  "finance:vouchers",
+  "cash:close",
+  "cash:reopen",
   "shop:settings",
   "team:read",
   "team:invite",
@@ -69,8 +111,8 @@ export const ALL_APP_PERMISSIONS: readonly AppPermission[] = [
 ] as const;
 
 /**
- * Strict Role to Permissions mapping matrix.
- * Membership.role from PostgreSQL is the single source of truth.
+ * Transitional mapping. New automotive role presets (manager/receptionist/
+ * warehouse/finance) will be added after the Prisma membership enum is migrated.
  */
 export const ROLE_PERMISSIONS_MATRIX: Record<MembershipRole, readonly AppPermission[]> = {
   OWNER: ALL_APP_PERMISSIONS,
@@ -82,9 +124,21 @@ export const ROLE_PERMISSIONS_MATRIX: Record<MembershipRole, readonly AppPermiss
     "repairs:update_status",
     "repairs:assign",
     "repairs:delete",
+    "vehicles:read",
+    "vehicles:manage",
+    "vehicles:delete",
+    "service_orders:read",
+    "service_orders:create",
+    "service_orders:update",
+    "service_orders:update_status",
+    "service_orders:assign",
+    "service_orders:delete",
+    "quotes:read",
+    "quotes:manage",
     "sales:read",
     "sales:create",
     "sales:cancel",
+    "sales:return",
     "electronic_services:read",
     "electronic_services:execute",
     "electronic_services:manage",
@@ -92,6 +146,10 @@ export const ROLE_PERMISSIONS_MATRIX: Record<MembershipRole, readonly AppPermiss
     "inventory:use_parts",
     "inventory:manage",
     "inventory:adjust",
+    "warehouse:read",
+    "warehouse:manage",
+    "warehouse:transfer",
+    "warehouse:stocktake",
     "invoices:read",
     "invoices:pay",
     "invoices:void",
@@ -101,10 +159,13 @@ export const ROLE_PERMISSIONS_MATRIX: Record<MembershipRole, readonly AppPermiss
     "reports:read",
     "expenses:manage",
     "debts:manage",
+    "finance:vouchers",
+    "cash:close",
+    "cash:reopen",
     "team:read",
     "team:invite",
     "team:manage",
-    // Note: shop:settings and subscription:manage are excluded (OWNER only)
+    // shop:settings and subscription:manage remain OWNER-only.
   ],
 
   TECHNICIAN: [
@@ -112,12 +173,19 @@ export const ROLE_PERMISSIONS_MATRIX: Record<MembershipRole, readonly AppPermiss
     "repairs:create",
     "repairs:update",
     "repairs:update_status",
+    "vehicles:read",
+    "service_orders:read",
+    "service_orders:create",
+    "service_orders:update",
+    "service_orders:update_status",
+    "quotes:read",
     "sales:read",
     "sales:create",
     "electronic_services:read",
     "electronic_services:execute",
     "inventory:read",
     "inventory:use_parts",
+    "warehouse:read",
     "invoices:read",
     "invoices:pay",
     "customers:manage",
@@ -126,26 +194,24 @@ export const ROLE_PERMISSIONS_MATRIX: Record<MembershipRole, readonly AppPermiss
 
   VIEWER: [
     "repairs:read",
+    "vehicles:read",
+    "service_orders:read",
+    "quotes:read",
     "sales:read",
     "electronic_services:read",
     "inventory:read",
+    "warehouse:read",
     "invoices:read",
     "reports:read",
     "team:read",
   ],
 };
 
-/**
- * Resolves permissions for a given membership role.
- */
 export function getPermissionsForRole(role: MembershipRole): AppPermission[] {
   const permissions = ROLE_PERMISSIONS_MATRIX[role];
   return permissions ? [...permissions] : [];
 }
 
-/**
- * Checks if a specific role possesses a required permission.
- */
 export function hasRolePermission(role: MembershipRole, permission: AppPermission): boolean {
   const permissions = ROLE_PERMISSIONS_MATRIX[role];
   return permissions ? permissions.includes(permission) : false;
