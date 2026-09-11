@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CarFront, Gauge, Package, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SERVICE_ORDER_STATUS_LABELS } from "@/lib/auto/service-order-ui";
 import { getCurrentShopContext } from "@/lib/current-shop";
 import { autoInvoiceDetailService } from "@/lib/services/autoInvoiceDetailService";
 import { formatDate, formatMoney } from "../_components";
@@ -11,6 +12,7 @@ export async function AutoServiceInvoiceDetails({ invoiceId }: { invoiceId: stri
   if (!context) return null;
 
   const vehicleName = `${context.vehicleMake} ${context.vehicleModel}${context.vehicleYear ? ` • ${context.vehicleYear}` : ""}`;
+  const orderStatusLabel = SERVICE_ORDER_STATUS_LABELS[context.orderStatus as keyof typeof SERVICE_ORDER_STATUS_LABELS] ?? context.orderStatus;
 
   return (
     <div className="erp-section space-y-5">
@@ -28,7 +30,7 @@ export async function AutoServiceInvoiceDetails({ invoiceId }: { invoiceId: stri
         <Info label="المركبة" value={vehicleName} />
         <Info label="اللوحة / VIN" value={context.plateNumber || context.vin || "-"} />
         <Info label="رقم أمر الصيانة" value={context.orderNumber} />
-        <Info label="حالة الأمر" value={context.orderStatus} />
+        <Info label="حالة الأمر" value={orderStatusLabel} />
         <Info label="تاريخ الاستلام" value={formatDate(context.receivedAt, shop.timeZone)} />
         <Info label="تاريخ التسليم" value={formatDate(context.deliveredAt, shop.timeZone)} />
         <Info label="عداد الدخول" value={context.odometerAtIntake != null ? `${context.odometerAtIntake.toLocaleString("ar")} كم` : "-"} />
