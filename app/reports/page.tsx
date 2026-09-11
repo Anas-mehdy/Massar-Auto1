@@ -11,6 +11,7 @@ import {
   Trash2,
   TrendingUp,
   Wallet,
+  Wrench,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -191,7 +192,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         <MetricCard label="المقبوض فعلياً" helper="يشمل التحصيل المباشر وتحصيلات الديون" value={formatCurrency(report.metrics.collected, currency)} icon={Banknote} tone="emerald" />
         <MetricCard label="المتبقي عند العملاء" helper="فواتير وخطط وديون خدمات إلكترونية" value={formatCurrency(report.metrics.outstanding, currency)} icon={Wallet} tone="amber" />
         <MetricCard label="التكاليف المباشرة" helper="تشمل تكلفة قطع صيانة السيارات بعد طرح القطع المعادة للمخزون" value={formatCurrency(report.metrics.directCosts, currency)} icon={Boxes} tone="rose" />
-        <MetricCard label="تكلفة قطع صيانة السيارات" helper={`مستخدم ${formatCurrency(report.metrics.autoServiceInventoryUsedCost, currency)} • مُعاد ${formatCurrency(report.metrics.autoServiceInventoryReturnedCost, currency)}`} value={formatCurrency(report.metrics.autoServiceInventoryCost, currency)} icon={WrenchIcon} tone="orange" />
+        <MetricCard label="تكلفة قطع صيانة السيارات" helper={`مستخدم ${formatCurrency(report.metrics.autoServiceInventoryUsedCost, currency)} • مُعاد ${formatCurrency(report.metrics.autoServiceInventoryReturnedCost, currency)}`} value={formatCurrency(report.metrics.autoServiceInventoryCost, currency)} icon={Wrench} tone="orange" />
         <MetricCard label="إجمالي التوالف" helper={`${damageSummary.movementCount} حركة تالف — لا تؤثر على الربح`} value={formatCurrency(damageSummary.totalValue, currency)} icon={Boxes} tone="rose" />
         <MetricCard label="ربح الخدمات الإلكترونية" helper={`${report.counts.electronicServices} عملية ضمن الفترة`} value={formatCurrency(report.metrics.electronicServiceProfit, currency)} icon={Zap} tone={report.metrics.electronicServiceProfit >= 0 ? "teal" : "rose"} />
         <MetricCard label="ربح التحويلات" helper={`${transferCommission.operationCount} عملية بعمولة — دون أصل مبلغ التحويل`} value={formatCurrency(transferCommission.totalProfit, currency)} icon={ArrowLeftRight} tone="teal" />
@@ -303,10 +304,6 @@ const toneClasses: Record<Tone, string> = {
   orange: "bg-orange-50 text-orange-700 border-orange-100",
   slate: "bg-slate-100 text-slate-700 border-slate-200",
 };
-
-function WrenchIcon(props: React.ComponentProps<"svg">) {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M14.7 6.3a4 4 0 0 0-5-5l2.2 2.2-2.6 2.6-2.2-2.2a4 4 0 0 0 5 5l8.6 8.6a2 2 0 1 1-2.8 2.8l-8.6-8.6" /></svg>;
-}
 
 function MetricCard({ label, helper, value, icon: Icon, tone, featured = false }: { label: string; helper: string; value: string; icon: LucideIcon; tone: Tone; featured?: boolean }) {
   return <div className={`rounded-2xl border p-5 shadow-sm ${featured ? "ring-2 ring-emerald-500/15" : ""} ${toneClasses[tone]}`}><div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-black opacity-80">{label}</p><p className="mt-2 break-words font-numeric text-xl font-black text-slate-900">{value}</p><p className="mt-2 text-[10px] font-bold opacity-70">{helper}</p></div><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/80 shadow-sm"><Icon className="h-5 w-5" /></div></div></div>;
