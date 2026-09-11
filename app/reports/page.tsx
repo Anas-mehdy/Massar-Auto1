@@ -20,7 +20,7 @@ import { PageHeader } from "@/components/page-header";
 import { can, requirePermission } from "@/lib/auth/context";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { getInventoryDamageReportSummary } from "@/lib/services/inventoryDamageReportService";
-import { reportService } from "@/lib/services/reportService";
+import { autoFinancialReportService } from "@/lib/services/autoFinancialReportService";
 import { getTransferCommissionReportSummary } from "@/lib/services/transferCommissionReportService";
 import { financialTransferService } from "@/lib/services/financialTransferService";
 import { cashDrawerService } from "@/lib/services/cashDrawerService";
@@ -112,7 +112,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const timeZone = timeZoneForCountry(auth.shop.countryCode);
   const range = resolveRange(params, timeZone);
   const [report, damageSummary, transferCommission, wallets, bankAccounts, drawer] = await Promise.all([
-    reportService.getFinancialReport(auth.shop.id, range),
+    autoFinancialReportService.getFinancialReport(auth.shop.id, range),
     getInventoryDamageReportSummary(auth.shop.id, range.start, range.end),
     getTransferCommissionReportSummary(auth.shop.id, range.start, range.end),
     financialTransferService.listWallets(auth.shop.id).catch(() => []),
@@ -141,7 +141,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       <PageHeader
         eyebrow="المالية في صورة واضحة"
         title="التقارير والأرباح"
-        description="المبيعات والخدمات الإلكترونية والمقبوضات والمستحقات والتكاليف المباشرة والمصروفات وعمولات التحويلات، بدون احتساب المبلغ مرتين."
+        description="المبيعات وصيانة السيارات والخدمات الإلكترونية والمقبوضات والمستحقات والتكاليف المباشرة والمصروفات وعمولات التحويلات، بدون احتساب المبلغ مرتين."
       />
 
       {(params.expenseSaved || params.expenseDeleted) && (
@@ -190,7 +190,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         <MetricCard label="إجمالي المبيعات" helper="يشمل المبيعات والخدمات الإلكترونية" value={formatCurrency(report.metrics.grossRevenue, currency)} icon={ReceiptText} tone="indigo" />
         <MetricCard label="المقبوض فعلياً" helper="يشمل التحصيل المباشر وتحصيلات الديون" value={formatCurrency(report.metrics.collected, currency)} icon={Banknote} tone="emerald" />
         <MetricCard label="المتبقي عند العملاء" helper="فواتير وخطط وديون خدمات إلكترونية" value={formatCurrency(report.metrics.outstanding, currency)} icon={Wallet} tone="amber" />
-        <MetricCard label="التكاليف المباشرة" helper="قطع وتكاليف صيانة وتكلفة مزودي الخدمات" value={formatCurrency(report.metrics.directCosts, currency)} icon={Boxes} tone="rose" />
+        <MetricCard label="التكاليف المباشرة" helper="تشمل تكلفة قطع صيانة السيارات بعد طرح القطع المعادة للمخزون" value={formatCurrency(report.metrics.directCosts, currency)} icon={Boxes} tone="rose" />
+        <MetricCard label="تكلفة قطع صيانة السيارات" helper={`مستخدم ${formatCurrency(report.metrics.autoServiceInventoryUsedCost, currency)} • مُعاد ${formatCurrency(report.metrics.autoServiceInventoryReturnedCost, currency)}`} value={formatCurrency(report.metrics.autoServiceInventoryCost, currency)} icon={WrenchIcon} tone="orange" />
         <MetricCard label="إجمالي التوالف" helper={`${damageSummary.movementCount} حركة تالف — لا تؤثر على الربح`} value={formatCurrency(damageSummary.totalValue, currency)} icon={Boxes} tone="rose" />
         <MetricCard label="ربح الخدمات الإلكترونية" helper={`${report.counts.electronicServices} عملية ضمن الفترة`} value={formatCurrency(report.metrics.electronicServiceProfit, currency)} icon={Zap} tone={report.metrics.electronicServiceProfit >= 0 ? "teal" : "rose"} />
         <MetricCard label="ربح التحويلات" helper={`${transferCommission.operationCount} عملية بعمولة — دون أصل مبلغ التحويل`} value={formatCurrency(transferCommission.totalProfit, currency)} icon={ArrowLeftRight} tone="teal" />
@@ -285,7 +286,7 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
       </section>
 
       <div className="rounded-2xl border border-sky-200 bg-sky-50/70 p-4 text-[11px] font-bold leading-6 text-sky-900">
-        <strong>كيف نقرأ الأرقام؟</strong> المبيعات ليست هي المقبوضات. الربح يحسب من قيمة البيع قبل الضريبة ناقص التكاليف المباشرة، ومنها تكلفة مزودي الخدمات الإلكترونية، وتضاف إليه عمولات التحويلات كربح مستقل دون احتساب أصل مبلغ التحويل، ثم تُطرح المصروفات للوصول إلى صافي الربح. الخدمات الإلكترونية النقدية أو عبر المحفظة تدخل ضمن المقبوض مباشرة، أما العمليات على الدين فتظهر كمستحقات ويُحتسب تحصيلها عند تسجيل دفعات الدين.
+        <strong>كيف نقرأ الأرقام؟</strong> المبيعات ليست هي المقبوضات. الربح يحسب من قيمة البيع قبل الضريبة ناقص التكاليف المباشرة، وتشمل تكلفة قطع صيانة السيارات المستخدمة بعد طرح القطع التي أُعيدت للمخزون، إضافة إلى تكلفة مزودي الخدمات الإلكترونية. وتضاف عمولات التحويلات كربح مستقل دون احتساب أصل مبلغ التحويل، ثم تُطرح المصروفات للوصول إلى صافي الربح.
       </div>
     </div>
   );
@@ -302,6 +303,10 @@ const toneClasses: Record<Tone, string> = {
   orange: "bg-orange-50 text-orange-700 border-orange-100",
   slate: "bg-slate-100 text-slate-700 border-slate-200",
 };
+
+function WrenchIcon(props: React.ComponentProps<"svg">) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M14.7 6.3a4 4 0 0 0-5-5l2.2 2.2-2.6 2.6-2.2-2.2a4 4 0 0 0 5 5l8.6 8.6a2 2 0 1 1-2.8 2.8l-8.6-8.6" /></svg>;
+}
 
 function MetricCard({ label, helper, value, icon: Icon, tone, featured = false }: { label: string; helper: string; value: string; icon: LucideIcon; tone: Tone; featured?: boolean }) {
   return <div className={`rounded-2xl border p-5 shadow-sm ${featured ? "ring-2 ring-emerald-500/15" : ""} ${toneClasses[tone]}`}><div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-black opacity-80">{label}</p><p className="mt-2 break-words font-numeric text-xl font-black text-slate-900">{value}</p><p className="mt-2 text-[10px] font-bold opacity-70">{helper}</p></div><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/80 shadow-sm"><Icon className="h-5 w-5" /></div></div></div>;
