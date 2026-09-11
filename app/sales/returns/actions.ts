@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requirePermission } from "@/lib/auth/context";
 import { salesReturnService } from "@/lib/services/salesReturnService";
+import { salesWarehouseSourceService } from "@/lib/services/salesWarehouseSourceService";
 
 const lineSchema = z.object({
   saleItemId: z.string().uuid(),
@@ -59,7 +60,8 @@ export async function createSalesReturnAction(formData: FormData) {
       notes: read(formData, "notes") || null,
       lines,
     });
-    const result = await salesReturnService.createSalesReturn(auth.shop.id, auth.user.id, parsed);
+    const resolvedLines = await salesWarehouseSourceService.resolveSalesReturnWarehouses(auth.shop.id, parsed.saleId, parsed.lines);
+    const result = await salesReturnService.createSalesReturn(auth.shop.id, auth.user.id, { ...parsed, lines: resolvedLines });
     revalidatePath("/sales");
     revalidatePath(`/sales/${parsed.saleId}`);
     revalidatePath("/sales/returns");
