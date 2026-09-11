@@ -19,6 +19,7 @@ import { paymentSourceService } from "@/lib/services/paymentSourceService";
 import { whatsappService } from "@/lib/services/whatsappService";
 import { Field, formatDate, formatMoney, getInvoiceTypeLabel, inputClassName, paymentMethodOptions, selectClassName, textareaClassName } from "../_components";
 import { addPaymentAction, voidInvoiceAction } from "../actions";
+import { AutoServiceInvoiceDetails } from "./_auto-service-details";
 
 export const dynamic = "force-dynamic";
 
@@ -73,10 +74,12 @@ export default async function InvoiceDetailsPage({ params, searchParams }: Invoi
           <div className="border-b border-slate-100/60 pb-3 mb-5 flex items-center justify-between"><h3 className="font-bold text-slate-800 text-sm">الملخص المالي للفاتورة</h3><InvoiceStatusBadge status={invoice.status} /></div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Info label="حالة السداد" value={<InvoiceStatusBadge status={invoice.status} />} /><Info label="العميل" value={invoice.customer?.name ?? "-"} /><Info label="الهاتف" value={<span className="font-numeric">{invoice.customer?.phone ?? "-"}</span>} /><Info label="الإجمالي قبل الخصم" value={<span className="font-numeric">{formatMoney(invoice.subtotal, currency)}</span>} /><Info label="الخصم الإجمالي" value={<span className="font-numeric text-rose-600">{Number(invoice.discountTotal) > 0 ? formatMoney(-Number(invoice.discountTotal), currency) : formatMoney(0, currency)}</span>} /><Info label="الضريبة المضافة" value={<span className="font-numeric">{formatMoney(invoice.taxTotal, currency)}</span>} /><Info label="الإجمالي النهائي" value={<span className="font-numeric text-slate-800 font-bold">{formatMoney(invoice.total, currency)}</span>} /><Info label="المبلغ المدفوع" value={<span className="font-numeric text-emerald-600 font-bold">{formatMoney(invoice.amountPaid, currency)}</span>} /><Info label="المبلغ المتبقي" value={<span className={cn("font-numeric font-bold", Number(invoice.balanceDue) > 0 ? "text-amber-600" : "text-slate-500")}>{formatMoney(invoice.balanceDue, currency)}</span>} /><Info label="تاريخ الإصدار" value={<span className="font-numeric">{formatDate(invoice.issuedAt, timeZone)}</span>} /><Info label="تاريخ الاستحقاق" value={<span className="font-numeric">{formatDate(invoice.dueAt, timeZone)}</span>} /><Info label="تاريخ السداد الكامل" value={<span className="font-numeric">{formatDate(invoice.paidAt, timeZone)}</span>} />
-            {invoice.type === InvoiceType.REPAIR ? <Info label="رقم تذكرة الصيانة" value={<Link href={`/repair-orders/${invoice.repairOrder?.id}`} className="font-numeric text-primary hover:underline font-bold">{invoice.repairOrder?.ticketNumber ?? "-"}</Link>} /> : null}
+            {invoice.type === InvoiceType.REPAIR && invoice.repairOrder ? <Info label="رقم تذكرة الصيانة" value={<Link href={`/repair-orders/${invoice.repairOrder.id}`} className="font-numeric text-primary hover:underline font-bold">{invoice.repairOrder.ticketNumber}</Link>} /> : null}
             {invoice.type === InvoiceType.SALE ? <Info label="رقم إيصال البيع" value={<Link href={`/sales/${invoice.sale?.id}`} className="font-numeric text-primary hover:underline font-bold">{invoice.sale?.receiptNumber ?? "-"}</Link>} /> : null}
           </div>
         </div>
+
+        <AutoServiceInvoiceDetails invoiceId={invoice.id} />
 
         <div className="erp-section">
           <div className="border-b border-slate-100/60 pb-3 mb-4"><h3 className="font-bold text-slate-800 text-sm">سجل وحركات المدفوعات</h3></div>
