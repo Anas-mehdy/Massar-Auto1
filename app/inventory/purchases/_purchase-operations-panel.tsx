@@ -1,6 +1,6 @@
 "use client";
 
-import { Banknote, Loader2, PackageCheck, RotateCcw, Scale } from "lucide-react";
+import { Banknote, Loader2, PackageCheck, RotateCcw, Scale, Warehouse } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ type SupplierReturnRow = {
   returnedAt: string;
 };
 
+type WarehouseRow = { id: string; name: string; code: string | null; isDefault: boolean };
 type WalletRow = { id: string; name: string; currentBalance: string };
 type BankRow = { id: string; name: string; bankName: string | null; currentBalance: string };
 type PaymentSourceRow = { id: string; name: string };
@@ -52,6 +53,7 @@ export function PurchaseOperationsPanel({
   balanceDue,
   items,
   supplierReturns,
+  warehouses,
   wallets,
   bankAccounts,
   paymentSources,
@@ -61,6 +63,7 @@ export function PurchaseOperationsPanel({
   balanceDue: string;
   items: ItemRow[];
   supplierReturns: SupplierReturnRow[];
+  warehouses: WarehouseRow[];
   wallets: WalletRow[];
   bankAccounts: BankRow[];
   paymentSources: PaymentSourceRow[];
@@ -69,10 +72,12 @@ export function PurchaseOperationsPanel({
   const receiptItems = useMemo(() => items.filter((item) => item.remainingQuantity > 0), [items]);
   const returnItems = useMemo(() => items.filter((item) => item.returnableQuantity > 0), [items]);
   const openReturns = useMemo(() => supplierReturns.filter((item) => numberValue(item.remainingSettlementValue) > 0.009), [supplierReturns]);
+  const defaultWarehouseId = warehouses.find((warehouse) => warehouse.isDefault)?.id ?? warehouses[0]?.id ?? "";
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const [receiptQuantities, setReceiptQuantities] = useState<Record<string, string>>({});
+  const [receiptWarehouseId, setReceiptWarehouseId] = useState(defaultWarehouseId);
   const [receiptDate, setReceiptDate] = useState(today());
   const [receiptReference, setReceiptReference] = useState("");
   const [receiptNote, setReceiptNote] = useState("");
@@ -91,6 +96,7 @@ export function PurchaseOperationsPanel({
   const paymentKey = useRef<string | null>(null);
 
   const [returnQuantities, setReturnQuantities] = useState<Record<string, string>>({});
+  const [returnWarehouseId, setReturnWarehouseId] = useState(defaultWarehouseId);
   const [returnReason, setReturnReason] = useState("");
   const [returnReference, setReturnReference] = useState("");
   const [returnDate, setReturnDate] = useState(today());
@@ -111,6 +117,11 @@ export function PurchaseOperationsPanel({
   const settlementKey = useRef<string | null>(null);
 
   useEffect(() => {
+    if (!receiptWarehouseId && defaultWarehouseId) setReceiptWarehouseId(defaultWarehouseId);
+    if (!returnWarehouseId && defaultWarehouseId) setReturnWarehouseId(defaultWarehouseId);
+  }, [defaultWarehouseId, receiptWarehouseId, returnWarehouseId]);
+
+  useEffect(() => {
     if (openReturns.length === 0) {
       setSelectedReturnId("");
       setSettlementAmount("");
@@ -129,17 +140,19 @@ export function PurchaseOperationsPanel({
 
   async function submitReceipt() {
     clearFeedback();
+    if (!receiptWarehouseId) { setError("اختر المستودع الذي ستدخل إليه البضاعة."); return; }
     const lines = receiptItems.map((item) => ({ purchaseItemId: item.id, quantity: Number(receiptQuantities[item.id] || 0) })).filter((line) => line.quantity > 0);
     if (!lines.length) { setError("أدخل كمية واحدة على الأقل للاستلام."); return; }
     if (lines.some((line) => !Number.isInteger(line.quantity))) { setError("كمية الاستلام يجب أن تكون عدداً صحيحاً."); return; }
     receiptKey.current ??= requestKey();
     setReceiptBusy(true);
     try {
-      const result = await recordPurchaseReceiptAction({ purchaseId, requestKey: receiptKey.current, receivedAt: receiptDate, reference: receiptReference || null, note: receiptNote || null, lines });
+      const result = await recordPurchaseReceiptAction({ purchaseId, warehouseId: receiptWarehouseId, requestKey: receiptKey.current, receivedAt: receiptDate, reference: receiptReference || null, note: receiptNote || null, lines });
       if (!result.ok) { receiptKey.current = null; setError("error" in result ? result.error : "تعذر تسجيل الاستلام."); return; }
       receiptKey.current = null;
       setReceiptQuantities({}); setReceiptReference(""); setReceiptNote("");
-      setMessage(result.alreadyApplied ? "هذه المحاولة كانت مسجلة مسبقاً؛ لم تُكرر الكميات." : "تم تسجيل الاستلام وربطه بالفاتورة.");
+      const warehouseName = result.warehouseName ?? warehouses.find((warehouse) => warehouse.id === receiptWarehouseId)?.name ?? "المستودع المحدد";
+      setMessage(result.alreadyApplied ? "هذه المحاولة كانت مسجلة مسبقاً؛ لم تُكرر الكميات." : `تم تسجيل الاستلام في ${warehouseName} وربطه بالفاتورة.`);
       router.refresh();
     } catch {
       setError("تعذر تأكيد نتيجة الطلب. أعد المحاولة؛ سيُستخدم نفس مفتاح العملية لمنع التكرار.");
@@ -173,6 +186,7 @@ export function PurchaseOperationsPanel({
 
   async function submitReturn() {
     clearFeedback();
+    if (!returnWarehouseId) { setError("اختر المستودع الذي ستخرج منه البضاعة المرتجعة."); return; }
     const lines = returnItems.map((item) => ({ purchaseItemId: item.id, quantity: Number(returnQuantities[item.id] || 0) })).filter((line) => line.quantity > 0);
     if (!lines.length) { setError("حدد كمية واحدة على الأقل للإرجاع."); return; }
     if (lines.some((line) => !Number.isInteger(line.quantity))) { setError("كمية المرتجع يجب أن تكون عدداً صحيحاً."); return; }
@@ -180,11 +194,12 @@ export function PurchaseOperationsPanel({
     returnKey.current ??= requestKey();
     setReturnBusy(true);
     try {
-      const result = await recordSupplierReturnAction({ purchaseId, requestKey: returnKey.current, reason: returnReason, reference: returnReference || null, returnedAt: returnDate, lines });
+      const result = await recordSupplierReturnAction({ purchaseId, warehouseId: returnWarehouseId, requestKey: returnKey.current, reason: returnReason, reference: returnReference || null, returnedAt: returnDate, lines });
       if (!result.ok) { returnKey.current = null; setError("error" in result ? result.error : "تعذر تسجيل المرتجع."); return; }
       returnKey.current = null;
       setReturnQuantities({}); setReturnReason(""); setReturnReference("");
-      setMessage(result.alreadyApplied ? "المرتجع كان مسجلاً مسبقاً؛ لم تتكرر حركة المخزون." : "تم إرجاع البضاعة للمورد. لم تُسجل أي تسوية مالية تلقائياً.");
+      const warehouseName = result.warehouseName ?? warehouses.find((warehouse) => warehouse.id === returnWarehouseId)?.name ?? "المستودع المحدد";
+      setMessage(result.alreadyApplied ? "المرتجع كان مسجلاً مسبقاً؛ لم تتكرر حركة المخزون." : `تم إخراج المرتجع من ${warehouseName}. لم تُسجل أي تسوية مالية تلقائياً.`);
       router.refresh();
     } catch {
       setError("تعذر تأكيد نتيجة المرتجع. أعد المحاولة؛ سيُستخدم نفس مفتاح العملية لمنع التكرار.");
@@ -209,7 +224,7 @@ export function PurchaseOperationsPanel({
         accountType: settlementType === "REFUND" ? settlementAccount : null,
         walletId: settlementType === "REFUND" && settlementAccount === "WALLET" ? settlementWalletId || null : null,
         bankAccountId: settlementType === "REFUND" && settlementAccount === "BANK" ? settlementBankAccountId || null : null,
-        sourceName: settlementType === "REFUND" ? (settlementAccount === "WALLET" ? wallets.find((w) => w.id === settlementWalletId)?.name ?? null : settlementAccount === "DRAWER" ? "الدرج النقدي" : settlementSourceName || null) : null,
+        sourceName: settlementType === "REFUND" ? (settlementAccount === "WALLET" ? wallets.find((w) => w.id === settlementWalletId)?.name ?? null : settlementAccount === "BANK" ? bankAccounts.find((a) => a.id === settlementBankAccountId)?.name ?? null : settlementAccount === "DRAWER" ? "الدرج النقدي" : settlementSourceName || null) : null,
         reference: settlementReference || null,
       });
       if (!result.ok) { settlementKey.current = null; setError("error" in result ? result.error : "تعذر تسجيل التسوية."); return; }
@@ -223,18 +238,20 @@ export function PurchaseOperationsPanel({
   }
 
   return <section className="space-y-4">
-    <div><h2 className="text-lg font-black text-slate-900 dark:text-slate-100">عمليات ما بعد الاعتماد</h2><p className="mt-1 text-xs font-semibold leading-6 text-slate-500 dark:text-slate-400">الاستلام، الدفع، والمرتجع عمليات مستقلة. إرجاع البضاعة وحده لا يعيد مالاً إلى الدرج ولا يغيّر المستحق حتى تختار تسوية مالية.</p></div>
+    <div><h2 className="text-lg font-black text-slate-900 dark:text-slate-100">عمليات ما بعد الاعتماد</h2><p className="mt-1 text-xs font-semibold leading-6 text-slate-500 dark:text-slate-400">الاستلام والمرتجع مرتبطان بالمستودع الذي تختاره. الدفع والتسوية المالية مستقلان عن حركة البضاعة.</p></div>
     {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">{message}</div>}
     {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">{error}</div>}
+    {!warehouses.length && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">لا يوجد مستودع نشط. أنشئ أو فعّل مستودعاً قبل تسجيل استلام أو مرتجع.</div>}
 
     <div className="grid gap-4 xl:grid-cols-2">
-      <OperationCard icon={PackageCheck} title="استلام كمية إضافية" description={receiptItems.length ? "سجّل ما وصل الآن فقط. لن يسمح مسار بتجاوز الكمية المتبقية." : "كل كميات الفاتورة مستلمة."}>
+      <OperationCard icon={PackageCheck} title="استلام كمية إضافية" description={receiptItems.length ? "اختر مستودع الوجهة وسجّل ما وصل الآن فقط." : "كل كميات الفاتورة مستلمة."}>
         {receiptItems.length > 0 && <div className="space-y-3">
+          <Field label="مستودع الاستلام"><select value={receiptWarehouseId} onChange={(e) => setReceiptWarehouseId(e.target.value)} className="erp-input"><option value="">اختر المستودع</option>{warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}{warehouse.code ? ` — ${warehouse.code}` : ""}{warehouse.isDefault ? " (افتراضي)" : ""}</option>)}</select></Field>
           <div className="flex justify-end"><Button type="button" size="sm" variant="outline" onClick={fillRemainingReceipt}>ملء كل المتبقي</Button></div>
           <div className="max-h-72 space-y-2 overflow-auto">{receiptItems.map((item) => <QuantityRow key={item.id} item={item} max={item.remainingQuantity} value={receiptQuantities[item.id] ?? ""} label="استلام الآن" onChange={(value) => setReceiptQuantities((current) => ({ ...current, [item.id]: value }))} />)}</div>
           <div className="grid gap-2 sm:grid-cols-2"><Field label="تاريخ الاستلام"><input type="date" value={receiptDate} onChange={(e) => setReceiptDate(e.target.value)} className="erp-input" /></Field><Field label="مرجع الاستلام (اختياري)"><input value={receiptReference} onChange={(e) => setReceiptReference(e.target.value)} className="erp-input" /></Field></div>
           <Field label="ملاحظة (اختياري)"><input value={receiptNote} onChange={(e) => setReceiptNote(e.target.value)} className="erp-input" /></Field>
-          <Button type="button" disabled={receiptBusy} onClick={() => void submitReceipt()} className="w-full font-black">{receiptBusy && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}تسجيل الاستلام</Button>
+          <Button type="button" disabled={receiptBusy || !receiptWarehouseId} onClick={() => void submitReceipt()} className="w-full font-black">{receiptBusy && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}<Warehouse className="ml-2 h-4 w-4" />تسجيل الاستلام</Button>
         </div>}
       </OperationCard>
 
@@ -250,12 +267,13 @@ export function PurchaseOperationsPanel({
         </div>}
       </OperationCard>
 
-      <OperationCard icon={RotateCcw} title="مرتجع إلى المورد" description={returnItems.length ? "الحد الأقصى يأخذ في الاعتبار ما استُلم وما أُرجع والرصيد الحالي." : "لا توجد كمية قابلة للإرجاع حالياً."}>
+      <OperationCard icon={RotateCcw} title="مرتجع إلى المورد" description={returnItems.length ? "اختر المستودع الذي ستخرج منه القطع. النظام يمنع سحب الكمية المحجوزة لأوامر الصيانة." : "لا توجد كمية قابلة للإرجاع حالياً."}>
         {returnItems.length > 0 && <div className="space-y-3">
+          <Field label="مستودع خروج المرتجع"><select value={returnWarehouseId} onChange={(e) => setReturnWarehouseId(e.target.value)} className="erp-input"><option value="">اختر المستودع</option>{warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}{warehouse.code ? ` — ${warehouse.code}` : ""}{warehouse.isDefault ? " (افتراضي)" : ""}</option>)}</select></Field>
           <div className="max-h-72 space-y-2 overflow-auto">{returnItems.map((item) => <QuantityRow key={item.id} item={item} max={item.returnableQuantity} value={returnQuantities[item.id] ?? ""} label="إرجاع" onChange={(value) => setReturnQuantities((current) => ({ ...current, [item.id]: value }))} />)}</div>
           <Field label="سبب المرتجع *"><textarea value={returnReason} onChange={(e) => setReturnReason(e.target.value)} className="erp-input min-h-20 resize-y" placeholder="مثال: عيب جودة / صنف خاطئ" /></Field>
           <div className="grid gap-2 sm:grid-cols-2"><Field label="تاريخ المرتجع"><input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} className="erp-input" /></Field><Field label="مرجع المورد (اختياري)"><input value={returnReference} onChange={(e) => setReturnReference(e.target.value)} className="erp-input" /></Field></div>
-          <Button type="button" disabled={returnBusy} onClick={() => void submitReturn()} className="w-full bg-rose-700 font-black hover:bg-rose-800">{returnBusy && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}تسجيل المرتجع بدون تسوية مالية</Button>
+          <Button type="button" disabled={returnBusy || !returnWarehouseId} onClick={() => void submitReturn()} className="w-full bg-rose-700 font-black hover:bg-rose-800">{returnBusy && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}تسجيل المرتجع بدون تسوية مالية</Button>
         </div>}
       </OperationCard>
 
