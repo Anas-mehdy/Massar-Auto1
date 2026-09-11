@@ -1562,6 +1562,7 @@ export async function recordSupplierReturn(shopId: string, userId: string, purch
     `;
     const supplierReturnId=returnRows[0]?.id;
     if(!supplierReturnId) throw new Error("تعذر إنشاء مرتجع المورد.");
+    const warehouse = await ensureDefaultWarehouseTx(tx, shopId);
 
     for(const line of prepared){
       const rows=await tx.$queryRaw<Array<{id:string}>>`
@@ -1571,12 +1572,41 @@ export async function recordSupplierReturn(shopId: string, userId: string, purch
       const returnItemId=rows[0]?.id;
       if(!returnItemId) throw new Error("تعذر إنشاء بند مرتجع المورد.");
       const quantityAfter=line.inventoryQuantity-line.quantity;
+      const warehouseStockRows = await tx.$queryRaw<Array<{ quantity: number; averageCost: Prisma.Decimal | null }>>`
+        SELECT "quantity", "averageCost" FROM "WarehouseStock"
+        WHERE "shopId" = ${shopId}::uuid
+          AND "warehouseId" = ${warehouse.id}::uuid
+          AND "inventoryItemId" = ${line.inventoryItemId}::uuid
+        FOR UPDATE
+      `;
+      const warehouseStock = warehouseStockRows[0];
+      if (!warehouseStock || warehouseStock.quantity < line.quantity) {
+        throw new Error(`رصيد المستودع الرئيسي غير كافٍ لإرجاع الصنف للمورد. المتاح: ${warehouseStock?.quantity ?? 0}.`);
+      }
+      const warehouseQuantityAfter = warehouseStock.quantity - line.quantity;
+      await tx.$executeRaw`
+        UPDATE "WarehouseStock"
+        SET "quantity" = ${warehouseQuantityAfter}, "updatedAt" = NOW()
+        WHERE "shopId" = ${shopId}::uuid
+          AND "warehouseId" = ${warehouse.id}::uuid
+          AND "inventoryItemId" = ${line.inventoryItemId}::uuid
+      `;
       // Outbound under moving average removes stock at the current average and leaves
       // the remaining per-unit average unchanged, including when quantity reaches zero.
       await tx.$executeRaw`UPDATE "InventoryItem" SET "quantity"=${quantityAfter},"version"="version"+1,"updatedAt"=NOW() WHERE "id"=${line.inventoryItemId}::uuid AND "shopId"=${shopId}::uuid`;
       await tx.$executeRaw`
         INSERT INTO "InventoryMovement" ("shopId","inventoryItemId","supplierId","purchaseInvoiceId","purchaseItemId","supplierReturnId","supplierReturnItemId","createdByUserId","type","quantityChange","quantityAfter","unitCostSnapshot","note","createdAt","updatedAt","version")
         VALUES (${shopId}::uuid,${line.inventoryItemId}::uuid,${purchase.supplierId}::uuid,${purchaseId}::uuid,${line.id}::uuid,${supplierReturnId}::uuid,${returnItemId}::uuid,${userId}::uuid,${InventoryMovementType.STOCK_OUT}::"InventoryMovementType",${-line.quantity},${quantityAfter},${line.currentAverage},${`مرتجع للمورد — ${reason}`},${returnedAt},NOW(),1)
+      `;
+      await tx.$executeRaw`
+        INSERT INTO "WarehouseMovement" (
+          "shopId", "warehouseId", "inventoryItemId", "type", "quantityChange", "quantityBefore", "quantityAfter",
+          "unitCostSnapshot", "purchaseInvoiceId", "supplierReturnId", "createdByUserId", "reference", "note", "createdAt"
+        ) VALUES (
+          ${shopId}::uuid, ${warehouse.id}::uuid, ${line.inventoryItemId}::uuid, 'SUPPLIER_RETURN', ${-line.quantity},
+          ${warehouseStock.quantity}, ${warehouseQuantityAfter}, ${line.currentAverage}, ${purchaseId}::uuid, ${supplierReturnId}::uuid,
+          ${userId}::uuid, ${nullableText(input.reference)}, ${`مرتجع مورد — ${warehouse.name}: ${reason}`}, ${returnedAt}
+        )
       `;
       await tx.$executeRaw`
         UPDATE "PurchaseItem" SET "returnedQuantity"="returnedQuantity"+${line.quantity},"returnedNetMerchandiseValue"="returnedNetMerchandiseValue"+${line.financialLineValue},"updatedAt"=NOW()
