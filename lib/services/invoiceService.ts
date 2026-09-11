@@ -22,7 +22,23 @@ export async function listInvoices(shopId: string, filters: InvoiceFilters = {})
 }
 
 export async function getInvoiceById(shopId: string, invoiceId: string) {
-  return prisma.invoice.findFirst({ where: { id: invoiceId, shopId, deletedAt: null }, include: { customer: true, repairOrder: true, sale: true, payments: { where: { deletedAt: null }, orderBy: { paidAt: "desc" } }, installmentPlan: { select: { id: true, planNumber: true, status: true } } } });
+  const invoice = await prisma.invoice.findFirst({ where: { id: invoiceId, shopId, deletedAt: null }, include: { customer: true, repairOrder: true, sale: true, payments: { where: { deletedAt: null }, orderBy: { paidAt: "desc" } }, installmentPlan: { select: { id: true, planNumber: true, status: true } } } });
+  if (!invoice) return null;
+
+  const autoRows = await prisma.$queryRaw<Array<{ id: string; orderNumber: string; status: string }>>`
+    SELECT so."id", so."orderNumber", so."status"::text AS "status"
+    FROM "Invoice" inv
+    JOIN "ServiceOrder" so
+      ON so."id" = inv."serviceOrderId"
+     AND so."shopId" = inv."shopId"
+     AND so."deletedAt" IS NULL
+    WHERE inv."id" = ${invoiceId}::uuid
+      AND inv."shopId" = ${shopId}::uuid
+      AND inv."serviceOrderId" IS NOT NULL
+    LIMIT 1
+  `;
+
+  return { ...invoice, autoServiceOrder: autoRows[0] ?? null };
 }
 
 export async function createInvoiceFromRepairOrder(shopId: string, repairOrderId: string, createdByUserId: string | null) {
