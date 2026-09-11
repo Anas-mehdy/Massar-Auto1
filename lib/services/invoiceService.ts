@@ -53,12 +53,44 @@ export async function voidInvoice(shopId: string, invoiceId: string, createdByUs
     if (invoice.status === InvoiceStatus.VOID) return invoice;
     if (invoice.installmentPlan) throw new Error("لا يمكن إلغاء هذه الفاتورة من هنا لأنها مرتبطة بخطة أقساط. قم بإلغاء أو معالجة خطة الأقساط أولاً.");
 
+    const autoLinks = await tx.$queryRaw<Array<{ serviceOrderId: string; status: string }>>`
+      SELECT so."id" AS "serviceOrderId", so."status"::text AS "status"
+      FROM "Invoice" inv
+      JOIN "ServiceOrder" so
+        ON so."id" = inv."serviceOrderId"
+       AND so."shopId" = inv."shopId"
+       AND so."deletedAt" IS NULL
+      WHERE inv."id" = ${invoiceId}::uuid
+        AND inv."shopId" = ${shopId}::uuid
+        AND inv."serviceOrderId" IS NOT NULL
+      LIMIT 1
+    `;
+    const autoLink = autoLinks[0] ?? null;
+    if (autoLink && ["DELIVERED", "CLOSED"].includes(autoLink.status)) {
+      throw new Error("لا يمكن إلغاء فاتورة مركبة بعد تسليمها. استخدم مسار تصحيح/إشعار دائن عند توفره للحفاظ على السجل المالي والتسليم.");
+    }
+
     await moneyAccountService.reverseSourceMoneyTx(tx, shopId, "INVOICE", invoice.id, createdByUserId);
     // Legacy fallback for drawer/wallet movements created before source IDs were persisted.
     await moneyAccountService.reverseInvoiceMoneyTx(tx, shopId, invoice.invoiceNumber, createdByUserId);
     const now = new Date();
     if (invoice.payments.length > 0) await tx.payment.updateMany({ where: { shopId, invoiceId, deletedAt: null }, data: { deletedAt: now } });
-    return tx.invoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.VOID, amountPaid: new Prisma.Decimal(0), balanceDue: invoice.total, paidAt: null, version: { increment: 1 } } });
+    const voided = await tx.invoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.VOID, amountPaid: new Prisma.Decimal(0), balanceDue: invoice.total, paidAt: null, version: { increment: 1 } } });
+
+    if (autoLink) {
+      await tx.$executeRaw`
+        UPDATE "ServiceOrder"
+        SET "finalTotal" = NULL,
+            "updatedByUserId" = COALESCE(${createdByUserId}::uuid, "updatedByUserId"),
+            "updatedAt" = now(),
+            "version" = "version" + 1
+        WHERE "id" = ${autoLink.serviceOrderId}::uuid
+          AND "shopId" = ${shopId}::uuid
+          AND "status" NOT IN ('DELIVERED', 'CLOSED')
+      `;
+    }
+
+    return voided;
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
 }
 
