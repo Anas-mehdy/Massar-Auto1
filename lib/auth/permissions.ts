@@ -43,6 +43,7 @@ export type AppPermission =
   | "invoices:read"
   | "invoices:pay"
   | "invoices:void"
+  | "invoices:credit"
   | "customers:manage"
   | "customers:delete"
   | "suppliers:manage"
@@ -94,6 +95,7 @@ export const ALL_APP_PERMISSIONS: readonly AppPermission[] = [
   "invoices:read",
   "invoices:pay",
   "invoices:void",
+  "invoices:credit",
   "customers:manage",
   "customers:delete",
   "suppliers:manage",
@@ -153,6 +155,7 @@ export const ROLE_PERMISSIONS_MATRIX: Record<MembershipRole, readonly AppPermiss
     "invoices:read",
     "invoices:pay",
     "invoices:void",
+    "invoices:credit",
     "customers:manage",
     "customers:delete",
     "suppliers:manage",
@@ -240,6 +243,7 @@ export const ROLE_PERMISSIONS_MATRIX: Record<MembershipRole, readonly AppPermiss
     "invoices:read",
     "invoices:pay",
     "invoices:void",
+    "invoices:credit",
     "customers:manage",
     "suppliers:manage",
     "reports:read",
