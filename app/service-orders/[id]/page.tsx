@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, ClipboardCheck, FileText, Gauge, PackagePlus, Plus, Truck, UserRound, Wrench } from "lucide-react";
+import { ArrowRight, ClipboardCheck, FileText, Gauge, PackagePlus, Plus, RotateCcw, Truck, UserRound, Wrench } from "lucide-react";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import {
   addServicePartLineAction,
   assignServiceOrderTechnicianAction,
   createQuotationAction,
+  returnUsedServicePartAction,
   updateServiceOrderDiagnosisAction,
   updateServiceOrderStatusAction,
 } from "../actions";
@@ -32,7 +33,7 @@ export const dynamic = "force-dynamic";
 type PageProps = { params: Promise<{ id: string }> };
 
 type LaborRow = { id: string; description: string; quantity: string | number; unitPrice: string | number; lineTotal: string | number; status: string; notes?: string | null };
-type PartRow = { id: string; partName: string; quantity: number; unitCost: string | number | null; unitPrice: string | number; lineTotal: string | number; status: string; notes?: string | null; warehouseName?: string | null; sku?: string | null; barcode?: string | null };
+type PartRow = { id: string; inventoryItemId?: string | null; warehouseId?: string | null; partName: string; quantity: number; unitCost: string | number | null; unitPrice: string | number; lineTotal: string | number; status: string; notes?: string | null; warehouseName?: string | null; sku?: string | null; barcode?: string | null };
 type QuoteRow = { id: string; quoteNumber: string; revision: number; status: string; total: string | number; createdAt: Date };
 
 const inputClass = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100";
@@ -58,6 +59,15 @@ const inspectionResultClasses: Record<string, string> = {
   NOT_CHECKED: "border-slate-200 bg-slate-50 text-slate-600",
 };
 
+const partStatusLabels: Record<string, string> = {
+  PLANNED: "مخطط",
+  APPROVED: "معتمد",
+  RESERVED: "محجوز",
+  USED: "مستخدم",
+  RETURNED: "مُعاد للمخزون",
+  CANCELLED: "ملغي",
+};
+
 export default async function ServiceOrderPage({ params }: PageProps) {
   const auth = await requirePermission("service_orders:read");
   const { id } = await params;
@@ -74,11 +84,12 @@ export default async function ServiceOrderPage({ params }: PageProps) {
   const partLines = order.partLines as PartRow[];
   const quotations = order.quotations as QuoteRow[];
   const transitions = SERVICE_ORDER_ALLOWED_TRANSITIONS[order.status] ?? [];
-  const partsTotal = partLines.filter((line) => line.status !== "CANCELLED").reduce((sum, line) => sum + Number(line.lineTotal || 0), 0);
+  const partsTotal = partLines.filter((line) => !["CANCELLED", "RETURNED"].includes(line.status)).reduce((sum, line) => sum + Number(line.lineTotal || 0), 0);
   const laborTotal = laborLines.filter((line) => line.status !== "CANCELLED").reduce((sum, line) => sum + Number(line.lineTotal || 0), 0);
   const assignedTechnician = technicians.find((technician) => technician.userId === order.assignedToUserId) ?? null;
   const workflowLocked = ["DELIVERED", "CLOSED", "CANCELLED", "REJECTED"].includes(order.status);
   const canIssueInvoice = ["READY_FOR_DELIVERY", "DELIVERED", "CLOSED"].includes(order.status);
+  const canReturnParts = auth.permissions.includes("service_orders:update") && auth.permissions.includes("inventory:use_parts");
 
   return (
     <div className="space-y-6">
@@ -230,7 +241,14 @@ export default async function ServiceOrderPage({ params }: PageProps) {
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 p-5"><h2 className="flex items-center gap-2 font-black text-slate-950"><PackagePlus className="h-4 w-4 text-amber-700" />قطع الغيار</h2></div>
           <div className="space-y-3 p-4">
-            {partLines.length ? partLines.map((line) => <div key={line.id} className="rounded-xl border border-slate-100 p-3"><div className="flex items-start justify-between gap-3"><div><div className="font-bold text-slate-800">{line.partName}</div>{line.warehouseName ? <div className="mt-1 text-[11px] font-bold text-slate-400">{line.warehouseName}{line.sku ? ` • SKU ${line.sku}` : ""}</div> : null}</div><div className="shrink-0 font-black text-slate-950">{formatAutoMoney(line.lineTotal, auth.shop.currency)}</div></div><div className="mt-1 text-xs text-slate-500">{line.quantity} × {formatAutoMoney(line.unitPrice, auth.shop.currency)} • {line.status}</div></div>) : <div className="py-5 text-center text-sm font-bold text-slate-400">لا توجد قطع مضافة بعد</div>}
+            {partLines.length ? partLines.map((line) => {
+              const canReturnThisLine = canReturnParts && !workflowLocked && !invoice && line.status === "USED" && Boolean(line.inventoryItemId && line.warehouseId);
+              return <div key={line.id} className={`rounded-xl border p-3 ${line.status === "RETURNED" ? "border-slate-200 bg-slate-50/70" : "border-slate-100"}`}>
+                <div className="flex items-start justify-between gap-3"><div><div className="font-bold text-slate-800">{line.partName}</div>{line.warehouseName ? <div className="mt-1 text-[11px] font-bold text-slate-400">{line.warehouseName}{line.sku ? ` • SKU ${line.sku}` : ""}</div> : null}</div><div className={`shrink-0 font-black ${line.status === "RETURNED" ? "text-slate-400 line-through" : "text-slate-950"}`}>{formatAutoMoney(line.lineTotal, auth.shop.currency)}</div></div>
+                <div className="mt-1 text-xs text-slate-500">{line.quantity} × {formatAutoMoney(line.unitPrice, auth.shop.currency)} • <span className={line.status === "RETURNED" ? "font-black text-emerald-700" : ""}>{partStatusLabels[line.status] ?? line.status}</span></div>
+                {canReturnThisLine ? <form action={returnUsedServicePartAction} className="mt-3 grid gap-2 rounded-xl border border-emerald-100 bg-emerald-50/50 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"><input type="hidden" name="serviceOrderId" value={order.id} /><input type="hidden" name="servicePartLineId" value={line.id} /><label className="grid gap-1 text-[10px] font-black text-emerald-900">سبب/ملاحظة الإرجاع <span className="font-semibold text-emerald-700">اختياري</span><input name="note" maxLength={500} className="h-9 rounded-lg border border-emerald-200 bg-white px-3 text-xs outline-none focus:border-emerald-400" placeholder="مثال: لم تُركب، تم استبدالها بقطعة أخرى" /></label><Button type="submit" variant="outline" className="border-emerald-300 font-black text-emerald-800 hover:bg-emerald-100"><RotateCcw className="ml-1.5 h-4 w-4" />إرجاع للمخزون</Button></form> : null}
+              </div>;
+            }) : <div className="py-5 text-center text-sm font-bold text-slate-400">لا توجد قطع مضافة بعد</div>}
           </div>
           <form action={addServicePartLineAction} className="grid gap-3 border-t border-slate-100 bg-slate-50/60 p-4 sm:grid-cols-2">
             <input type="hidden" name="serviceOrderId" value={order.id} />
