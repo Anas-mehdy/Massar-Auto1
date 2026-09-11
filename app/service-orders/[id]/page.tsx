@@ -27,6 +27,7 @@ import {
   updateServiceOrderStatusAction,
 } from "../actions";
 import { createServiceOrderInvoiceAction } from "../invoice-actions";
+import { ServiceDeliverySection } from "./_delivery-section";
 
 export const dynamic = "force-dynamic";
 
@@ -152,6 +153,8 @@ export default async function ServiceOrderPage({ params }: PageProps) {
           )}
         </div>
       </section>
+
+      <ServiceDeliverySection serviceOrderId={order.id} currency={auth.shop.currency} />
 
       <div className="grid gap-6 xl:grid-cols-2">
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
