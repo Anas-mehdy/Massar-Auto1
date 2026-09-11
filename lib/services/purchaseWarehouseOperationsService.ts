@@ -2,9 +2,6 @@ import { InventoryMovementType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requestFingerprint } from "@/lib/idempotency";
 import {
-  accountingMoney as _unusedAccountingMoney,
-} from "@/lib/purchase-costing";
-import {
   allocatedPartialValue,
   inventoryOutboundValue,
   money as accountingMoney,
@@ -430,7 +427,6 @@ export async function recordWarehouseSupplierReturn(
       inventoryLineValue: Prisma.Decimal;
       financialLineValue: Prisma.Decimal;
       warehouseQuantity: number;
-      warehouseReservedQuantity: number;
       warehouseAverage: Prisma.Decimal | null;
     }> = [];
 
@@ -484,7 +480,6 @@ export async function recordWarehouseSupplierReturn(
         inventoryLineValue: outbound.totalValue,
         financialLineValue,
         warehouseQuantity: warehouseStock.quantity,
-        warehouseReservedQuantity: warehouseStock.reservedQuantity,
         warehouseAverage: warehouseStock.averageCost,
       });
     }
