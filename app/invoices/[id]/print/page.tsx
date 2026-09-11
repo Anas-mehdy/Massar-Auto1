@@ -7,6 +7,7 @@ import { shopService } from "@/lib/services/shopService";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { PrintActions } from "@/components/print-actions";
 import { getInvoiceTypeLabel } from "@/app/invoices/_components";
+import { AutoServiceInvoicePrint } from "./_auto-service-print";
 
 export const dynamic = "force-dynamic";
 
@@ -102,6 +103,8 @@ export default async function InvoicePrintPage({ params }: InvoicePrintPageProps
             </span>
           </div>
         </div>
+
+        <AutoServiceInvoicePrint invoiceId={invoice.id} />
 
         {/* Financial Summary */}
         <div className="py-2.5 border-b border-slate-300 text-xs space-y-1.5">
