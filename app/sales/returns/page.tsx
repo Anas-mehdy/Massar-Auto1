@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { requirePermission } from "@/lib/auth/context";
 import { salesReturnService } from "@/lib/services/salesReturnService";
 import { salesService } from "@/lib/services/salesService";
+import { salesWarehouseSourceService } from "@/lib/services/salesWarehouseSourceService";
 
 export const dynamic = "force-dynamic";
 
@@ -23,10 +24,12 @@ export default async function SalesReturnsPage({ searchParams }: PageProps) {
   const auth = await requirePermission("sales:return");
   const params = await searchParams;
   const q = params.q?.trim() ?? "";
-  const [returns, sales] = await Promise.all([
+  const [returns, sales, warehouseSummaries] = await Promise.all([
     salesReturnService.listSalesReturns(auth.shop.id, 100),
     salesService.listSales(auth.shop.id, { search: q || undefined }),
+    salesWarehouseSourceService.listSalesReturnWarehouseSummaries(auth.shop.id),
   ]);
+  const warehouseSummaryByReturnId = new Map(warehouseSummaries.map((summary) => [summary.salesReturnId, summary]));
   const eligibleSales = sales.filter((sale) => sale.status === "COMPLETED" || sale.status === "REFUNDED").slice(0, 30);
 
   return <div className="space-y-6">
@@ -45,7 +48,11 @@ export default async function SalesReturnsPage({ searchParams }: PageProps) {
 
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-100 p-4 font-black text-slate-950">سجل المرتجعات</div>
-      <div className="overflow-x-auto"><table className="min-w-[850px] w-full text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="p-3 text-right">رقم المرتجع</th><th className="p-3 text-right">الإيصال</th><th className="p-3 text-right">العميل</th><th className="p-3 text-right">السبب</th><th className="p-3 text-center">الكمية</th><th className="p-3 text-right">القيمة</th><th className="p-3 text-right">طريقة الرد</th><th className="p-3 text-right">التاريخ</th></tr></thead><tbody className="divide-y divide-slate-100">{returns.map((row) => <tr key={row.id}><td className="p-3 font-black text-rose-700">{row.returnNumber}</td><td className="p-3 font-bold text-slate-800">{row.receiptNumber || "-"}</td><td className="p-3 text-slate-600">{row.customerName || "عميل نقدي"}</td><td className="p-3 text-xs font-semibold text-slate-600">{row.reason}</td><td className="p-3 text-center font-black">{row.totalQuantity}</td><td className="p-3 font-black text-slate-900">{money(row.total, auth.shop.currency)}</td><td className="p-3 text-xs font-black text-slate-600">{row.refundAccountType || "-"}</td><td className="p-3 text-xs text-slate-500">{date(row.returnedAt)}</td></tr>)}</tbody></table></div>
+      <div className="overflow-x-auto"><table className="min-w-[1000px] w-full text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="p-3 text-right">رقم المرتجع</th><th className="p-3 text-right">الإيصال</th><th className="p-3 text-right">العميل</th><th className="p-3 text-right">السبب</th><th className="p-3 text-center">الكمية</th><th className="p-3 text-right">المستودع</th><th className="p-3 text-right">القيمة</th><th className="p-3 text-right">طريقة الرد</th><th className="p-3 text-right">التاريخ</th></tr></thead><tbody className="divide-y divide-slate-100">{returns.map((row) => {
+        const warehouseSummary = warehouseSummaryByReturnId.get(row.id);
+        const warehouseText = warehouseSummary?.warehouseNames.length ? warehouseSummary.warehouseNames.join("، ") : warehouseSummary?.nonRestockedCount ? "بدون إعادة للمخزون" : "غير موثق";
+        return <tr key={row.id}><td className="p-3 font-black text-rose-700">{row.returnNumber}</td><td className="p-3 font-bold text-slate-800">{row.receiptNumber || "-"}</td><td className="p-3 text-slate-600">{row.customerName || "عميل نقدي"}</td><td className="p-3 text-xs font-semibold text-slate-600">{row.reason}</td><td className="p-3 text-center font-black">{row.totalQuantity}</td><td className="p-3 text-xs font-black text-slate-600"><div>{warehouseText}</div>{warehouseSummary && warehouseSummary.nonRestockedCount > 0 && warehouseSummary.warehouseNames.length > 0 ? <div className="mt-1 text-[10px] font-semibold text-amber-700">{warehouseSummary.nonRestockedCount} بند بدون إعادة للمخزون</div> : null}</td><td className="p-3 font-black text-slate-900">{money(row.total, auth.shop.currency)}</td><td className="p-3 text-xs font-black text-slate-600">{row.refundAccountType || "-"}</td><td className="p-3 text-xs text-slate-500">{date(row.returnedAt)}</td></tr>;
+      })}</tbody></table></div>
       {!returns.length ? <div className="p-8 text-center text-sm font-bold text-slate-400">لا توجد مرتجعات مسجلة بعد.</div> : null}
     </section>
   </div>;
