@@ -1,21 +1,13 @@
 import Link from "next/link";
 import { CarFront, Gauge, Package, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getCurrentShopContext } from "@/lib/current-shop";
 import { autoInvoiceDetailService } from "@/lib/services/autoInvoiceDetailService";
 import { formatDate, formatMoney } from "../_components";
 
-export async function AutoServiceInvoiceDetails({
-  shopId,
-  invoiceId,
-  currency,
-  timeZone,
-}: {
-  shopId: string;
-  invoiceId: string;
-  currency: string;
-  timeZone: string;
-}) {
-  const context = await autoInvoiceDetailService.getAutoInvoiceServiceContext(shopId, invoiceId);
+export async function AutoServiceInvoiceDetails({ invoiceId }: { invoiceId: string }) {
+  const shop = await getCurrentShopContext();
+  const context = await autoInvoiceDetailService.getAutoInvoiceServiceContext(shop.shopId, invoiceId);
   if (!context) return null;
 
   const vehicleName = `${context.vehicleMake} ${context.vehicleModel}${context.vehicleYear ? ` • ${context.vehicleYear}` : ""}`;
@@ -37,8 +29,8 @@ export async function AutoServiceInvoiceDetails({
         <Info label="اللوحة / VIN" value={context.plateNumber || context.vin || "-"} />
         <Info label="رقم أمر الصيانة" value={context.orderNumber} />
         <Info label="حالة الأمر" value={context.orderStatus} />
-        <Info label="تاريخ الاستلام" value={formatDate(context.receivedAt, timeZone)} />
-        <Info label="تاريخ التسليم" value={formatDate(context.deliveredAt, timeZone)} />
+        <Info label="تاريخ الاستلام" value={formatDate(context.receivedAt, shop.timeZone)} />
+        <Info label="تاريخ التسليم" value={formatDate(context.deliveredAt, shop.timeZone)} />
         <Info label="عداد الدخول" value={context.odometerAtIntake != null ? `${context.odometerAtIntake.toLocaleString("ar")} كم` : "-"} />
         <Info label="عداد التسليم" value={context.odometerAtDelivery != null ? `${context.odometerAtDelivery.toLocaleString("ar")} كم` : "-"} />
       </div>
@@ -58,16 +50,16 @@ export async function AutoServiceInvoiceDetails({
         <div className="overflow-hidden rounded-2xl border border-slate-200/70">
           <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-3">
             <h4 className="flex items-center gap-2 text-xs font-black text-slate-800"><Wrench className="h-4 w-4 text-indigo-700" />أجور وأعمال الصيانة</h4>
-            <span className="font-numeric text-xs font-black text-slate-700">{formatMoney(context.laborTotal, currency)}</span>
+            <span className="font-numeric text-xs font-black text-slate-700">{formatMoney(context.laborTotal, shop.currency)}</span>
           </div>
           <div className="divide-y divide-slate-100">
             {context.laborLines.length ? context.laborLines.map((line) => (
               <div key={line.id} className="grid grid-cols-[1fr_auto] gap-3 px-4 py-3 text-xs">
                 <div>
                   <div className="font-black text-slate-800">{line.description}</div>
-                  <div className="mt-1 font-semibold text-slate-400">{line.quantity} × {formatMoney(line.unitPrice, currency)}{line.hours != null ? ` • ${line.hours} ساعة` : ""}</div>
+                  <div className="mt-1 font-semibold text-slate-400">{line.quantity} × {formatMoney(line.unitPrice, shop.currency)}{line.hours != null ? ` • ${line.hours} ساعة` : ""}</div>
                 </div>
-                <div className="font-numeric font-black text-slate-900">{formatMoney(line.lineTotal, currency)}</div>
+                <div className="font-numeric font-black text-slate-900">{formatMoney(line.lineTotal, shop.currency)}</div>
               </div>
             )) : <div className="p-5 text-center text-xs font-bold text-slate-400">لا توجد أجور عمل مفوترة.</div>}
           </div>
@@ -76,16 +68,16 @@ export async function AutoServiceInvoiceDetails({
         <div className="overflow-hidden rounded-2xl border border-slate-200/70">
           <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-3">
             <h4 className="flex items-center gap-2 text-xs font-black text-slate-800"><Package className="h-4 w-4 text-amber-700" />قطع الغيار</h4>
-            <span className="font-numeric text-xs font-black text-slate-700">{formatMoney(context.partsTotal, currency)}</span>
+            <span className="font-numeric text-xs font-black text-slate-700">{formatMoney(context.partsTotal, shop.currency)}</span>
           </div>
           <div className="divide-y divide-slate-100">
             {context.partLines.length ? context.partLines.map((line) => (
               <div key={line.id} className="grid grid-cols-[1fr_auto] gap-3 px-4 py-3 text-xs">
                 <div>
                   <div className="font-black text-slate-800">{line.partName}</div>
-                  <div className="mt-1 font-semibold text-slate-400">{line.quantity} × {formatMoney(line.unitPrice, currency)}{line.warehouseName ? ` • ${line.warehouseName}` : ""}{line.sku ? ` • ${line.sku}` : ""}</div>
+                  <div className="mt-1 font-semibold text-slate-400">{line.quantity} × {formatMoney(line.unitPrice, shop.currency)}{line.warehouseName ? ` • ${line.warehouseName}` : ""}{line.sku ? ` • ${line.sku}` : ""}</div>
                 </div>
-                <div className="font-numeric font-black text-slate-900">{formatMoney(line.lineTotal, currency)}</div>
+                <div className="font-numeric font-black text-slate-900">{formatMoney(line.lineTotal, shop.currency)}</div>
               </div>
             )) : <div className="p-5 text-center text-xs font-bold text-slate-400">لا توجد قطع غيار مفوترة.</div>}
           </div>
