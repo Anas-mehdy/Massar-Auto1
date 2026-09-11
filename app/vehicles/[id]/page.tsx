@@ -1,12 +1,11 @@
 import Link from "next/link";
-import { ArrowRight, CalendarDays, Gauge, Plus, Truck, UserRound, Wrench } from "lucide-react";
+import { ArrowRight, Gauge, Plus, Truck, UserRound } from "lucide-react";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { requirePermission } from "@/lib/auth/context";
-import { formatAutoDate, formatAutoMoney, SERVICE_ORDER_STATUS_CLASSES, SERVICE_ORDER_STATUS_LABELS } from "@/lib/auto/service-order-ui";
-import type { ServiceOrderStatus } from "@/lib/services/autoServiceOrderService";
 import { vehicleService } from "@/lib/services/vehicleService";
+import { VehicleHistorySection } from "./_vehicle-history";
 
 export const dynamic = "force-dynamic";
 
@@ -65,30 +64,7 @@ export default async function VehiclePage({ params }: VehiclePageProps) {
         </div>
       </div>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-100 p-5">
-          <div><h2 className="flex items-center gap-2 font-black text-slate-950"><Wrench className="h-4 w-4 text-teal-600" />سجل الصيانة</h2><p className="mt-1 text-xs text-slate-500">كل زيارات هذه المركبة للمركز</p></div>
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{vehicle.serviceOrders.length}</span>
-        </div>
-        {vehicle.serviceOrders.length === 0 ? (
-          <div className="p-10 text-center text-sm font-bold text-slate-500">لا يوجد سجل صيانة لهذه المركبة بعد.</div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {vehicle.serviceOrders.map((order) => {
-              const status = order.status as ServiceOrderStatus;
-              return <Link key={order.id} href={`/service-orders/${order.id}`} className="block p-4 transition hover:bg-slate-50 sm:p-5">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2"><span className="font-black text-slate-950">{order.orderNumber}</span><span className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${SERVICE_ORDER_STATUS_CLASSES[status] ?? "border-slate-200 bg-slate-50"}`}>{SERVICE_ORDER_STATUS_LABELS[status] ?? order.status}</span></div>
-                    <div className="mt-2 line-clamp-2 text-sm font-semibold leading-6 text-slate-600">{order.reportedIssue}</div>
-                  </div>
-                  <div className="shrink-0 text-xs text-slate-500 sm:text-left"><div className="flex items-center gap-1 font-bold"><CalendarDays className="h-3.5 w-3.5" />{formatAutoDate(order.receivedAt)}</div><div className="mt-1 font-black text-slate-800">{formatAutoMoney(order.finalTotal ?? order.estimatedTotal, auth.shop.currency)}</div></div>
-                </div>
-              </Link>;
-            })}
-          </div>
-        )}
-      </section>
+      <VehicleHistorySection shopId={auth.shop.id} vehicleId={vehicle.id} currency={auth.shop.currency} />
     </div>
   );
 }
