@@ -357,7 +357,7 @@ export async function getAutoOperationalReport(
       revenue: money(number(row.revenue)),
     })),
     topIssues: topIssueRows.map((row) => ({ issue: row.issue, count: Number(row.count) })),
-    overdueOrders,
+    overdueOrders: overdueRows,
   };
 }
 
