@@ -11,6 +11,7 @@ import {
   formatAutoDate,
   formatAutoMoney,
 } from "@/lib/auto/service-order-ui";
+import { autoInvoiceService } from "@/lib/services/autoInvoiceService";
 import { autoServiceOrderService } from "@/lib/services/autoServiceOrderService";
 import { serviceInspectionService } from "@/lib/services/serviceInspectionService";
 import { serviceOrderWorkflowService } from "@/lib/services/serviceOrderWorkflowService";
@@ -24,6 +25,7 @@ import {
   updateServiceOrderDiagnosisAction,
   updateServiceOrderStatusAction,
 } from "../actions";
+import { createServiceOrderInvoiceAction } from "../invoice-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -59,11 +61,12 @@ const inspectionResultClasses: Record<string, string> = {
 export default async function ServiceOrderPage({ params }: PageProps) {
   const auth = await requirePermission("service_orders:read");
   const { id } = await params;
-  const [order, inspections, inventoryChoices, technicians] = await Promise.all([
+  const [order, inspections, inventoryChoices, technicians, invoice] = await Promise.all([
     autoServiceOrderService.getServiceOrderById(auth.shop.id, id),
     serviceInspectionService.listServiceInspections(auth.shop.id, id),
     servicePartInventoryService.listServicePartInventoryChoices(auth.shop.id),
     serviceOrderWorkflowService.listAssignableTechnicians(auth.shop.id),
+    autoInvoiceService.getServiceOrderInvoice(auth.shop.id, id),
   ]);
   if (!order) notFound();
 
@@ -75,6 +78,7 @@ export default async function ServiceOrderPage({ params }: PageProps) {
   const laborTotal = laborLines.filter((line) => line.status !== "CANCELLED").reduce((sum, line) => sum + Number(line.lineTotal || 0), 0);
   const assignedTechnician = technicians.find((technician) => technician.userId === order.assignedToUserId) ?? null;
   const workflowLocked = ["DELIVERED", "CLOSED", "CANCELLED", "REJECTED"].includes(order.status);
+  const canIssueInvoice = ["READY_FOR_DELIVERY", "DELIVERED", "CLOSED"].includes(order.status);
 
   return (
     <div className="space-y-6">
@@ -110,6 +114,33 @@ export default async function ServiceOrderPage({ params }: PageProps) {
         <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4"><div className="flex items-center gap-2 text-xs font-black text-amber-800"><Gauge className="h-4 w-4" />العداد عند الدخول</div><div className="mt-2 text-lg font-black text-slate-950">{order.odometerAtIntake != null ? `${order.odometerAtIntake.toLocaleString("ar")} كم` : "-"}</div><div className="text-xs text-slate-500">وقود: {order.fuelLevelPercent != null ? `${Number(order.fuelLevelPercent)}%` : "-"}</div></div>
         <div className="rounded-2xl border border-violet-100 bg-violet-50/60 p-4"><div className="text-xs font-black text-violet-800">التكلفة الحالية</div><div className="mt-2 text-lg font-black text-slate-950">{formatAutoMoney(partsTotal + laborTotal, auth.shop.currency)}</div><div className="text-xs text-slate-500">قطع {formatAutoMoney(partsTotal, auth.shop.currency)} • عمل {formatAutoMoney(laborTotal, auth.shop.currency)}</div></div>
       </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 font-black text-slate-950"><FileText className="h-4 w-4 text-emerald-700" />الفاتورة والدفع</h2>
+            <p className="mt-1 text-xs font-semibold text-slate-500">بعد اكتمال الصيانة تُصدر فاتورة مرتبطة مباشرة بأمر الصيانة. يمكن تحصيلها الآن أو إبقاء الرصيد على الذمة.</p>
+          </div>
+          {invoice ? <Button asChild className="font-black"><Link href={`/invoices/${invoice.id}`}>فتح الفاتورة</Link></Button> : null}
+        </div>
+        <div className="p-4 sm:p-5">
+          {invoice ? (
+            <div className="grid gap-3 md:grid-cols-4">
+              <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">رقم الفاتورة</div><div className="mt-1 font-black text-slate-900">{invoice.invoiceNumber}</div></div>
+              <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">الحالة</div><div className="mt-1 font-black text-slate-900">{invoice.status}</div></div>
+              <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">الإجمالي</div><div className="mt-1 font-black text-slate-900">{formatAutoMoney(invoice.total, auth.shop.currency)}</div></div>
+              <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">المتبقي / الذمة</div><div className="mt-1 font-black text-amber-700">{formatAutoMoney(invoice.balanceDue, auth.shop.currency)}</div></div>
+            </div>
+          ) : canIssueInvoice ? (
+            <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div><div className="font-black text-emerald-950">الصيانة جاهزة للفوترة</div><div className="mt-1 text-xs font-semibold text-emerald-800">سيتم احتساب أجور العمل والقطع الفعلية مع خصم وضريبة عرض السعر الموافق عليه.</div></div>
+              <form action={createServiceOrderInvoiceAction}><input type="hidden" name="serviceOrderId" value={order.id} /><Button type="submit" className="font-black">إصدار فاتورة الصيانة</Button></form>
+            </div>
+          ) : (
+            <div className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-500">ستتاح الفوترة عندما يصل أمر الصيانة إلى حالة «جاهزة للتسليم».</div>
+          )}
+        </div>
+      </section>
 
       <div className="grid gap-6 xl:grid-cols-2">
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
