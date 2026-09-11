@@ -20,10 +20,20 @@ import { whatsappService } from "@/lib/services/whatsappService";
 import { Field, formatDate, formatMoney, getInvoiceTypeLabel, inputClassName, paymentMethodOptions, selectClassName, textareaClassName } from "../_components";
 import { addPaymentAction, voidInvoiceAction } from "../actions";
 import { AutoServiceInvoiceDetails } from "./_auto-service-details";
+import { InvoiceCreditNoteSection } from "./_credit-note-section";
 
 export const dynamic = "force-dynamic";
 
-type InvoiceDetailsPageProps = { params: Promise<{ id: string }>; searchParams: Promise<{ paymentError?: string; invoiceError?: string }> };
+type InvoiceDetailsPageProps = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{
+    paymentError?: string;
+    invoiceError?: string;
+    creditError?: string;
+    creditSuccess?: string;
+    refundSuccess?: string;
+  }>;
+};
 
 export default async function InvoiceDetailsPage({ params, searchParams }: InvoiceDetailsPageProps) {
   const { id } = await params;
@@ -57,6 +67,8 @@ export default async function InvoiceDetailsPage({ params, searchParams }: Invoi
   const autoInvoiceLocked = Boolean(invoice.autoServiceOrder && ["DELIVERED", "CLOSED"].includes(invoice.autoServiceOrder.status));
   const canVoid = invoice.status !== InvoiceStatus.VOID && !invoice.installmentPlan && !autoInvoiceLocked;
   const hasPayments = invoice.payments.length > 0;
+  const walletOptions = wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, balance: Number(wallet.currentBalance) }));
+  const bankOptions = bankAccounts.map((account) => ({ id: account.id, name: account.name, bankName: account.bankName, balance: Number(account.currentBalance) }));
 
   return <div className="space-y-6">
     <div className="rounded-3xl border border-slate-200/50 bg-white/95 p-6 shadow-sm shadow-slate-100/40">
@@ -68,19 +80,29 @@ export default async function InvoiceDetailsPage({ params, searchParams }: Invoi
 
     {query.paymentError ? <ErrorBox message={query.paymentError} /> : null}
     {query.invoiceError ? <ErrorBox message={query.invoiceError} /> : null}
+    {query.creditError ? <ErrorBox message={query.creditError} /> : null}
+    {query.creditSuccess ? <SuccessBox message="تم إصدار الإشعار الدائن وتحديث صافي الفاتورة بنجاح." /> : null}
+    {query.refundSuccess ? <SuccessBox message="تم تسجيل استرداد المبلغ وربط الحركة المالية بالإشعار الدائن." /> : null}
 
     <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
       <div className="space-y-6">
         <div className="erp-section">
           <div className="border-b border-slate-100/60 pb-3 mb-5 flex items-center justify-between"><h3 className="font-bold text-slate-800 text-sm">الملخص المالي للفاتورة</h3><InvoiceStatusBadge status={invoice.status} /></div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Info label="حالة السداد" value={<InvoiceStatusBadge status={invoice.status} />} /><Info label="العميل" value={invoice.customer?.name ?? "-"} /><Info label="الهاتف" value={<span className="font-numeric">{invoice.customer?.phone ?? "-"}</span>} /><Info label="الإجمالي قبل الخصم" value={<span className="font-numeric">{formatMoney(invoice.subtotal, currency)}</span>} /><Info label="الخصم الإجمالي" value={<span className="font-numeric text-rose-600">{Number(invoice.discountTotal) > 0 ? formatMoney(-Number(invoice.discountTotal), currency) : formatMoney(0, currency)}</span>} /><Info label="الضريبة المضافة" value={<span className="font-numeric">{formatMoney(invoice.taxTotal, currency)}</span>} /><Info label="الإجمالي النهائي" value={<span className="font-numeric text-slate-800 font-bold">{formatMoney(invoice.total, currency)}</span>} /><Info label="المبلغ المدفوع" value={<span className="font-numeric text-emerald-600 font-bold">{formatMoney(invoice.amountPaid, currency)}</span>} /><Info label="المبلغ المتبقي" value={<span className={cn("font-numeric font-bold", Number(invoice.balanceDue) > 0 ? "text-amber-600" : "text-slate-500")}>{formatMoney(invoice.balanceDue, currency)}</span>} /><Info label="تاريخ الإصدار" value={<span className="font-numeric">{formatDate(invoice.issuedAt, timeZone)}</span>} /><Info label="تاريخ الاستحقاق" value={<span className="font-numeric">{formatDate(invoice.dueAt, timeZone)}</span>} /><Info label="تاريخ السداد الكامل" value={<span className="font-numeric">{formatDate(invoice.paidAt, timeZone)}</span>} />
+            <Info label="حالة السداد" value={<InvoiceStatusBadge status={invoice.status} />} /><Info label="العميل" value={invoice.customer?.name ?? "-"} /><Info label="الهاتف" value={<span className="font-numeric">{invoice.customer?.phone ?? "-"}</span>} /><Info label="الإجمالي قبل الخصم" value={<span className="font-numeric">{formatMoney(invoice.subtotal, currency)}</span>} /><Info label="الخصم الإجمالي" value={<span className="font-numeric text-rose-600">{Number(invoice.discountTotal) > 0 ? formatMoney(-Number(invoice.discountTotal), currency) : formatMoney(0, currency)}</span>} /><Info label="الضريبة المضافة" value={<span className="font-numeric">{formatMoney(invoice.taxTotal, currency)}</span>} /><Info label="الإجمالي الأصلي للفاتورة" value={<span className="font-numeric text-slate-800 font-bold">{formatMoney(invoice.total, currency)}</span>} /><Info label="المقبوض تاريخيًا" value={<span className="font-numeric text-emerald-600 font-bold">{formatMoney(invoice.amountPaid, currency)}</span>} /><Info label="الرصيد المستحق حاليًا" value={<span className={cn("font-numeric font-bold", Number(invoice.balanceDue) > 0 ? "text-amber-600" : "text-slate-500")}>{formatMoney(invoice.balanceDue, currency)}</span>} /><Info label="تاريخ الإصدار" value={<span className="font-numeric">{formatDate(invoice.issuedAt, timeZone)}</span>} /><Info label="تاريخ الاستحقاق" value={<span className="font-numeric">{formatDate(invoice.dueAt, timeZone)}</span>} /><Info label="تاريخ السداد الكامل" value={<span className="font-numeric">{formatDate(invoice.paidAt, timeZone)}</span>} />
             {invoice.type === InvoiceType.REPAIR && invoice.repairOrder ? <Info label="رقم تذكرة الصيانة" value={<Link href={`/repair-orders/${invoice.repairOrder.id}`} className="font-numeric text-primary hover:underline font-bold">{invoice.repairOrder.ticketNumber}</Link>} /> : null}
             {invoice.type === InvoiceType.SALE ? <Info label="رقم إيصال البيع" value={<Link href={`/sales/${invoice.sale?.id}`} className="font-numeric text-primary hover:underline font-bold">{invoice.sale?.receiptNumber ?? "-"}</Link>} /> : null}
           </div>
         </div>
 
         <AutoServiceInvoiceDetails invoiceId={invoice.id} />
+
+        <InvoiceCreditNoteSection
+          invoiceId={invoice.id}
+          wallets={walletOptions}
+          bankAccounts={bankOptions}
+          currency={currency}
+        />
 
         <div className="erp-section">
           <div className="border-b border-slate-100/60 pb-3 mb-4"><h3 className="font-bold text-slate-800 text-sm">سجل وحركات المدفوعات</h3></div>
@@ -96,8 +118,8 @@ export default async function InvoiceDetailsPage({ params, searchParams }: Invoi
             <Field label="المبلغ المدفوع"><input className={`${inputClassName} font-numeric`} name="amount" min="0.01" max={invoice.balanceDue.toString()} required step="0.01" type="number" placeholder="0.00" disabled={!canAddPayment} /></Field>
             <Field label="طريقة الدفع"><select className={selectClassName} name="method" defaultValue="CASH" disabled={!canAddPayment}>{paymentMethodOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
             <MoneyDestinationField
-              wallets={wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, balance: Number(wallet.currentBalance) }))}
-              bankAccounts={bankAccounts.map((account) => ({ id: account.id, name: account.name, bankName: account.bankName, balance: Number(account.currentBalance) }))}
+              wallets={walletOptions}
+              bankAccounts={bankOptions}
               currency={currency}
               disabled={!canAddPayment}
             />
@@ -116,7 +138,7 @@ export default async function InvoiceDetailsPage({ params, searchParams }: Invoi
             <Button asChild variant="outline" className="w-full font-bold shadow-sm border-slate-200/80 hover:bg-slate-50 rounded-xl h-11 text-xs justify-center"><Link href={`/invoices/${invoice.id}/print`} target="_blank"><Printer className="h-4 w-4 ml-1.5 shrink-0 text-slate-700" />طباعة الفاتورة (حراري 80mm)</Link></Button>
             {whatsappShare.ok ? <Button asChild variant="outline" className="w-full font-bold shadow-sm border-slate-200 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl h-11 text-xs justify-center"><a href={whatsappShare.url} target="_blank" rel="noreferrer"><MessageCircle className="h-4.5 w-4.5 ml-2 text-emerald-600 shrink-0" />إرسال الفاتورة عبر واتساب</a></Button> : <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3.5 text-[10px] text-slate-400 font-bold leading-normal text-right">⚠️ {whatsappShare.message}</div>}
             <form action={voidInvoiceAction}><input type="hidden" name="invoiceId" value={invoice.id} /><ConfirmSubmitButton type="submit" variant="destructive" disabled={!canVoid} className="w-full font-bold shadow-sm rounded-xl h-11 text-xs justify-center" message={hasPayments ? "سيتم إلغاء الفاتورة وعكس جميع الدفعات وسندات القبض المسجلة عليها. هل تريد المتابعة؟" : "هل تريد إلغاء هذه الفاتورة؟"}><Ban className="h-4 w-4 ml-1.5 shrink-0" />{hasPayments ? "إلغاء الفاتورة وعكس الدفعات" : "إلغاء الفاتورة (Void)"}</ConfirmSubmitButton></form>
-            {autoInvoiceLocked ? <p className="rounded-xl border border-violet-200/70 bg-violet-50/70 p-3 text-right text-[10px] font-bold leading-relaxed text-violet-800">تم تسليم المركبة، لذلك تم قفل إلغاء الفاتورة المباشر حفاظاً على سجل التسليم والذمم. أي تصحيح لاحق يجب أن يتم عبر مسار إشعار دائن/تسوية مالية.</p> : null}
+            {autoInvoiceLocked ? <p className="rounded-xl border border-violet-200/70 bg-violet-50/70 p-3 text-right text-[10px] font-bold leading-relaxed text-violet-800">تم تسليم المركبة، لذلك تم قفل إلغاء الفاتورة المباشر حفاظاً على سجل التسليم والذمم. استخدم قسم الإشعارات الدائنة لتصحيح المبلغ أو رد الزيادة للعميل.</p> : null}
             {hasPayments && canVoid ? <p className="text-[10px] leading-relaxed text-amber-700 font-bold bg-amber-50/70 p-3 rounded-xl border border-amber-200/70 text-right">⚠️ سيتم عكس أثر {invoice.payments.length} دفعة/سند قبض وحفظ سجلاتها تاريخياً، ثم تحويل الفاتورة إلى ملغاة مع إبقاء سجل الحركات محفوظاً للمراجعة.</p> : null}
             {invoice.installmentPlan && invoice.status !== InvoiceStatus.VOID ? <p className="text-[10px] leading-relaxed text-slate-400 font-bold bg-slate-50/50 p-3 rounded-xl border border-slate-100/50 text-right">⚠️ هذه الفاتورة مرتبطة بخطة أقساط. يجب إلغاء أو معالجة خطة الأقساط أولاً قبل إلغاء الفاتورة.</p> : null}
           </div>
@@ -128,3 +150,4 @@ export default async function InvoiceDetailsPage({ params, searchParams }: Invoi
 
 function Info({ label, value }: { label: string; value: React.ReactNode }) { return <div className="rounded-xl border border-slate-100/50 bg-slate-50/20 p-4 transition duration-200 hover:bg-slate-50/40"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</p><div className="mt-1.5 text-sm font-bold text-slate-700 leading-normal">{value}</div></div>; }
 function ErrorBox({ message }: { message: string }) { return <div className="rounded-xl border border-rose-100 bg-rose-50/50 p-4 text-xs font-semibold text-rose-600">{message}</div>; }
+function SuccessBox({ message }: { message: string }) { return <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs font-bold text-emerald-800">{message}</div>; }
