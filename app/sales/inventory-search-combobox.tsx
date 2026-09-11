@@ -10,13 +10,18 @@ export type SaleInventoryOption = {
   name: string;
   sku: string | null;
   category?: string | null;
+  warehouseId: string;
+  warehouseName: string;
   quantity: number;
+  onHandQuantity: number;
+  reservedQuantity: number;
   unitPrice: string;
 };
 
 export function InventorySearchCombobox({
   value,
   selectedLabel,
+  warehouseId,
   initialOptions,
   onSelect,
   placeholder = "ابحث بالاسم، SKU أو التصنيف...",
@@ -26,6 +31,7 @@ export function InventorySearchCombobox({
 }: {
   value: string;
   selectedLabel: string;
+  warehouseId: string;
   initialOptions: SaleInventoryOption[];
   onSelect: (item: SaleInventoryOption | null) => void;
   placeholder?: string;
@@ -43,6 +49,13 @@ export function InventorySearchCombobox({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    setQuery("");
+    setOpen(false);
+    setResults(initialOptions.slice(0, 20));
+    setHighlightedIndex(0);
+  }, [warehouseId, initialOptions]);
+
+  useEffect(() => {
     function onPointerDown(event: MouseEvent) {
       if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
     }
@@ -52,7 +65,7 @@ export function InventorySearchCombobox({
 
   useEffect(() => {
     const trimmed = query.trim();
-    if (!trimmed) {
+    if (!trimmed || !warehouseId) {
       requestId.current += 1;
       setResults(initialOptions.slice(0, 20));
       setHighlightedIndex(0);
@@ -63,7 +76,7 @@ export function InventorySearchCombobox({
     const timer = window.setTimeout(() => {
       startTransition(async () => {
         try {
-          const matches = await searchInventoryForSaleAction(trimmed);
+          const matches = await searchInventoryForSaleAction(trimmed, warehouseId);
           if (requestId.current === currentRequest) {
             setResults(matches);
             setHighlightedIndex(0);
@@ -78,7 +91,7 @@ export function InventorySearchCombobox({
     }, 140);
 
     return () => window.clearTimeout(timer);
-  }, [query, initialOptions]);
+  }, [query, initialOptions, warehouseId]);
 
   function finishSelection(item: SaleInventoryOption | null) {
     onSelect(item);
@@ -98,9 +111,10 @@ export function InventorySearchCombobox({
         <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input
           ref={inputRef}
-          className="h-10 w-full rounded-md border bg-background pr-9 pl-9 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+          className="h-10 w-full rounded-md border bg-background pr-9 pl-9 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
           value={displayValue}
-          placeholder={placeholder}
+          placeholder={warehouseId ? placeholder : "اختر مستودع البيع أولاً..."}
+          disabled={!warehouseId}
           autoComplete="off"
           autoFocus={autoFocus}
           onFocus={() => {
@@ -152,7 +166,7 @@ export function InventorySearchCombobox({
         ) : null}
       </div>
 
-      {open ? (
+      {open && warehouseId ? (
         <div className="absolute z-50 mt-1.5 max-h-80 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl shadow-slate-200/60">
           {showManualOption ? (
             <>
@@ -170,12 +184,12 @@ export function InventorySearchCombobox({
 
           {results.length === 0 && !isPending ? (
             <div className="px-3 py-6 text-center text-xs font-semibold text-slate-400">
-              لا توجد قطعة مطابقة للبحث.
+              لا توجد قطعة مطابقة في هذا المستودع.
             </div>
           ) : (
             results.map((item, index) => (
               <button
-                key={item.id}
+                key={`${item.warehouseId}:${item.id}`}
                 type="button"
                 className={cn(
                   "flex w-full items-start justify-between gap-3 rounded-lg px-3 py-2.5 text-right",
@@ -190,13 +204,15 @@ export function InventorySearchCombobox({
                   <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[10px] font-semibold text-slate-400">
                     {item.sku ? <span className="font-numeric">SKU: {item.sku}</span> : null}
                     {item.category ? <span>{item.category}</span> : null}
+                    <span>{item.warehouseName}</span>
+                    {item.reservedQuantity > 0 ? <span className="text-amber-600">محجوز: {item.reservedQuantity}</span> : null}
                   </div>
                 </div>
                 <span className={cn(
                   "shrink-0 rounded-full px-2 py-1 text-[10px] font-black font-numeric",
                   item.quantity > 0 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700",
                 )}>
-                  المتاح: {item.quantity}
+                  المتاح للبيع: {item.quantity}
                 </span>
               </button>
             ))
