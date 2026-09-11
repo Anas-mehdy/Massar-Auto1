@@ -15,6 +15,7 @@ import {
   type ApprovalDecision,
 } from "@/lib/services/quotationService";
 import { serviceOrderWorkflowService } from "@/lib/services/serviceOrderWorkflowService";
+import { servicePartReturnService } from "@/lib/services/servicePartReturnService";
 
 function readString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -175,6 +176,28 @@ export async function addServicePartLineAction(formData: FormData) {
   });
 
   revalidatePath(`/service-orders/${serviceOrderId}`);
+}
+
+export async function returnUsedServicePartAction(formData: FormData) {
+  const serviceOrderId = z.string().uuid().parse(readString(formData, "serviceOrderId"));
+  const servicePartLineId = z.string().uuid().parse(readString(formData, "servicePartLineId"));
+  const note = z.string().trim().max(500, "ملاحظة الإرجاع طويلة جداً.").parse(readString(formData, "note"));
+  const auth = await requirePermission("service_orders:update");
+  await requirePermission("inventory:use_parts");
+
+  await servicePartReturnService.returnUsedServicePartToInventory(
+    auth.shop.id,
+    serviceOrderId,
+    servicePartLineId,
+    auth.user.id,
+    note || null,
+  );
+
+  revalidatePath(`/service-orders/${serviceOrderId}`);
+  revalidatePath("/service-orders");
+  revalidatePath("/inventory");
+  revalidatePath("/warehouses");
+  revalidatePath("/reports");
 }
 
 export async function createServiceInspectionAction(formData: FormData) {
