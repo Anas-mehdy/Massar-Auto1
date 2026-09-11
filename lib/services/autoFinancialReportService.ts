@@ -6,13 +6,16 @@ function money(value: number) {
 }
 
 export async function getAutoFinancialReport(shopId: string, range: FinancialRange) {
-  const [base, autoServiceInventory] = await Promise.all([
+  const [base, autoServiceCost] = await Promise.all([
     reportService.getFinancialReport(shopId, range),
     autoServiceReportCostService.getAutoServiceInventoryCostForInvoiceRange(shopId, range.start, range.end),
   ]);
 
-  const autoServiceInventoryCost = money(Number(autoServiceInventory.netCost));
-  const directCosts = money(Math.max(0, base.metrics.directCosts + autoServiceInventoryCost));
+  const autoServiceInventoryCost = money(Number(autoServiceCost.netCost));
+  const autoServiceManualPartCost = money(Number(autoServiceCost.manualPartCost));
+  const autoServiceLaborCost = money(Number(autoServiceCost.laborCost));
+  const autoServiceDirectCost = money(Number(autoServiceCost.totalCost));
+  const directCosts = money(Math.max(0, base.metrics.directCosts + autoServiceDirectCost));
   const grossProfit = money(base.metrics.netRevenueBeforeTax - directCosts);
   const netProfit = money(grossProfit - base.metrics.expenseTotal);
   const profitMargin = base.metrics.netRevenueBeforeTax > 0
@@ -27,9 +30,12 @@ export async function getAutoFinancialReport(shopId: string, range: FinancialRan
       grossProfit,
       netProfit,
       profitMargin,
+      autoServiceDirectCost,
       autoServiceInventoryCost,
-      autoServiceInventoryUsedCost: money(Number(autoServiceInventory.usedCost)),
-      autoServiceInventoryReturnedCost: money(Number(autoServiceInventory.returnedCost)),
+      autoServiceInventoryUsedCost: money(Number(autoServiceCost.usedCost)),
+      autoServiceInventoryReturnedCost: money(Number(autoServiceCost.returnedCost)),
+      autoServiceManualPartCost,
+      autoServiceLaborCost,
     },
   };
 }
