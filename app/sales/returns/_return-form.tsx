@@ -14,6 +14,9 @@ type SaleItem = {
   unitPriceSnapshot: string | number;
   lineTotal: string | number;
   inventoryItem: { id: string; name: string } | null;
+  originalWarehouseId: string | null;
+  originalWarehouseName: string | null;
+  originalWarehouseActive: boolean | null;
 };
 type Option = { id: string; name: string };
 type RowState = { enabled: boolean; quantity: string; restock: boolean; warehouseId: string; reason: string };
@@ -41,13 +44,20 @@ export function SalesReturnForm({
   banks: Option[];
 }) {
   const [accountType, setAccountType] = useState<AccountType>("DRAWER");
-  const [rows, setRows] = useState<Record<string, RowState>>(() => Object.fromEntries(items.map((item) => [item.id, {
-    enabled: false,
-    quantity: item.returnableQuantity > 0 ? "1" : "0",
-    restock: Boolean(item.inventoryItem),
-    warehouseId: warehouses[0]?.id ?? "",
-    reason: "",
-  }])));
+  const [rows, setRows] = useState<Record<string, RowState>>(() => Object.fromEntries(items.map((item) => {
+    const originalWarehouseAvailable = Boolean(
+      item.originalWarehouseId
+      && item.originalWarehouseActive
+      && warehouses.some((warehouse) => warehouse.id === item.originalWarehouseId),
+    );
+    return [item.id, {
+      enabled: false,
+      quantity: item.returnableQuantity > 0 ? "1" : "0",
+      restock: Boolean(item.inventoryItem),
+      warehouseId: originalWarehouseAvailable ? item.originalWarehouseId! : "",
+      reason: "",
+    }];
+  })));
 
   const selectedLines = useMemo(() => items.flatMap((item) => {
     const row = rows[item.id];
@@ -61,6 +71,18 @@ export function SalesReturnForm({
       warehouseId: row.restock && item.inventoryItem && row.warehouseId ? row.warehouseId : null,
       reason: row.reason || null,
     }];
+  }), [items, rows]);
+
+  const hasInvalidQuantitySelection = useMemo(() => items.some((item) => {
+    const row = rows[item.id];
+    if (!row?.enabled) return false;
+    const quantity = Number(row.quantity);
+    return !Number.isInteger(quantity) || quantity <= 0 || quantity > item.returnableQuantity;
+  }), [items, rows]);
+
+  const hasInvalidWarehouseSelection = useMemo(() => items.some((item) => {
+    const row = rows[item.id];
+    return Boolean(row?.enabled && item.inventoryItem && row.restock && !row.warehouseId);
   }), [items, rows]);
 
   const estimatedTotal = useMemo(() => selectedLines.reduce((sum, selected) => {
@@ -86,11 +108,11 @@ export function SalesReturnForm({
           <div className="flex items-start gap-3">
             <input type="checkbox" checked={row?.enabled ?? false} disabled={disabled} onChange={(e) => patch(item.id, { enabled: e.target.checked })} className="mt-1 h-4 w-4" />
             <div className="min-w-0 flex-1">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between"><div><div className="font-black text-slate-900">{item.description}</div><div className="mt-1 text-xs font-semibold text-slate-500">{item.inventoryItem?.name ?? "بند غير مخزني"} • مباع {item.quantity} • مرتجع سابقًا {item.returnedQuantity} • متاح {item.returnableQuantity}</div></div><div className="shrink-0 font-black text-slate-800">{money(Number(item.lineTotal), currency)}</div></div>
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between"><div><div className="font-black text-slate-900">{item.description}</div><div className="mt-1 text-xs font-semibold text-slate-500">{item.inventoryItem?.name ?? "بند غير مخزني"} • مباع {item.quantity} • مرتجع سابقًا {item.returnedQuantity} • متاح {item.returnableQuantity}</div>{item.inventoryItem ? <div className={`mt-1 text-[10px] font-bold ${item.originalWarehouseActive === false ? "text-amber-700" : "text-slate-400"}`}>مستودع البيع الأصلي: {item.originalWarehouseName ?? "غير موثق"}{item.originalWarehouseActive === false ? " • متوقف حالياً" : ""}</div> : null}</div><div className="shrink-0 font-black text-slate-800">{money(Number(item.lineTotal), currency)}</div></div>
               {row?.enabled ? <div className="mt-4 grid gap-3 md:grid-cols-4">
                 <label className="grid gap-1.5 text-xs font-black text-slate-600"><span>كمية المرتجع</span><input className={field} type="number" min="1" max={item.returnableQuantity} step="1" value={row.quantity} onChange={(e) => patch(item.id, { quantity: e.target.value })} /></label>
                 {item.inventoryItem ? <label className="grid gap-1.5 text-xs font-black text-slate-600"><span>إرجاع للمخزون</span><select className={field} value={row.restock ? "YES" : "NO"} onChange={(e) => patch(item.id, { restock: e.target.value === "YES" })}><option value="YES">نعم</option><option value="NO">لا — تالف/غير قابل للبيع</option></select></label> : null}
-                {item.inventoryItem && row.restock && warehouses.length ? <label className="grid gap-1.5 text-xs font-black text-slate-600"><span>المستودع</span><select className={field} value={row.warehouseId} onChange={(e) => patch(item.id, { warehouseId: e.target.value })}>{warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}</select></label> : null}
+                {item.inventoryItem && row.restock ? <label className="grid gap-1.5 text-xs font-black text-slate-600"><span>مستودع الإرجاع</span><select className={field} value={row.warehouseId} onChange={(e) => patch(item.id, { warehouseId: e.target.value })}><option value="" disabled>اختر المستودع</option>{warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}{warehouse.id === item.originalWarehouseId ? " — الأصلي" : ""}</option>)}</select>{!row.warehouseId ? <span className="text-[10px] font-bold text-amber-700">اختر مستودعاً نشطاً قبل تنفيذ المرتجع.</span> : null}</label> : null}
                 <label className="grid gap-1.5 text-xs font-black text-slate-600"><span>سبب البند</span><input className={field} value={row.reason} onChange={(e) => patch(item.id, { reason: e.target.value })} placeholder="اختياري" /></label>
               </div> : null}
             </div>
@@ -98,6 +120,9 @@ export function SalesReturnForm({
         </div>;
       })}
     </div>
+
+    {hasInvalidQuantitySelection ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-black text-rose-700">تحقق من كمية كل بند محدد؛ لا يمكن تجاوز الكمية المتبقية القابلة للمرتجع.</div> : null}
+    {hasInvalidWarehouseSelection ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-black text-amber-800">يوجد بند مخزني سيُعاد للمخزون بدون مستودع صالح. اختر المستودع قبل التنفيذ.</div> : null}
 
     <section className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
       <div className="grid gap-3 sm:grid-cols-2">
@@ -110,6 +135,6 @@ export function SalesReturnForm({
       </div>
     </section>
 
-    <div className="flex flex-col gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-xs font-black text-rose-700">القيمة التقديرية للمرتجع</div><div className="mt-1 text-2xl font-black text-rose-950">{money(estimatedTotal, currency)}</div></div><Button type="submit" disabled={!selectedLines.length} variant="destructive" className="font-black"><RotateCcw className="ml-1 h-4 w-4" />تنفيذ المرتجع</Button></div>
+    <div className="flex flex-col gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-xs font-black text-rose-700">القيمة التقديرية للمرتجع</div><div className="mt-1 text-2xl font-black text-rose-950">{money(estimatedTotal, currency)}</div></div><Button type="submit" disabled={!selectedLines.length || hasInvalidQuantitySelection || hasInvalidWarehouseSelection} variant="destructive" className="font-black"><RotateCcw className="ml-1 h-4 w-4" />تنفيذ المرتجع</Button></div>
   </form>;
 }
