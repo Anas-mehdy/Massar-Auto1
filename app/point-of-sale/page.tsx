@@ -26,6 +26,7 @@ import { bankAccountService } from "@/lib/services/bankAccountService";
 import { financialTransferService } from "@/lib/services/financialTransferService";
 import { inventoryService } from "@/lib/services/inventoryService";
 import { repairOrderService } from "@/lib/services/repairOrderService";
+import { salesInventorySearchService } from "@/lib/services/salesInventorySearchService";
 import { softwareServiceService } from "@/lib/services/softwareServiceService";
 import { supplierService } from "@/lib/services/supplierService";
 import { cn } from "@/lib/utils";
@@ -99,8 +100,9 @@ function operationRecordLabel(tab: PointOfSaleTabKey) {
 }
 
 async function renderSaleForm(context: CurrentShopContext, key: string) {
-  const [inventoryItems, wallets, bankAccounts] = await Promise.all([
-    inventoryService.listInventoryItems(context.shopId),
+  const [inventoryItems, warehouses, wallets, bankAccounts] = await Promise.all([
+    salesInventorySearchService.listInventoryForSale(context.shopId, null, 300),
+    salesInventorySearchService.listActiveSaleWarehouses(context.shopId),
     financialTransferService.listWallets(context.shopId),
     bankAccountService.listAccounts(context.shopId),
   ]);
@@ -109,7 +111,8 @@ async function renderSaleForm(context: CurrentShopContext, key: string) {
     <SaleForm
       key={key}
       currency={context.currency}
-      inventoryItems={inventoryItems.map((item) => ({ id: item.id, name: item.name, sku: item.sku, quantity: item.quantity, unitPrice: item.unitPrice.toString() }))}
+      warehouses={warehouses}
+      inventoryItems={inventoryItems}
       wallets={wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, balance: Number(wallet.currentBalance) }))}
       bankAccounts={bankAccounts.map((account) => ({ id: account.id, name: account.name, bankName: account.bankName, balance: Number(account.currentBalance) }))}
       returnTo={pointOfSaleReturnPath("sale")}
@@ -270,18 +273,26 @@ export default async function PointOfSalePage({ searchParams }: Props) {
   const onboardingSaleMode = query.onboarding === "1" && activeTab?.key === "sale";
 
   if (onboardingSaleMode) {
-    const inventoryItems = await inventoryService.listInventoryItems(context.shopId);
+    const warehouses = await salesInventorySearchService.listActiveSaleWarehouses(context.shopId);
+    const warehouse = warehouses.find((item) => item.isDefault) ?? warehouses[0] ?? null;
+    if (!warehouse) {
+      return (
+        <div className="mx-auto max-w-2xl pb-8 pt-1">
+          <section className="rounded-[24px] border border-amber-200 bg-amber-50 p-6 text-center dark:border-amber-900/70 dark:bg-amber-950/25">
+            <h1 className="text-sm font-black text-amber-900 dark:text-amber-200">لا يوجد مستودع نشط للبيع</h1>
+            <p className="mt-2 text-[11px] font-semibold leading-5 text-amber-700 dark:text-amber-300">أنشئ أو فعّل مستودعاً أولاً حتى نعرف من أين ستُخصم قطع المخزون ونحمي الكميات المحجوزة للصيانة.</p>
+            <Button asChild className="mt-4 font-black"><Link href="/inventory/warehouses">إدارة المستودعات</Link></Button>
+          </section>
+        </div>
+      );
+    }
+    const inventoryItems = await salesInventorySearchService.listInventoryForSale(context.shopId, warehouse.id, 300);
     return (
       <div className="pb-8 pt-1">
         <SaleOnboardingQuickForm
           currency={context.currency || "SAR"}
-          inventoryItems={inventoryItems.map((item) => ({
-            id: item.id,
-            name: item.name,
-            sku: item.sku,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice.toString(),
-          }))}
+          warehouse={{ id: warehouse.id, name: warehouse.name }}
+          inventoryItems={inventoryItems}
         />
       </div>
     );
