@@ -36,6 +36,26 @@ function dateOrNow(value?: string) {
   return Number.isNaN(date.getTime()) ? new Date() : date;
 }
 
+async function getInvoiceEffectiveTotal(
+  tx: Prisma.TransactionClient,
+  shopId: string,
+  invoiceId: string,
+  originalTotal: Prisma.Decimal,
+) {
+  const tables = await tx.$queryRaw<Array<{ exists: boolean }>>`
+    SELECT to_regclass('public."InvoiceCreditNote"') IS NOT NULL AS "exists"
+  `;
+  if (!tables[0]?.exists) return originalTotal;
+
+  const rows = await tx.$queryRaw<Array<{ creditTotal: Prisma.Decimal }>>`
+    SELECT COALESCE(SUM("amount"), 0) AS "creditTotal"
+    FROM "InvoiceCreditNote"
+    WHERE "shopId"=${shopId}::uuid AND "invoiceId"=${invoiceId}::uuid
+  `;
+  const effective = originalTotal.sub(rows[0]?.creditTotal ?? new Prisma.Decimal(0));
+  return effective.gt(0) ? effective : new Prisma.Decimal(0);
+}
+
 export async function recalculateInvoicePaymentState(
   tx: Prisma.TransactionClient,
   shopId: string,
@@ -48,13 +68,15 @@ export async function recalculateInvoicePaymentState(
     select: { amount: true },
   });
   const amountPaid = payments.reduce((sum, payment) => sum.add(payment.amount), new Prisma.Decimal(0));
-  const balanceDue = invoice.total.sub(amountPaid);
+  const effectiveTotal = await getInvoiceEffectiveTotal(tx, shopId, invoiceId, invoice.total);
+  const rawBalance = effectiveTotal.sub(amountPaid);
+  const balanceDue = rawBalance.gt(0) ? rawBalance : new Prisma.Decimal(0);
   let status: InvoiceStatus = InvoiceStatus.UNPAID;
   let paidAt: Date | null = null;
   if (amountPaid.gt(0) && balanceDue.gt(0)) status = InvoiceStatus.PARTIALLY_PAID;
   if (balanceDue.lte(0)) {
     status = InvoiceStatus.PAID;
-    paidAt = invoice.paidAt ?? new Date();
+    paidAt = amountPaid.gt(0) ? (invoice.paidAt ?? new Date()) : null;
   }
   return tx.invoice.update({
     where: { id: invoiceId },
@@ -111,9 +133,10 @@ export async function addPayment(
     const sourceName = trackedSource || await resolvePaymentSource(tx, shopId, input);
 
     const newAmountPaid = invoice.amountPaid.add(amount);
-    const newBalanceDue = invoice.total.sub(newAmountPaid);
-    const newStatus = newBalanceDue.lte(0) ? InvoiceStatus.PAID : InvoiceStatus.PARTIALLY_PAID;
-    const paidAt = newBalanceDue.lte(0) ? invoice.paidAt ?? new Date() : invoice.paidAt;
+    const newBalanceDue = invoice.balanceDue.sub(amount);
+    const normalizedBalance = newBalanceDue.gt(0) ? newBalanceDue : new Prisma.Decimal(0);
+    const newStatus = normalizedBalance.lte(0) ? InvoiceStatus.PAID : InvoiceStatus.PARTIALLY_PAID;
+    const paidAt = normalizedBalance.lte(0) ? invoice.paidAt ?? new Date() : invoice.paidAt;
 
     await tx.payment.create({
       data: {
@@ -132,7 +155,7 @@ export async function addPayment(
       where: { id: invoiceId },
       data: {
         amountPaid: newAmountPaid,
-        balanceDue: newBalanceDue,
+        balanceDue: normalizedBalance,
         status: newStatus,
         paidAt,
         version: { increment: 1 },
