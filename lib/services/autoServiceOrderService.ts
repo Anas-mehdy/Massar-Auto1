@@ -133,6 +133,22 @@ async function assertActiveShopMember(shopId: string, userId?: string | null) {
   if (!member) throw new Error("الموظف المحدد غير نشط في هذا المركز.");
 }
 
+async function assertActiveTechnician(shopId: string, userId?: string | null) {
+  if (!userId) return;
+  const rows = await prisma.$queryRaw<Array<{ userId: string }>>`
+    SELECT m."userId"
+    FROM "Membership" m
+    JOIN "User" u ON u."id" = m."userId" AND u."deletedAt" IS NULL
+    WHERE m."shopId" = ${shopId}::uuid
+      AND m."userId" = ${userId}::uuid
+      AND m."deletedAt" IS NULL
+      AND m."status"::text = 'ACTIVE'
+      AND m."role"::text = 'TECHNICIAN'
+    LIMIT 1
+  `;
+  if (!rows[0]) throw new Error("الموظف المحدد ليس فني صيانة نشطاً في هذا المركز.");
+}
+
 export async function createServiceOrder(
   shopId: string,
   createdByUserId: string,
@@ -141,7 +157,7 @@ export async function createServiceOrder(
   const data = validateCreateInput(input);
   await Promise.all([
     assertActiveShopMember(shopId, data.receptionistUserId),
-    assertActiveShopMember(shopId, data.assignedToUserId),
+    assertActiveTechnician(shopId, data.assignedToUserId),
   ]);
 
   const orderNumber = generateOrderNumber();
@@ -397,7 +413,7 @@ export async function addLaborLine(
   input: { description: string; technicianUserId?: string | null; hours?: number | null; quantity?: number; unitPrice: number; costAmount?: number | null; notes?: string | null },
 ) {
   await assertOrderEditable(shopId, serviceOrderId);
-  await assertActiveShopMember(shopId, input.technicianUserId);
+  await assertActiveTechnician(shopId, input.technicianUserId);
   const description = input.description.trim();
   const quantity = input.quantity ?? 1;
   if (!description) throw new Error("وصف أجرة العمل مطلوب.");
