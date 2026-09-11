@@ -86,6 +86,9 @@ export async function createServiceOrderAction(formData: FormData) {
 export async function updateServiceOrderStatusAction(formData: FormData) {
   const serviceOrderId = z.string().uuid().parse(readString(formData, "serviceOrderId"));
   const status = parseStatus(readString(formData, "status"));
+  if (status === "DELIVERED" || status === "CLOSED") {
+    throw new Error("استخدم إجراء تسليم المركبة أو إغلاق أمر الصيانة المخصص لضمان حفظ بيانات التسليم وسجل التدقيق.");
+  }
   const note = readString(formData, "note");
   const auth = await requirePermission("service_orders:update_status");
 
