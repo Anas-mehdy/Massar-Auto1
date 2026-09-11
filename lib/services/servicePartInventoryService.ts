@@ -370,6 +370,22 @@ export async function releaseServiceOrderReservationsInTx(
   shopId: string,
   serviceOrderId: string,
 ) {
+  const usedInventoryParts = await tx.$queryRaw<Array<{ id: string; partName: string }>>`
+    SELECT "id", "partName"
+    FROM "ServicePartLine"
+    WHERE "shopId" = ${shopId}::uuid
+      AND "serviceOrderId" = ${serviceOrderId}::uuid
+      AND "inventoryItemId" IS NOT NULL
+      AND "status" = 'USED'
+    ORDER BY "sortOrder", "createdAt"
+    LIMIT 5
+    FOR UPDATE
+  `;
+  if (usedInventoryParts.length) {
+    const names = usedInventoryParts.map((line) => line.partName).join("، ");
+    throw new Error(`لا يمكن إلغاء أو رفض أمر الصيانة بعد استهلاك قطع من المخزون (${names}). يجب تسجيل إرجاع القطع للمخزون أولاً أو إكمال أمر الصيانة.`);
+  }
+
   const reserved = await tx.$queryRaw<PartLineRow[]>`
     SELECT "id", "inventoryItemId", "warehouseId", "partName", "quantity", "status"
     FROM "ServicePartLine"
@@ -381,27 +397,34 @@ export async function releaseServiceOrderReservationsInTx(
   `;
 
   for (const line of reserved) {
-    if (line.inventoryItemId && line.warehouseId) {
-      const rows = await tx.$queryRaw<Array<{ reservedQuantity: number }>>`
-        SELECT "reservedQuantity"
-        FROM "WarehouseStock"
-        WHERE "shopId" = ${shopId}::uuid
-          AND "warehouseId" = ${line.warehouseId}::uuid
-          AND "inventoryItemId" = ${line.inventoryItemId}::uuid
-        FOR UPDATE
-      `;
-      const current = rows[0];
-      if (current) {
-        const nextReserved = Math.max(0, current.reservedQuantity - line.quantity);
-        await tx.$executeRaw`
-          UPDATE "WarehouseStock"
-          SET "reservedQuantity" = ${nextReserved}, "updatedAt" = now()
-          WHERE "shopId" = ${shopId}::uuid
-            AND "warehouseId" = ${line.warehouseId}::uuid
-            AND "inventoryItemId" = ${line.inventoryItemId}::uuid
-        `;
-      }
+    if (!line.inventoryItemId || !line.warehouseId) {
+      throw new Error(`تعذر فك حجز ${line.partName}: سطر الحجز غير مرتبط بصنف ومستودع صالحين.`);
     }
+
+    const rows = await tx.$queryRaw<Array<{ reservedQuantity: number }>>`
+      SELECT "reservedQuantity"
+      FROM "WarehouseStock"
+      WHERE "shopId" = ${shopId}::uuid
+        AND "warehouseId" = ${line.warehouseId}::uuid
+        AND "inventoryItemId" = ${line.inventoryItemId}::uuid
+      FOR UPDATE
+    `;
+    const current = rows[0];
+    if (!current) {
+      throw new Error(`تعذر فك حجز ${line.partName}: رصيد المستودع المرتبط بالحجز غير موجود.`);
+    }
+    if (current.reservedQuantity < line.quantity) {
+      throw new Error(`تعذر فك حجز ${line.partName}: الكمية المحجوزة في المستودع (${current.reservedQuantity}) أقل من كمية السطر (${line.quantity}). راجع رصيد المستودع قبل المتابعة.`);
+    }
+
+    const nextReserved = current.reservedQuantity - line.quantity;
+    await tx.$executeRaw`
+      UPDATE "WarehouseStock"
+      SET "reservedQuantity" = ${nextReserved}, "updatedAt" = now()
+      WHERE "shopId" = ${shopId}::uuid
+        AND "warehouseId" = ${line.warehouseId}::uuid
+        AND "inventoryItemId" = ${line.inventoryItemId}::uuid
+    `;
   }
 
   await tx.$executeRaw`
