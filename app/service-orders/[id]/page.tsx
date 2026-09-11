@@ -13,12 +13,15 @@ import {
 } from "@/lib/auto/service-order-ui";
 import { autoServiceOrderService } from "@/lib/services/autoServiceOrderService";
 import { serviceInspectionService } from "@/lib/services/serviceInspectionService";
+import { serviceOrderWorkflowService } from "@/lib/services/serviceOrderWorkflowService";
 import { servicePartInventoryService } from "@/lib/services/servicePartInventoryService";
 import { InspectionForm } from "../_inspection-form";
 import {
   addServiceLaborLineAction,
   addServicePartLineAction,
+  assignServiceOrderTechnicianAction,
   createQuotationAction,
+  updateServiceOrderDiagnosisAction,
   updateServiceOrderStatusAction,
 } from "../actions";
 
@@ -31,6 +34,7 @@ type PartRow = { id: string; partName: string; quantity: number; unitCost: strin
 type QuoteRow = { id: string; quoteNumber: string; revision: number; status: string; total: string | number; createdAt: Date };
 
 const inputClass = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100";
+const textareaClass = "min-h-32 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm leading-7 outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100";
 
 const inspectionTypeLabels: Record<string, string> = {
   INITIAL: "فحص أولي",
@@ -55,10 +59,11 @@ const inspectionResultClasses: Record<string, string> = {
 export default async function ServiceOrderPage({ params }: PageProps) {
   const auth = await requirePermission("service_orders:read");
   const { id } = await params;
-  const [order, inspections, inventoryChoices] = await Promise.all([
+  const [order, inspections, inventoryChoices, technicians] = await Promise.all([
     autoServiceOrderService.getServiceOrderById(auth.shop.id, id),
     serviceInspectionService.listServiceInspections(auth.shop.id, id),
     servicePartInventoryService.listServicePartInventoryChoices(auth.shop.id),
+    serviceOrderWorkflowService.listAssignableTechnicians(auth.shop.id),
   ]);
   if (!order) notFound();
 
@@ -68,6 +73,8 @@ export default async function ServiceOrderPage({ params }: PageProps) {
   const transitions = SERVICE_ORDER_ALLOWED_TRANSITIONS[order.status] ?? [];
   const partsTotal = partLines.filter((line) => line.status !== "CANCELLED").reduce((sum, line) => sum + Number(line.lineTotal || 0), 0);
   const laborTotal = laborLines.filter((line) => line.status !== "CANCELLED").reduce((sum, line) => sum + Number(line.lineTotal || 0), 0);
+  const assignedTechnician = technicians.find((technician) => technician.userId === order.assignedToUserId) ?? null;
+  const workflowLocked = ["DELIVERED", "CLOSED", "CANCELLED", "REJECTED"].includes(order.status);
 
   return (
     <div className="space-y-6">
@@ -102,6 +109,38 @@ export default async function ServiceOrderPage({ params }: PageProps) {
         <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-4"><div className="flex items-center gap-2 text-xs font-black text-teal-800"><Truck className="h-4 w-4" />المركبة</div><div className="mt-2 font-black text-slate-950">{order.vehicleMake} {order.vehicleModel}</div><div className="text-xs text-slate-500">{order.plateNumber || order.vin || "-"}</div></div>
         <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4"><div className="flex items-center gap-2 text-xs font-black text-amber-800"><Gauge className="h-4 w-4" />العداد عند الدخول</div><div className="mt-2 text-lg font-black text-slate-950">{order.odometerAtIntake != null ? `${order.odometerAtIntake.toLocaleString("ar")} كم` : "-"}</div><div className="text-xs text-slate-500">وقود: {order.fuelLevelPercent != null ? `${Number(order.fuelLevelPercent)}%` : "-"}</div></div>
         <div className="rounded-2xl border border-violet-100 bg-violet-50/60 p-4"><div className="text-xs font-black text-violet-800">التكلفة الحالية</div><div className="mt-2 text-lg font-black text-slate-950">{formatAutoMoney(partsTotal + laborTotal, auth.shop.currency)}</div><div className="text-xs text-slate-500">قطع {formatAutoMoney(partsTotal, auth.shop.currency)} • عمل {formatAutoMoney(laborTotal, auth.shop.currency)}</div></div>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 p-5">
+            <h2 className="flex items-center gap-2 font-black text-slate-950"><Wrench className="h-4 w-4 text-cyan-700" />التشخيص</h2>
+            <p className="mt-1 text-xs font-semibold text-slate-500">ثبّت نتيجة الفحص والتشخيص قبل اعتماد عرض السعر أو بدء التنفيذ.</p>
+          </div>
+          <form action={updateServiceOrderDiagnosisAction} className="space-y-3 p-4 sm:p-5">
+            <input type="hidden" name="serviceOrderId" value={order.id} />
+            <textarea name="diagnosis" defaultValue={order.diagnosis ?? ""} maxLength={6000} disabled={workflowLocked} className={textareaClass} placeholder="مثال: تلف في طرمبة الماء مع تهريب من الخرطوم العلوي..." />
+            <Button type="submit" disabled={workflowLocked} className="font-black">حفظ التشخيص</Button>
+          </form>
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 p-5">
+            <h2 className="flex items-center gap-2 font-black text-slate-950"><UserRound className="h-4 w-4 text-indigo-700" />الفني المسؤول</h2>
+            <p className="mt-1 text-xs font-semibold text-slate-500">يظهر هنا الموظفون النشطون بدور فني صيانة فقط.</p>
+          </div>
+          <form action={assignServiceOrderTechnicianAction} className="space-y-3 p-4 sm:p-5">
+            <input type="hidden" name="serviceOrderId" value={order.id} />
+            <select name="technicianUserId" defaultValue={order.assignedToUserId ?? ""} disabled={workflowLocked} className={inputClass}>
+              <option value="">بدون فني محدد</option>
+              {technicians.map((technician) => <option key={technician.userId} value={technician.userId}>{technician.name}</option>)}
+            </select>
+            <div className="text-xs font-semibold text-slate-500">
+              {assignedTechnician ? `المسؤول حاليًا: ${assignedTechnician.name}` : technicians.length ? "لم يتم تحديد فني مسؤول بعد." : "لا يوجد فني نشط. أضف موظفًا بدور فني صيانة من إعدادات الفريق."}
+            </div>
+            <Button type="submit" disabled={workflowLocked || !technicians.length} className="font-black">حفظ الفني المسؤول</Button>
+          </form>
+        </section>
       </div>
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
