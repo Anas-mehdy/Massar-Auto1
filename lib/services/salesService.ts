@@ -13,6 +13,7 @@ export type SaleFilters = { search?: string; status?: SaleStatus | "ALL" };
 export type CreateSaleLineItemInput = { inventoryItemId?: string | null; description: string; quantity: number; unitPrice: string; discountTotal?: string };
 export type SalePaymentDestination = Exclude<MoneyAccountDestination, "OTHER"> | "DEBT";
 export type CreateSaleInput = {
+  warehouseId: string;
   customerId?: string;
   customerName?: string;
   customerPhone?: string;
@@ -36,6 +37,57 @@ async function resolveCustomerForSale(tx: Prisma.TransactionClient, shopId: stri
   return tx.customer.create({ data: { shopId, name: customerName ?? customerPhone ?? "عميل", phone: customerPhone, phoneNormalized } });
 }
 
+async function requireSaleWarehouseTx(tx: Prisma.TransactionClient, shopId: string, warehouseId: string) {
+  const rows = await tx.$queryRaw<Array<{ id: string; name: string }>>`
+    SELECT "id", "name"
+    FROM "Warehouse"
+    WHERE "id" = ${warehouseId}::uuid
+      AND "shopId" = ${shopId}::uuid
+      AND "deletedAt" IS NULL
+      AND "isActive" = TRUE
+    LIMIT 1
+    FOR SHARE
+  `;
+  const warehouse = rows[0];
+  if (!warehouse) throw new Error("مستودع البيع المحدد غير موجود أو غير نشط.");
+  return warehouse;
+}
+
+async function resolveOriginalSaleWarehouseTx(
+  tx: Prisma.TransactionClient,
+  shopId: string,
+  saleId: string,
+  inventoryItemId: string,
+) {
+  const movementRows = await tx.$queryRaw<Array<{ id: string; name: string }>>`
+    SELECT w."id", w."name"
+    FROM "WarehouseMovement" wm
+    JOIN "Warehouse" w
+      ON w."id" = wm."warehouseId"
+     AND w."shopId" = wm."shopId"
+    WHERE wm."shopId" = ${shopId}::uuid
+      AND wm."saleId" = ${saleId}::uuid
+      AND wm."inventoryItemId" = ${inventoryItemId}::uuid
+      AND wm."type" = 'SALE_OUT'
+      AND w."deletedAt" IS NULL
+    ORDER BY wm."createdAt" ASC
+    LIMIT 1
+  `;
+  if (movementRows[0]) return movementRows[0];
+
+  const fallback = await tx.$queryRaw<Array<{ id: string; name: string }>>`
+    SELECT "id", "name"
+    FROM "Warehouse"
+    WHERE "shopId" = ${shopId}::uuid
+      AND "isDefault" = TRUE
+      AND "deletedAt" IS NULL
+    ORDER BY "isActive" DESC, "createdAt" ASC
+    LIMIT 1
+  `;
+  if (!fallback[0]) throw new Error("تعذر تحديد المستودع الأصلي لهذه المبيعة.");
+  return fallback[0];
+}
+
 export async function generateReceiptNumber(shopId: string) {
   const now = new Date(); const year = now.getFullYear(); const month = String(now.getMonth() + 1).padStart(2, "0"); const prefix = `SALE-${year}${month}-`; const count = await prisma.sale.count({ where: { shopId, receiptNumber: { startsWith: prefix } } });
   for (let offset = 1; offset <= 50; offset += 1) { const receiptNumber = `${prefix}${String(count + offset).padStart(4, "0")}`; const existing = await prisma.sale.findUnique({ where: { shopId_receiptNumber: { shopId, receiptNumber } }, select: { id: true } }); if (!existing) return receiptNumber; }
@@ -49,29 +101,6 @@ export async function listSales(shopId: string, filters: SaleFilters = {}) {
 
 export async function getSaleById(shopId: string, saleId: string) {
   return prisma.sale.findFirst({ where: { id: saleId, shopId, deletedAt: null }, include: { customer: true, items: { include: { inventoryItem: true }, orderBy: { createdAt: "asc" } }, inventoryMovements: { include: { inventoryItem: true }, orderBy: { createdAt: "desc" } }, invoices: { where: { deletedAt: null, status: { not: InvoiceStatus.VOID } }, orderBy: { issuedAt: "desc" } } } });
-}
-
-async function ensureSaleDefaultWarehouseTx(tx: Prisma.TransactionClient, shopId: string) {
-  const rows = await tx.$queryRaw<Array<{ id: string; name: string }>>`
-    SELECT "id", "name" FROM "Warehouse"
-    WHERE "shopId"=${shopId}::uuid AND "isDefault"=TRUE AND "isActive"=TRUE AND "deletedAt" IS NULL
-    LIMIT 1
-    FOR UPDATE
-  `;
-  if (rows[0]) return rows[0];
-  await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "Shop" WHERE "id"=${shopId}::uuid FOR UPDATE`;
-  const second = await tx.$queryRaw<Array<{ id: string; name: string }>>`
-    SELECT "id", "name" FROM "Warehouse"
-    WHERE "shopId"=${shopId}::uuid AND "isDefault"=TRUE AND "isActive"=TRUE AND "deletedAt" IS NULL
-    LIMIT 1
-  `;
-  if (second[0]) return second[0];
-  const created = await tx.$queryRaw<Array<{ id: string; name: string }>>`
-    INSERT INTO "Warehouse" ("shopId", "code", "name", "isDefault", "isActive")
-    VALUES (${shopId}::uuid, 'MAIN', 'المستودع الرئيسي', TRUE, TRUE)
-    RETURNING "id", "name"
-  `;
-  return created[0];
 }
 
 export async function createSale(shopId: string, createdByUserId: string | null, input: CreateSaleInput) {
@@ -93,41 +122,50 @@ export async function createSale(shopId: string, createdByUserId: string | null,
   const receiptNumber = await generateReceiptNumber(shopId);
 
   return prisma.$transaction(async (tx) => {
+    const warehouse = await requireSaleWarehouseTx(tx, shopId, input.warehouseId);
     const customer = await resolveCustomerForSale(tx, shopId, input);
     if (isDebtSale && !customer) throw new Error("ترحيل المبيعة إلى دفتر الديون يتطلب عميلاً مسجلاً.");
 
     const sale = await tx.sale.create({ data: { shopId, customerId: customer?.id, createdByUserId, receiptNumber, status: SaleStatus.COMPLETED, subtotal, discountTotal, taxTotal, total } });
     for (const itemInput of input.items) {
       const inventoryItemId = emptyToNull(itemInput.inventoryItemId); let description = itemInput.description.trim(); let inventoryItem: Awaited<ReturnType<typeof tx.inventoryItem.findFirst>> | null = null;
-      if (inventoryItemId) { inventoryItem = await tx.inventoryItem.findFirst({ where: { id: inventoryItemId, shopId, deletedAt: null } }); if (!inventoryItem) throw new Error("قطعة مخزون غير موجودة أو لا تتبع هذا المتجر."); if (inventoryItem.quantity < itemInput.quantity) throw new Error(`الكمية غير كافية للقطعة: ${inventoryItem.name}`); description = description || inventoryItem.name; }
+      if (inventoryItemId) { inventoryItem = await tx.inventoryItem.findFirst({ where: { id: inventoryItemId, shopId, deletedAt: null } }); if (!inventoryItem) throw new Error("قطعة مخزون غير موجودة أو لا تتبع هذا المتجر."); if (inventoryItem.quantity < itemInput.quantity) throw new Error(`الكمية الإجمالية غير كافية للقطعة: ${inventoryItem.name}`); description = description || inventoryItem.name; }
       if (!description) throw new Error("وصف بند البيع مطلوب.");
       const unitPriceSnapshot = decimal(itemInput.unitPrice);
       if (inventoryItem && !inventoryItem.salePriceConfigured && unitPriceSnapshot.eq(0)) throw new Error(`سعر بيع القطعة «${inventoryItem.name}» غير محدد. أدخل سعر بيع صريحاً قبل إتمام المبيعة.`); const lineDiscount = decimal(itemInput.discountTotal ?? "0"); const lineTotal = unitPriceSnapshot.mul(itemInput.quantity).sub(lineDiscount);
       const saleItem = await tx.saleItem.create({ data: { shopId, saleId: sale.id, inventoryItemId, description, quantity: itemInput.quantity, unitPriceSnapshot, discountTotal: lineDiscount, lineTotal } });
       if (inventoryItem) {
-        const warehouse = await ensureSaleDefaultWarehouseTx(tx, shopId);
-        const stocks = await tx.$queryRaw<Array<{ quantity: number; averageCost: Prisma.Decimal | null }>>`
-          SELECT "quantity", "averageCost" FROM "WarehouseStock"
-          WHERE "shopId"=${shopId}::uuid AND "warehouseId"=${warehouse.id}::uuid AND "inventoryItemId"=${inventoryItem.id}::uuid
+        const stocks = await tx.$queryRaw<Array<{ quantity: number; reservedQuantity: number; averageCost: Prisma.Decimal | null }>>`
+          SELECT "quantity", "reservedQuantity", "averageCost"
+          FROM "WarehouseStock"
+          WHERE "shopId" = ${shopId}::uuid
+            AND "warehouseId" = ${warehouse.id}::uuid
+            AND "inventoryItemId" = ${inventoryItem.id}::uuid
           FOR UPDATE
         `;
         const stock = stocks[0];
-        if (!stock || stock.quantity < itemInput.quantity) throw new Error(`الرصيد المتاح في المستودع الرئيسي غير كافٍ للقطعة: ${inventoryItem.name}. المتاح: ${stock?.quantity ?? 0}`);
+        const available = stock ? stock.quantity - stock.reservedQuantity : 0;
+        if (!stock || available < itemInput.quantity) {
+          throw new Error(`الرصيد غير المحجوز في مستودع «${warehouse.name}» غير كافٍ للقطعة «${inventoryItem.name}». المتاح للبيع: ${Math.max(0, available)}.`);
+        }
         const warehouseAfter = stock.quantity - itemInput.quantity;
         await tx.$executeRaw`
-          UPDATE "WarehouseStock" SET "quantity"=${warehouseAfter}, "updatedAt"=NOW()
-          WHERE "shopId"=${shopId}::uuid AND "warehouseId"=${warehouse.id}::uuid AND "inventoryItemId"=${inventoryItem.id}::uuid
+          UPDATE "WarehouseStock"
+          SET "quantity" = ${warehouseAfter}, "updatedAt" = NOW()
+          WHERE "shopId" = ${shopId}::uuid
+            AND "warehouseId" = ${warehouse.id}::uuid
+            AND "inventoryItemId" = ${inventoryItem.id}::uuid
         `;
         const quantityAfter = inventoryItem.quantity - itemInput.quantity;
         await tx.inventoryItem.update({ where: { id: inventoryItem.id }, data: { quantity: quantityAfter, version: { increment: 1 } } });
-        await tx.inventoryMovement.create({ data: { shopId, inventoryItemId: inventoryItem.id, saleId: sale.id, saleItemId: saleItem.id, createdByUserId, type: InventoryMovementType.SALE, quantityChange: -itemInput.quantity, quantityAfter, unitCostSnapshot: inventoryItem.unitCost, note: "بيع" } });
+        await tx.inventoryMovement.create({ data: { shopId, inventoryItemId: inventoryItem.id, saleId: sale.id, saleItemId: saleItem.id, createdByUserId, type: InventoryMovementType.SALE, quantityChange: -itemInput.quantity, quantityAfter, unitCostSnapshot: inventoryItem.unitCost, note: `بيع من ${warehouse.name}` } });
         await tx.$executeRaw`
           INSERT INTO "WarehouseMovement" (
             "shopId", "warehouseId", "inventoryItemId", "type", "quantityChange", "quantityBefore", "quantityAfter",
             "unitCostSnapshot", "saleId", "createdByUserId", "reference", "note"
           ) VALUES (
             ${shopId}::uuid, ${warehouse.id}::uuid, ${inventoryItem.id}::uuid, 'SALE_OUT', ${-itemInput.quantity},
-            ${stock.quantity}, ${warehouseAfter}, ${inventoryItem.unitCost}, ${sale.id}::uuid, ${createdByUserId}::uuid,
+            ${stock.quantity}, ${warehouseAfter}, ${stock.averageCost ?? inventoryItem.unitCost}, ${sale.id}::uuid, ${createdByUserId}::uuid,
             ${sale.receiptNumber}, ${`بيع من ${warehouse.name}`}
           )
         `;
@@ -197,7 +235,7 @@ export async function cancelSale(shopId: string, saleId: string, createdByUserId
       if (!saleItem.inventoryItemId) continue;
       const inventoryItem = await tx.inventoryItem.findFirst({ where: { id: saleItem.inventoryItemId, shopId, deletedAt: null } });
       if (!inventoryItem) throw new Error("لا يمكن إلغاء البيع لأن قطعة مخزون مرتبطة غير موجودة.");
-      const warehouse = await ensureSaleDefaultWarehouseTx(tx, shopId);
+      const warehouse = await resolveOriginalSaleWarehouseTx(tx, shopId, sale.id, inventoryItem.id);
       await tx.$executeRaw`
         INSERT INTO "WarehouseStock" ("shopId", "warehouseId", "inventoryItemId", "quantity", "reservedQuantity", "reorderLevel", "averageCost")
         VALUES (${shopId}::uuid, ${warehouse.id}::uuid, ${inventoryItem.id}::uuid, 0, 0, 0, ${inventoryItem.unitCost})
@@ -217,7 +255,7 @@ export async function cancelSale(shopId: string, saleId: string, createdByUserId
       `;
       const quantityAfter = inventoryItem.quantity + saleItem.quantity;
       await tx.inventoryItem.update({ where: { id: inventoryItem.id }, data: { quantity: quantityAfter, version: { increment: 1 } } });
-      await tx.inventoryMovement.create({ data: { shopId, inventoryItemId: inventoryItem.id, saleId: sale.id, saleItemId: saleItem.id, createdByUserId, type: InventoryMovementType.RETURN, quantityChange: saleItem.quantity, quantityAfter, unitCostSnapshot: inventoryItem.unitCost, note: "إلغاء عملية بيع" } });
+      await tx.inventoryMovement.create({ data: { shopId, inventoryItemId: inventoryItem.id, saleId: sale.id, saleItemId: saleItem.id, createdByUserId, type: InventoryMovementType.RETURN, quantityChange: saleItem.quantity, quantityAfter, unitCostSnapshot: inventoryItem.unitCost, note: `إلغاء بيع وإعادة إلى ${warehouse.name}` } });
       await tx.$executeRaw`
         INSERT INTO "WarehouseMovement" (
           "shopId", "warehouseId", "inventoryItemId", "type", "quantityChange", "quantityBefore", "quantityAfter",
@@ -225,7 +263,7 @@ export async function cancelSale(shopId: string, saleId: string, createdByUserId
         ) VALUES (
           ${shopId}::uuid, ${warehouse.id}::uuid, ${inventoryItem.id}::uuid, 'SALES_RETURN', ${saleItem.quantity},
           ${stock.quantity}, ${warehouseAfter}, ${inventoryItem.unitCost}, ${sale.id}::uuid, ${createdByUserId}::uuid,
-          ${sale.receiptNumber}, 'إلغاء عملية بيع وإعادة القطعة للمستودع'
+          ${sale.receiptNumber}, ${`إلغاء عملية بيع وإعادة القطعة إلى ${warehouse.name}`}
         )
       `;
     }
