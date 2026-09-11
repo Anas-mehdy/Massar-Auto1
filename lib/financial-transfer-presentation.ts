@@ -13,6 +13,7 @@ export function transferSourceLabel(sourceType: FinancialTransferSourceType, ope
   if (sourceType === "INSTALLMENT_DOWN_PAYMENT") return "دفعة أولى للأقساط";
   if (sourceType === "DEBT") return "تحصيل دين";
   if (sourceType === "EXPENSE") return "مصروف";
+  if (sourceType === "CREDIT_NOTE") return "استرداد إشعار دائن";
   if (sourceType === "CASH_DRAWER_TRANSFER") return operationType === "WALLET_TOPUP" ? "تحويل من الدرج" : "تحويل إلى الدرج";
   if (sourceType === "CUSTOMER_TRANSFER") return operationType === "CUSTOMER_DEPOSIT" ? "إيداع للعميل" : "سحب للعميل";
   if (sourceType === "CUSTOMER_TRANSFER_SETTLEMENT") return operationType === "WALLET_TOPUP" ? "تسوية إيداع للعميل" : "تسوية سحب للعميل";
