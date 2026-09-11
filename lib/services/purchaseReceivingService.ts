@@ -980,6 +980,31 @@ async function applySupplierRefundMoneyTx(
   `;
 }
 
+async function ensureDefaultWarehouseTx(tx: Prisma.TransactionClient, shopId: string) {
+  const existing = await tx.$queryRaw<Array<{ id: string; name: string }>>`
+    SELECT "id", "name" FROM "Warehouse"
+    WHERE "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL AND "isDefault" = TRUE AND "isActive" = TRUE
+    LIMIT 1
+    FOR UPDATE
+  `;
+  if (existing[0]) return existing[0];
+
+  await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "Shop" WHERE "id" = ${shopId}::uuid FOR UPDATE`;
+  const secondCheck = await tx.$queryRaw<Array<{ id: string; name: string }>>`
+    SELECT "id", "name" FROM "Warehouse"
+    WHERE "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL AND "isDefault" = TRUE AND "isActive" = TRUE
+    LIMIT 1
+  `;
+  if (secondCheck[0]) return secondCheck[0];
+
+  const rows = await tx.$queryRaw<Array<{ id: string; name: string }>>`
+    INSERT INTO "Warehouse" ("shopId", "code", "name", "isDefault", "isActive")
+    VALUES (${shopId}::uuid, 'MAIN', 'المستودع الرئيسي', TRUE, TRUE)
+    RETURNING "id", "name"
+  `;
+  return rows[0];
+}
+
 async function createReceiptTx(
   tx: Prisma.TransactionClient,
   input: {
@@ -1003,6 +1028,7 @@ async function createReceiptTx(
   `;
   const receiptId = receiptRows[0]?.id;
   if (!receiptId) throw new Error("تعذر إنشاء سجل الاستلام.");
+  const warehouse = await ensureDefaultWarehouseTx(tx, input.shopId);
 
   for (const line of positiveLines) {
     if (!line.inventoryItemId) throw new Error("صنف الاستلام غير مرتبط بالمخزون.");
@@ -1049,6 +1075,36 @@ async function createReceiptTx(
     const quantityAfter = inventory.quantity + line.quantity;
 
     await tx.$executeRaw`
+      INSERT INTO "WarehouseStock" ("shopId", "warehouseId", "inventoryItemId", "quantity", "reservedQuantity", "reorderLevel", "averageCost")
+      VALUES (${input.shopId}::uuid, ${warehouse.id}::uuid, ${line.inventoryItemId}::uuid, 0, 0, 0, ${inventory.unitCost})
+      ON CONFLICT ("warehouseId", "inventoryItemId") DO NOTHING
+    `;
+    const warehouseStockRows = await tx.$queryRaw<Array<{ quantity: number; averageCost: Prisma.Decimal | null }>>`
+      SELECT "quantity", "averageCost" FROM "WarehouseStock"
+      WHERE "shopId" = ${input.shopId}::uuid
+        AND "warehouseId" = ${warehouse.id}::uuid
+        AND "inventoryItemId" = ${line.inventoryItemId}::uuid
+      FOR UPDATE
+    `;
+    const warehouseStock = warehouseStockRows[0];
+    if (!warehouseStock) throw new Error("تعذر تهيئة رصيد القطعة في المستودع الرئيسي.");
+    const warehouseAverage = movingWeightedAverage({
+      currentQuantity: warehouseStock.quantity,
+      currentAverageCost: warehouseStock.averageCost,
+      receivedQuantity: line.quantity,
+      receivedCapitalizedValue: capitalizedValue,
+    });
+    const warehouseQuantityAfter = warehouseStock.quantity + line.quantity;
+
+    await tx.$executeRaw`
+      UPDATE "WarehouseStock"
+      SET "quantity" = ${warehouseQuantityAfter}, "averageCost" = ${warehouseAverage}, "updatedAt" = NOW()
+      WHERE "shopId" = ${input.shopId}::uuid
+        AND "warehouseId" = ${warehouse.id}::uuid
+        AND "inventoryItemId" = ${line.inventoryItemId}::uuid
+    `;
+
+    await tx.$executeRaw`
       UPDATE "InventoryItem" SET "quantity"=${quantityAfter}, "unitCost"=${newAverage}, "version"="version"+1, "updatedAt"=NOW()
       WHERE "id"=${line.inventoryItemId}::uuid AND "shopId"=${input.shopId}::uuid
     `;
@@ -1074,6 +1130,17 @@ async function createReceiptTx(
         ${`استلام شراء${input.purchase.supplierInvoiceNumber ? ` — فاتورة ${input.purchase.supplierInvoiceNumber}` : ""}`}, ${input.receivedAt}, NOW(), 1
       )
     `;
+    await tx.$executeRaw`
+      INSERT INTO "WarehouseMovement" (
+        "shopId", "warehouseId", "inventoryItemId", "type", "quantityChange", "quantityBefore", "quantityAfter",
+        "unitCostSnapshot", "purchaseInvoiceId", "createdByUserId", "reference", "note", "createdAt"
+      ) VALUES (
+        ${input.shopId}::uuid, ${warehouse.id}::uuid, ${line.inventoryItemId}::uuid, 'PURCHASE_IN', ${line.quantity},
+        ${warehouseStock.quantity}, ${warehouseQuantityAfter}, ${inboundUnitCost}, ${input.purchase.id}::uuid, ${input.userId}::uuid,
+        ${input.purchase.supplierInvoiceNumber}, ${`استلام شراء — ${warehouse.name}`}, ${input.receivedAt}
+      )
+    `;
+
     await tx.$executeRaw`
       UPDATE "PurchaseItem" SET
         "receivedQuantity"="receivedQuantity"+${line.quantity},
