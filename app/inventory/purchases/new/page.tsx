@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/auth/context";
 import { bankAccountService } from "@/lib/services/bankAccountService";
 import { inventoryCategoryService } from "@/lib/services/inventoryCategoryService";
 import { purchaseReceivingService } from "@/lib/services/purchaseReceivingService";
+import { purchaseWarehouseOperationsService } from "@/lib/services/purchaseWarehouseOperationsService";
 import { supplierService } from "@/lib/services/supplierService";
 import { PurchaseReceivingForm } from "../_purchase-form";
 
@@ -16,12 +17,13 @@ type NewPurchasePageProps = { searchParams: Promise<{ draft?: string; copied?: s
 export default async function NewPurchasePage({ searchParams }: NewPurchasePageProps) {
   const params = await searchParams;
   const auth = await requirePermission("inventory:manage");
-  const [suppliers, wallets, bankAccounts, drawerBalance, categories, draft] = await Promise.all([
+  const [suppliers, wallets, bankAccounts, drawerBalance, categories, warehouses, draft] = await Promise.all([
     supplierService.listSuppliers(auth.shop.id),
     purchaseReceivingService.listPurchaseFinancialWallets(auth.shop.id),
     bankAccountService.listAccounts(auth.shop.id),
     purchaseReceivingService.getPurchaseDrawerBalance(auth.shop.id),
     inventoryCategoryService.listInventoryCategories(auth.shop.id),
+    purchaseWarehouseOperationsService.listActivePurchaseWarehouses(auth.shop.id),
     params.draft ? purchaseReceivingService.getPurchaseInvoice(auth.shop.id, params.draft).catch(() => null) : Promise.resolve(null),
   ]);
   const editableDraft = draft?.status === "DRAFT" ? draft : null;
@@ -41,7 +43,7 @@ export default async function NewPurchasePage({ searchParams }: NewPurchasePageP
     {!editableDraft && params.draft && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs font-bold text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"><AlertTriangle className="ml-1.5 inline h-4 w-4" />المسودة المطلوبة غير موجودة أو لم تعد قابلة للتعديل.</div>}
 
     <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 text-xs font-semibold leading-6 text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/25 dark:text-emerald-200">
-      <div className="flex items-start gap-2"><PackageCheck className="mt-0.5 h-4 w-4 shrink-0" /><span>المسودة تحفظ تلقائياً ولا تسجل حركة مخزون أو دفعة أو مستحقاً. اللصق من Excel ومسح الباركود يضيفان بنوداً إلى نفس المسودة فقط؛ عند الاعتماد تُثبت الفاتورة، ويُضاف للمخزون فقط ما اخترت أنه مستلم. أي استلام لاحق يبقى مرتبطاً بالفاتورة نفسها.</span></div>
+      <div className="flex items-start gap-2"><PackageCheck className="mt-0.5 h-4 w-4 shrink-0" /><span>المسودة تحفظ تلقائياً ولا تسجل حركة مخزون أو دفعة أو مستحقاً. عند الاعتماد تختار مستودع الاستلام صراحةً؛ لا يتم تحويل البضاعة تلقائياً إلى المستودع الافتراضي إذا اخترت مستودعاً آخر.</span></div>
     </div>
 
     <PurchaseReceivingForm
@@ -50,6 +52,7 @@ export default async function NewPurchasePage({ searchParams }: NewPurchasePageP
       bankAccounts={bankAccounts.map(account => ({ id: account.id, name: account.name, bankName: account.bankName, currentBalance: account.currentBalance.toString() }))}
       drawerBalance={drawerBalance.toString()}
       categories={categories}
+      warehouses={warehouses}
       currency={auth.shop.currency}
       initialDraft={editableDraft ? {
         id: editableDraft.id,
