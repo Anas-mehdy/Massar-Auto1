@@ -115,17 +115,30 @@ export async function addServiceLaborLineAction(formData: FormData) {
 
 export async function addServicePartLineAction(formData: FormData) {
   const serviceOrderId = z.string().uuid().parse(readString(formData, "serviceOrderId"));
-  const inventoryItemId = readString(formData, "inventoryItemId") || null;
-  if (inventoryItemId) z.string().uuid().parse(inventoryItemId);
+  const inventorySelection = readString(formData, "inventorySelection");
+  let inventoryItemId = readString(formData, "inventoryItemId") || null;
+  let warehouseId = readString(formData, "warehouseId") || null;
+
+  if (inventorySelection) {
+    const [itemId, selectedWarehouseId, ...extra] = inventorySelection.split("|");
+    if (!itemId || !selectedWarehouseId || extra.length) throw new Error("اختيار قطعة المخزون غير صالح.");
+    inventoryItemId = z.string().uuid().parse(itemId);
+    warehouseId = z.string().uuid().parse(selectedWarehouseId);
+  } else {
+    if (inventoryItemId) inventoryItemId = z.string().uuid().parse(inventoryItemId);
+    if (warehouseId) warehouseId = z.string().uuid().parse(warehouseId);
+  }
+
   const auth = await requirePermission("service_orders:update");
   if (inventoryItemId) await requirePermission("inventory:use_parts");
 
   await autoServiceOrderService.addPartLine(auth.shop.id, serviceOrderId, {
     inventoryItemId,
-    partName: z.string().trim().min(1).max(1000).parse(readString(formData, "partName")),
+    warehouseId,
+    partName: readString(formData, "partName"),
     quantity: optionalInteger(readString(formData, "quantity")) ?? 1,
     unitCost: optionalNumber(readString(formData, "unitCost")),
-    unitPrice: optionalNumber(readString(formData, "unitPrice")) ?? 0,
+    unitPrice: optionalNumber(readString(formData, "unitPrice")),
     notes: readString(formData, "notes"),
   });
 

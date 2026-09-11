@@ -1,5 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import {
+  reserveServiceOrderPartsInTx,
+  syncQuotationApprovalsToServiceLinesInTx,
+} from "@/lib/services/servicePartInventoryService";
 
 export type ApprovalDecision = "APPROVED" | "PARTIALLY_APPROVED" | "REJECTED";
 export type ApprovalChannel = "IN_PERSON" | "PHONE" | "WHATSAPP" | "WEB" | "OTHER";
@@ -43,8 +47,8 @@ export async function createQuotationFromServiceOrder(
     `;
     const order = orders[0];
     if (!order) throw new Error("أمر الصيانة غير موجود.");
-    if (["DELIVERED", "CLOSED", "CANCELLED", "REJECTED"].includes(order.status)) {
-      throw new Error("لا يمكن إنشاء عرض سعر لأمر صيانة منتهي أو ملغى.");
+    if (!["RECEIVED", "INSPECTING", "WAITING_CUSTOMER_APPROVAL"].includes(order.status)) {
+      throw new Error("يمكن إنشاء عرض السعر قبل بدء تنفيذ الصيانة فقط.");
     }
 
     const labor = await tx.$queryRaw<Array<{ id: string; description: string; quantity: number; unitPrice: number; costAmount: number | null; lineTotal: number }>>`
@@ -162,7 +166,7 @@ export async function markQuotationSent(
       FOR UPDATE
     `;
     const currentStatus = orders[0]?.status;
-    if (currentStatus === "INSPECTING") {
+    if (currentStatus === "RECEIVED" || currentStatus === "INSPECTING") {
       await tx.$executeRaw`
         UPDATE "ServiceOrder"
         SET "status" = 'WAITING_CUSTOMER_APPROVAL', "updatedByUserId" = ${changedByUserId}::uuid, "updatedAt" = now(), "version" = "version" + 1
@@ -170,7 +174,7 @@ export async function markQuotationSent(
       `;
       await tx.$executeRaw`
         INSERT INTO "ServiceOrderStatusHistory" ("shopId", "serviceOrderId", "fromStatus", "toStatus", "createdByUserId")
-        VALUES (${shopId}::uuid, ${quote.serviceOrderId}::uuid, 'INSPECTING', 'WAITING_CUSTOMER_APPROVAL', ${changedByUserId}::uuid)
+        VALUES (${shopId}::uuid, ${quote.serviceOrderId}::uuid, ${currentStatus}, 'WAITING_CUSTOMER_APPROVAL', ${changedByUserId}::uuid)
       `;
     }
 
@@ -242,6 +246,8 @@ export async function recordCustomerApproval(
       }
     }
 
+    await syncQuotationApprovalsToServiceLinesInTx(tx, shopId, quotationId);
+
     const customerRows = await tx.$queryRaw<Array<{ customerName: string; customerPhone: string | null; orderStatus: string }>>`
       SELECT c."name" AS "customerName", c."phone" AS "customerPhone", so."status" AS "orderStatus"
       FROM "ServiceOrder" so
@@ -268,12 +274,23 @@ export async function recordCustomerApproval(
       RETURNING "id", "decidedAt"
     `;
 
-    const targetOrderStatus = input.decision === "REJECTED" ? "REJECTED" : "APPROVED";
-    if (context.orderStatus === "WAITING_CUSTOMER_APPROVAL" || context.orderStatus === "INSPECTING") {
+    let targetOrderStatus = input.decision === "REJECTED" ? "REJECTED" : "APPROVED";
+    let missingParts: Awaited<ReturnType<typeof reserveServiceOrderPartsInTx>> = [];
+    if (input.decision !== "REJECTED") {
+      missingParts = await reserveServiceOrderPartsInTx(tx, shopId, quote.serviceOrderId);
+      if (missingParts.length) targetOrderStatus = "WAITING_PARTS";
+    }
+
+    const shortageNote = missingParts.length
+      ? `بانتظار قطع — ${missingParts.map((part) => `${part.partName}: مطلوب ${part.requiredQuantity}، متاح ${part.availableQuantity}`).join("؛ ")}`
+      : null;
+    const historyNote = [emptyToNull(input.note), shortageNote].filter(Boolean).join(" • ") || null;
+
+    if (["RECEIVED", "INSPECTING", "WAITING_CUSTOMER_APPROVAL"].includes(context.orderStatus)) {
       await tx.$executeRaw`
         UPDATE "ServiceOrder"
         SET "status" = ${targetOrderStatus},
-            "approvedAt" = CASE WHEN ${targetOrderStatus} = 'APPROVED' THEN COALESCE("approvedAt", now()) ELSE "approvedAt" END,
+            "approvedAt" = CASE WHEN ${input.decision} <> 'REJECTED' THEN COALESCE("approvedAt", now()) ELSE "approvedAt" END,
             "updatedByUserId" = ${recordedByUserId}::uuid,
             "updatedAt" = now(),
             "version" = "version" + 1
@@ -281,7 +298,7 @@ export async function recordCustomerApproval(
       `;
       await tx.$executeRaw`
         INSERT INTO "ServiceOrderStatusHistory" ("shopId", "serviceOrderId", "fromStatus", "toStatus", "note", "createdByUserId")
-        VALUES (${shopId}::uuid, ${quote.serviceOrderId}::uuid, ${context.orderStatus}, ${targetOrderStatus}, ${emptyToNull(input.note)}, ${recordedByUserId}::uuid)
+        VALUES (${shopId}::uuid, ${quote.serviceOrderId}::uuid, ${context.orderStatus}, ${targetOrderStatus}, ${historyNote}, ${recordedByUserId}::uuid)
       `;
     }
 

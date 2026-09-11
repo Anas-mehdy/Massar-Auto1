@@ -13,6 +13,7 @@ import {
 } from "@/lib/auto/service-order-ui";
 import { autoServiceOrderService } from "@/lib/services/autoServiceOrderService";
 import { serviceInspectionService } from "@/lib/services/serviceInspectionService";
+import { servicePartInventoryService } from "@/lib/services/servicePartInventoryService";
 import { InspectionForm } from "../_inspection-form";
 import {
   addServiceLaborLineAction,
@@ -26,7 +27,7 @@ export const dynamic = "force-dynamic";
 type PageProps = { params: Promise<{ id: string }> };
 
 type LaborRow = { id: string; description: string; quantity: string | number; unitPrice: string | number; lineTotal: string | number; status: string; notes?: string | null };
-type PartRow = { id: string; partName: string; quantity: number; unitCost: string | number | null; unitPrice: string | number; lineTotal: string | number; status: string; notes?: string | null };
+type PartRow = { id: string; partName: string; quantity: number; unitCost: string | number | null; unitPrice: string | number; lineTotal: string | number; status: string; notes?: string | null; warehouseName?: string | null; sku?: string | null; barcode?: string | null };
 type QuoteRow = { id: string; quoteNumber: string; revision: number; status: string; total: string | number; createdAt: Date };
 
 const inputClass = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100";
@@ -54,9 +55,10 @@ const inspectionResultClasses: Record<string, string> = {
 export default async function ServiceOrderPage({ params }: PageProps) {
   const auth = await requirePermission("service_orders:read");
   const { id } = await params;
-  const [order, inspections] = await Promise.all([
+  const [order, inspections, inventoryChoices] = await Promise.all([
     autoServiceOrderService.getServiceOrderById(auth.shop.id, id),
     serviceInspectionService.listServiceInspections(auth.shop.id, id),
+    servicePartInventoryService.listServicePartInventoryChoices(auth.shop.id),
   ]);
   if (!order) notFound();
 
@@ -158,14 +160,23 @@ export default async function ServiceOrderPage({ params }: PageProps) {
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 p-5"><h2 className="flex items-center gap-2 font-black text-slate-950"><PackagePlus className="h-4 w-4 text-amber-700" />قطع الغيار</h2></div>
           <div className="space-y-3 p-4">
-            {partLines.length ? partLines.map((line) => <div key={line.id} className="rounded-xl border border-slate-100 p-3"><div className="flex items-start justify-between gap-3"><div className="font-bold text-slate-800">{line.partName}</div><div className="shrink-0 font-black text-slate-950">{formatAutoMoney(line.lineTotal, auth.shop.currency)}</div></div><div className="mt-1 text-xs text-slate-500">{line.quantity} × {formatAutoMoney(line.unitPrice, auth.shop.currency)} • {line.status}</div></div>) : <div className="py-5 text-center text-sm font-bold text-slate-400">لا توجد قطع مضافة بعد</div>}
+            {partLines.length ? partLines.map((line) => <div key={line.id} className="rounded-xl border border-slate-100 p-3"><div className="flex items-start justify-between gap-3"><div><div className="font-bold text-slate-800">{line.partName}</div>{line.warehouseName ? <div className="mt-1 text-[11px] font-bold text-slate-400">{line.warehouseName}{line.sku ? ` • SKU ${line.sku}` : ""}</div> : null}</div><div className="shrink-0 font-black text-slate-950">{formatAutoMoney(line.lineTotal, auth.shop.currency)}</div></div><div className="mt-1 text-xs text-slate-500">{line.quantity} × {formatAutoMoney(line.unitPrice, auth.shop.currency)} • {line.status}</div></div>) : <div className="py-5 text-center text-sm font-bold text-slate-400">لا توجد قطع مضافة بعد</div>}
           </div>
           <form action={addServicePartLineAction} className="grid gap-3 border-t border-slate-100 bg-slate-50/60 p-4 sm:grid-cols-2">
             <input type="hidden" name="serviceOrderId" value={order.id} />
-            <input name="partName" required className={`${inputClass} sm:col-span-2`} placeholder="اسم قطعة الغيار" />
+            <select name="inventorySelection" defaultValue="" className={`${inputClass} sm:col-span-2`}>
+              <option value="">قطعة يدوية / غير مرتبطة بالمخزون</option>
+              {inventoryChoices.map((choice) => (
+                <option key={`${choice.inventoryItemId}-${choice.warehouseId}`} value={`${choice.inventoryItemId}|${choice.warehouseId}`}>
+                  {choice.itemName} — {choice.warehouseName} — متاح {choice.availableQuantity}
+                </option>
+              ))}
+            </select>
+            <input name="partName" className={`${inputClass} sm:col-span-2`} placeholder="اسم قطعة يدوية، أو اتركه فارغاً عند اختيار قطعة من المخزون" />
             <input name="quantity" type="number" min="1" step="1" defaultValue="1" className={inputClass} />
-            <input name="unitPrice" type="number" min="0" step="0.01" required className={inputClass} placeholder="سعر البيع" />
-            <input name="unitCost" type="number" min="0" step="0.000001" className={inputClass} placeholder="التكلفة (اختياري)" />
+            <input name="unitPrice" type="number" min="0" step="0.01" className={inputClass} placeholder="سعر البيع (يؤخذ من المخزون إذا ترك فارغاً)" />
+            <input name="unitCost" type="number" min="0" step="0.000001" className={inputClass} placeholder="التكلفة (تؤخذ من المستودع تلقائياً)" />
+            <input name="notes" className={inputClass} placeholder="ملاحظة (اختياري)" />
             <Button type="submit" className="font-black sm:col-span-2"><Plus className="ml-1 h-4 w-4" />إضافة قطعة</Button>
           </form>
         </section>

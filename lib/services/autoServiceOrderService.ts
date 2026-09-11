@@ -1,5 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import {
+  approvePlannedServiceLinesInTx,
+  completeServiceWorkInTx,
+  consumeServiceOrderPartsInTx,
+  markServiceWorkInProgressInTx,
+  releaseServiceOrderReservationsInTx,
+  reserveServiceOrderPartsInTx,
+} from "@/lib/services/servicePartInventoryService";
 
 export const SERVICE_ORDER_STATUSES = [
   "RECEIVED",
@@ -266,9 +274,14 @@ export async function getServiceOrderById(shopId: string, serviceOrderId: string
       ORDER BY "sortOrder", "createdAt"
     `,
     prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT * FROM "ServicePartLine"
-      WHERE "shopId" = ${shopId}::uuid AND "serviceOrderId" = ${serviceOrderId}::uuid
-      ORDER BY "sortOrder", "createdAt"
+      SELECT spl.*, w."name" AS "warehouseName", i."sku", i."barcode"
+      FROM "ServicePartLine" spl
+      LEFT JOIN "Warehouse" w
+        ON w."id" = spl."warehouseId" AND w."shopId" = spl."shopId"
+      LEFT JOIN "InventoryItem" i
+        ON i."id" = spl."inventoryItemId" AND i."shopId" = spl."shopId"
+      WHERE spl."shopId" = ${shopId}::uuid AND spl."serviceOrderId" = ${serviceOrderId}::uuid
+      ORDER BY spl."sortOrder", spl."createdAt"
     `,
     prisma.$queryRaw<Array<Record<string, unknown>>>`
       SELECT * FROM "Quotation"
@@ -311,14 +324,45 @@ export async function updateServiceOrderStatus(
       throw new Error(`لا يمكن نقل أمر الصيانة من ${current.status} إلى ${toStatus}.`);
     }
 
+    let effectiveStatus: ServiceOrderStatus = toStatus;
+    let lifecycleNote = emptyToNull(note);
+
+    if (toStatus === "APPROVED") {
+      await approvePlannedServiceLinesInTx(tx, shopId, serviceOrderId);
+      const missing = await reserveServiceOrderPartsInTx(tx, shopId, serviceOrderId);
+      if (missing.length) {
+        effectiveStatus = "WAITING_PARTS";
+        const shortage = missing
+          .map((part) => `${part.partName}: مطلوب ${part.requiredQuantity}، متاح ${part.availableQuantity}`)
+          .join("؛ ");
+        lifecycleNote = [lifecycleNote, `بانتظار قطع — ${shortage}`].filter(Boolean).join(" • ");
+      }
+    }
+
+    if (toStatus === "IN_SERVICE") {
+      await approvePlannedServiceLinesInTx(tx, shopId, serviceOrderId);
+      await consumeServiceOrderPartsInTx(tx, shopId, serviceOrderId, changedByUserId);
+      await markServiceWorkInProgressInTx(tx, shopId, serviceOrderId);
+    }
+
+    if (toStatus === "READY_FOR_DELIVERY") {
+      await approvePlannedServiceLinesInTx(tx, shopId, serviceOrderId);
+      await consumeServiceOrderPartsInTx(tx, shopId, serviceOrderId, changedByUserId);
+      await completeServiceWorkInTx(tx, shopId, serviceOrderId);
+    }
+
+    if (toStatus === "CANCELLED" || toStatus === "REJECTED") {
+      await releaseServiceOrderReservationsInTx(tx, shopId, serviceOrderId);
+    }
+
     const updated = await tx.$queryRaw<Array<{ id: string; status: ServiceOrderStatus }>>`
       UPDATE "ServiceOrder"
-      SET "status" = ${toStatus},
+      SET "status" = ${effectiveStatus},
           "approvedAt" = CASE WHEN ${toStatus} = 'APPROVED' THEN COALESCE("approvedAt", now()) ELSE "approvedAt" END,
-          "startedAt" = CASE WHEN ${toStatus} = 'IN_SERVICE' THEN COALESCE("startedAt", now()) ELSE "startedAt" END,
-          "readyAt" = CASE WHEN ${toStatus} = 'READY_FOR_DELIVERY' THEN COALESCE("readyAt", now()) ELSE "readyAt" END,
-          "deliveredAt" = CASE WHEN ${toStatus} = 'DELIVERED' THEN COALESCE("deliveredAt", now()) ELSE "deliveredAt" END,
-          "closedAt" = CASE WHEN ${toStatus} = 'CLOSED' THEN COALESCE("closedAt", now()) ELSE "closedAt" END,
+          "startedAt" = CASE WHEN ${effectiveStatus} = 'IN_SERVICE' THEN COALESCE("startedAt", now()) ELSE "startedAt" END,
+          "readyAt" = CASE WHEN ${effectiveStatus} = 'READY_FOR_DELIVERY' THEN COALESCE("readyAt", now()) ELSE "readyAt" END,
+          "deliveredAt" = CASE WHEN ${effectiveStatus} = 'DELIVERED' THEN COALESCE("deliveredAt", now()) ELSE "deliveredAt" END,
+          "closedAt" = CASE WHEN ${effectiveStatus} = 'CLOSED' THEN COALESCE("closedAt", now()) ELSE "closedAt" END,
           "updatedByUserId" = ${changedByUserId}::uuid,
           "updatedAt" = now(),
           "version" = "version" + 1
@@ -328,7 +372,7 @@ export async function updateServiceOrderStatus(
 
     await tx.$executeRaw`
       INSERT INTO "ServiceOrderStatusHistory" ("shopId", "serviceOrderId", "fromStatus", "toStatus", "note", "createdByUserId")
-      VALUES (${shopId}::uuid, ${serviceOrderId}::uuid, ${current.status}, ${toStatus}, ${emptyToNull(note)}, ${changedByUserId}::uuid)
+      VALUES (${shopId}::uuid, ${serviceOrderId}::uuid, ${current.status}, ${effectiveStatus}, ${lifecycleNote}, ${changedByUserId}::uuid)
     `;
 
     return updated[0];
@@ -377,30 +421,98 @@ export async function addLaborLine(
 export async function addPartLine(
   shopId: string,
   serviceOrderId: string,
-  input: { inventoryItemId?: string | null; partName: string; quantity?: number; unitCost?: number | null; unitPrice: number; notes?: string | null },
+  input: {
+    inventoryItemId?: string | null;
+    warehouseId?: string | null;
+    partName?: string | null;
+    quantity?: number;
+    unitCost?: number | null;
+    unitPrice?: number | null;
+    notes?: string | null;
+  },
 ) {
   await assertOrderEditable(shopId, serviceOrderId);
-  const partName = input.partName.trim();
   const quantity = input.quantity ?? 1;
-  if (!partName) throw new Error("اسم قطعة الغيار مطلوب.");
   if (!Number.isInteger(quantity) || quantity <= 0) throw new Error("كمية قطعة الغيار غير صالحة.");
-  if (input.unitPrice < 0 || (input.unitCost != null && input.unitCost < 0)) throw new Error("سعر أو تكلفة قطعة الغيار غير صالح.");
+  if (input.unitPrice != null && input.unitPrice < 0) throw new Error("سعر قطعة الغيار غير صالح.");
+  if (input.unitCost != null && input.unitCost < 0) throw new Error("تكلفة قطعة الغيار غير صالحة.");
+
+  let partName = input.partName?.trim() ?? "";
+  let unitPrice = input.unitPrice ?? null;
+  let unitCost = input.unitCost ?? null;
+  let warehouseId = input.warehouseId ?? null;
 
   if (input.inventoryItemId) {
-    const item = await prisma.inventoryItem.findFirst({
-      where: { id: input.inventoryItemId, shopId, deletedAt: null },
-      select: { id: true },
-    });
+    const items = await prisma.$queryRaw<Array<{
+      id: string;
+      name: string;
+      unitPrice: number;
+      unitCost: number | null;
+    }>>`
+      SELECT "id", "name", "unitPrice"::double precision AS "unitPrice",
+             "unitCost"::double precision AS "unitCost"
+      FROM "InventoryItem"
+      WHERE "id" = ${input.inventoryItemId}::uuid
+        AND "shopId" = ${shopId}::uuid
+        AND "deletedAt" IS NULL
+      LIMIT 1
+    `;
+    const item = items[0];
     if (!item) throw new Error("قطعة المخزون غير موجودة في هذا المركز.");
+
+    if (warehouseId) {
+      const warehouses = await prisma.$queryRaw<Array<{ id: string; averageCost: number | null }>>`
+        SELECT w."id", COALESCE(ws."averageCost", i."unitCost")::double precision AS "averageCost"
+        FROM "Warehouse" w
+        JOIN "InventoryItem" i ON i."id" = ${input.inventoryItemId}::uuid AND i."shopId" = w."shopId"
+        LEFT JOIN "WarehouseStock" ws
+          ON ws."shopId" = w."shopId"
+         AND ws."warehouseId" = w."id"
+         AND ws."inventoryItemId" = i."id"
+        WHERE w."id" = ${warehouseId}::uuid
+          AND w."shopId" = ${shopId}::uuid
+          AND w."deletedAt" IS NULL
+          AND w."isActive" = true
+        LIMIT 1
+      `;
+      if (!warehouses[0]) throw new Error("المستودع المحدد غير موجود أو غير نشط.");
+      unitCost = unitCost ?? warehouses[0].averageCost;
+    } else {
+      const defaults = await prisma.$queryRaw<Array<{ id: string; averageCost: number | null }>>`
+        SELECT w."id", COALESCE(ws."averageCost", i."unitCost")::double precision AS "averageCost"
+        FROM "Warehouse" w
+        JOIN "InventoryItem" i ON i."id" = ${input.inventoryItemId}::uuid AND i."shopId" = w."shopId"
+        LEFT JOIN "WarehouseStock" ws
+          ON ws."shopId" = w."shopId"
+         AND ws."warehouseId" = w."id"
+         AND ws."inventoryItemId" = i."id"
+        WHERE w."shopId" = ${shopId}::uuid
+          AND w."deletedAt" IS NULL
+          AND w."isActive" = true
+        ORDER BY w."isDefault" DESC, COALESCE(ws."quantity" - ws."reservedQuantity", 0) DESC, w."name" ASC
+        LIMIT 1
+      `;
+      if (defaults[0]) {
+        warehouseId = defaults[0].id;
+        unitCost = unitCost ?? defaults[0].averageCost;
+      }
+    }
+
+    partName = partName || item.name;
+    unitPrice = unitPrice ?? item.unitPrice;
+    unitCost = unitCost ?? item.unitCost;
   }
 
-  const lineTotal = Math.round(quantity * input.unitPrice * 100) / 100;
+  if (!partName) throw new Error("اسم قطعة الغيار مطلوب.");
+  if (unitPrice == null || unitPrice < 0) throw new Error("سعر بيع قطعة الغيار مطلوب وغير صالح.");
+
+  const lineTotal = Math.round(quantity * unitPrice * 100) / 100;
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
     INSERT INTO "ServicePartLine" (
-      "shopId", "serviceOrderId", "inventoryItemId", "partName", "quantity", "unitCost", "unitPrice", "lineTotal", "notes"
+      "shopId", "serviceOrderId", "inventoryItemId", "warehouseId", "partName", "quantity", "unitCost", "unitPrice", "lineTotal", "notes"
     ) VALUES (
-      ${shopId}::uuid, ${serviceOrderId}::uuid, ${input.inventoryItemId ?? null}::uuid, ${partName}, ${quantity},
-      ${input.unitCost ?? null}, ${input.unitPrice}, ${lineTotal}, ${emptyToNull(input.notes)}
+      ${shopId}::uuid, ${serviceOrderId}::uuid, ${input.inventoryItemId ?? null}::uuid, ${warehouseId}::uuid, ${partName}, ${quantity},
+      ${unitCost}, ${unitPrice}, ${lineTotal}, ${emptyToNull(input.notes)}
     )
     RETURNING *
   `;
