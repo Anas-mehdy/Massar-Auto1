@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/auth/context";
 import { bankAccountService } from "@/lib/services/bankAccountService";
 import { financialTransferService } from "@/lib/services/financialTransferService";
 import { salesReturnService } from "@/lib/services/salesReturnService";
+import { salesWarehouseSourceService } from "@/lib/services/salesWarehouseSourceService";
 import { warehouseService } from "@/lib/services/warehouseService";
 import { SalesReturnForm } from "../_return-form";
 
@@ -22,11 +23,13 @@ export default async function NewSalesReturnPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const saleId = params.saleId ?? "";
   const sale = saleId ? await salesReturnService.getReturnableSale(auth.shop.id, saleId) : null;
-  const [warehouses, wallets, banks] = await Promise.all([
+  const [warehouses, wallets, banks, warehouseSources] = await Promise.all([
     warehouseService.listWarehouses(auth.shop.id),
     financialTransferService.listWallets(auth.shop.id),
     bankAccountService.listAccounts(auth.shop.id),
+    sale ? salesWarehouseSourceService.getSaleItemWarehouseSources(auth.shop.id, sale.id) : Promise.resolve([]),
   ]);
+  const warehouseSourceBySaleItemId = new Map(warehouseSources.map((source) => [source.saleItemId, source]));
 
   return <div className="space-y-6">
     <PageHeader title="مرتجع بيع جزئي" description="اختر الكميات المرتجعة فقط؛ النظام يمنع تجاوز الكمية المباعة ويعيد المخزون والمال بشكل مترابط." actions={<Button asChild variant="outline" className="font-black"><Link href="/sales/returns"><ArrowRight className="ml-1 h-4 w-4" />المرتجعات</Link></Button>} />
@@ -41,17 +44,23 @@ export default async function NewSalesReturnPage({ searchParams }: PageProps) {
         <SalesReturnForm
           saleId={sale.id}
           currency={auth.shop.currency}
-          items={sale.items.map((item) => ({
-            id: item.id,
-            description: item.description,
-            quantity: item.quantity,
-            returnedQuantity: item.returnedQuantity,
-            returnableQuantity: item.returnableQuantity,
-            unitPriceSnapshot: item.unitPriceSnapshot.toString(),
-            lineTotal: item.lineTotal.toString(),
-            inventoryItem: item.inventoryItem ? { id: item.inventoryItem.id, name: item.inventoryItem.name } : null,
-          }))}
-          warehouses={warehouses.map((warehouse) => ({ id: warehouse.id, name: warehouse.name }))}
+          items={sale.items.map((item) => {
+            const source = warehouseSourceBySaleItemId.get(item.id);
+            return {
+              id: item.id,
+              description: item.description,
+              quantity: item.quantity,
+              returnedQuantity: item.returnedQuantity,
+              returnableQuantity: item.returnableQuantity,
+              unitPriceSnapshot: item.unitPriceSnapshot.toString(),
+              lineTotal: item.lineTotal.toString(),
+              inventoryItem: item.inventoryItem ? { id: item.inventoryItem.id, name: item.inventoryItem.name } : null,
+              originalWarehouseId: source?.warehouseId ?? null,
+              originalWarehouseName: source?.warehouseName ?? null,
+              originalWarehouseActive: source?.warehouseActive ?? null,
+            };
+          })}
+          warehouses={warehouses.filter((warehouse) => warehouse.isActive).map((warehouse) => ({ id: warehouse.id, name: warehouse.name }))}
           wallets={wallets.map((wallet) => ({ id: wallet.id, name: wallet.name }))}
           banks={banks.map((bank) => ({ id: bank.id, name: bank.name }))}
         />
