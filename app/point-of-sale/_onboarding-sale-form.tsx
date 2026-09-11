@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Banknote, Boxes, Loader2, ShoppingCart, Sparkles } from "lucide-react";
+import { ArrowRight, Banknote, Boxes, Loader2, ShoppingCart, Sparkles, Warehouse } from "lucide-react";
 import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
 import { captureClientEvent } from "@/lib/analytics/client";
 import { Button } from "@/components/ui/button";
@@ -14,9 +14,11 @@ const initialState: SaleActionState = {};
 
 export function SaleOnboardingQuickForm({
   inventoryItems,
+  warehouse,
   currency,
 }: {
   inventoryItems: SaleInventoryOption[];
+  warehouse: { id: string; name: string };
   currency: string;
 }) {
   const [state, formAction, isPending] = useActionState(createSaleAction, initialState);
@@ -31,8 +33,9 @@ export function SaleOnboardingQuickForm({
       source: "point_of_sale_onboarding",
       onboarding_mode: true,
       onboarding_flow: "sales_first_value",
+      warehouse_id: warehouse.id,
     });
-  }, []);
+  }, [warehouse.id]);
 
   function markStarted() {
     if (startedRef.current) return;
@@ -41,11 +44,13 @@ export function SaleOnboardingQuickForm({
       source: "point_of_sale_onboarding",
       onboarding_mode: true,
       onboarding_flow: "sales_first_value",
+      warehouse_id: warehouse.id,
     });
   }
 
   function selectInventory(item: SaleInventoryOption | null) {
     markStarted();
+    if (item && item.warehouseId !== warehouse.id) return;
     setSelectedInventory(item);
     if (!item) return;
     setDescription(item.name);
@@ -89,6 +94,7 @@ export function SaleOnboardingQuickForm({
 
         <form action={formAction} className="space-y-5 px-5 py-5 sm:px-6">
           <input type="hidden" name="items" value={serializedItems} />
+          <input type="hidden" name="warehouseId" value={warehouse.id} />
           <input type="hidden" name="customerMode" value="CASH" />
           <input type="hidden" name="customerId" value="" />
           <input type="hidden" name="paymentDestination" value="DRAWER" />
@@ -104,12 +110,17 @@ export function SaleOnboardingQuickForm({
             </div>
           ) : null}
 
+          <div className="flex items-center gap-2 rounded-xl border border-cyan-200 bg-cyan-50/70 px-3 py-2 text-[10px] font-black text-cyan-800 dark:border-cyan-900 dark:bg-cyan-950/25 dark:text-cyan-200">
+            <Warehouse className="h-3.5 w-3.5" />
+            البيع من: {warehouse.name} • الكمية المعروضة هي المتاح غير المحجوز
+          </div>
+
           <div className="rounded-2xl border border-slate-200 bg-white/85 p-4 dark:border-slate-800 dark:bg-slate-900/70">
             <div className="mb-3 flex items-center gap-2">
               <Boxes className="h-4 w-4 text-indigo-600" />
               <div>
                 <p className="text-[12px] font-black text-slate-900 dark:text-slate-100">شو عم تبيع؟</p>
-                <p className="mt-0.5 text-[9px] font-semibold text-slate-400">اختر من المخزون إن وجد، أو اكتب أي قطعة/خدمة يدوياً.</p>
+                <p className="mt-0.5 text-[9px] font-semibold text-slate-400">اختر من مخزون المستودع إن وجد، أو اكتب أي قطعة/خدمة يدوياً.</p>
               </div>
             </div>
 
@@ -119,6 +130,7 @@ export function SaleOnboardingQuickForm({
                 <InventorySearchCombobox
                   value={selectedInventory?.id ?? ""}
                   selectedLabel={selectedInventory?.name ?? ""}
+                  warehouseId={warehouse.id}
                   initialOptions={inventoryItems}
                   onSelect={selectInventory}
                 />
@@ -173,8 +185,9 @@ export function SaleOnboardingQuickForm({
 
               {selectedInventory ? (
                 <div className={`rounded-xl border px-3 py-2 text-[10px] font-bold ${stockInsufficient ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
-                  المتوفر بالمخزون: <span className="font-numeric font-black">{selectedInventory.quantity}</span>
-                  {stockInsufficient ? " — الكمية المطلوبة أكبر من المتوفر." : " — سيتم خصم الكمية تلقائياً بعد البيع."}
+                  المتاح للبيع في {warehouse.name}: <span className="font-numeric font-black">{selectedInventory.quantity}</span>
+                  {selectedInventory.reservedQuantity > 0 ? ` • محجوز للصيانة: ${selectedInventory.reservedQuantity}` : ""}
+                  {stockInsufficient ? " — الكمية المطلوبة أكبر من المتاح." : " — سيتم الخصم من هذا المستودع تلقائياً."}
                 </div>
               ) : null}
             </div>
