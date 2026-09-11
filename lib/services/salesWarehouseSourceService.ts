@@ -8,6 +8,12 @@ export type SaleItemWarehouseSource = {
   warehouseActive: boolean | null;
 };
 
+export type SalesReturnWarehouseSummary = {
+  salesReturnId: string;
+  warehouseNames: string[];
+  nonRestockedCount: number;
+};
+
 type ReturnLineLike = {
   saleItemId: string;
   restock?: boolean;
@@ -71,7 +77,26 @@ export async function resolveSalesReturnWarehouses<T extends ReturnLineLike>(
   });
 }
 
+export async function listSalesReturnWarehouseSummaries(shopId: string): Promise<SalesReturnWarehouseSummary[]> {
+  return prisma.$queryRaw<SalesReturnWarehouseSummary[]>`
+    SELECT
+      srl."salesReturnId",
+      COALESCE(
+        ARRAY_AGG(DISTINCT w."name" ORDER BY w."name") FILTER (WHERE srl."restock" = TRUE AND w."id" IS NOT NULL),
+        ARRAY[]::text[]
+      ) AS "warehouseNames",
+      COUNT(*) FILTER (WHERE srl."restock" = FALSE)::int AS "nonRestockedCount"
+    FROM "SalesReturnLine" srl
+    LEFT JOIN "Warehouse" w
+      ON w."id" = srl."warehouseId"
+     AND w."shopId" = srl."shopId"
+    WHERE srl."shopId" = ${shopId}::uuid
+    GROUP BY srl."salesReturnId"
+  `;
+}
+
 export const salesWarehouseSourceService = {
   getSaleItemWarehouseSources,
   resolveSalesReturnWarehouses,
+  listSalesReturnWarehouseSummaries,
 };
