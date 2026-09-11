@@ -9,6 +9,7 @@ import {
   autoServiceOrderService,
   type ServiceOrderStatus,
 } from "@/lib/services/autoServiceOrderService";
+import { autoInvoiceService } from "@/lib/services/autoInvoiceService";
 import {
   quotationService,
   type ApprovalChannel,
@@ -41,6 +42,13 @@ function parseStatus(value: string): ServiceOrderStatus {
     throw new Error("حالة أمر الصيانة غير صالحة.");
   }
   return value as ServiceOrderStatus;
+}
+
+async function assertServiceLinesNotInvoiced(shopId: string, serviceOrderId: string) {
+  const invoice = await autoInvoiceService.getServiceOrderInvoice(shopId, serviceOrderId);
+  if (invoice) {
+    throw new Error("تم إصدار فاتورة لهذا أمر الصيانة، لذلك تم قفل أجور العمل وقطع الغيار. أي تصحيح مالي بعد الفوترة يجب أن يتم بإجراء تصحيحي صريح.");
+  }
 }
 
 const createSchema = z.object({
@@ -131,6 +139,7 @@ export async function addServiceLaborLineAction(formData: FormData) {
   const technicianUserId = readString(formData, "technicianUserId") || null;
   if (technicianUserId) z.string().uuid().parse(technicianUserId);
   const auth = await requirePermission("service_orders:update");
+  await assertServiceLinesNotInvoiced(auth.shop.id, serviceOrderId);
 
   await autoServiceOrderService.addLaborLine(auth.shop.id, serviceOrderId, {
     description,
@@ -167,6 +176,7 @@ export async function addServicePartLineAction(formData: FormData) {
 
   const auth = await requirePermission("service_orders:update");
   if (inventoryItemId) await requirePermission("inventory:use_parts");
+  await assertServiceLinesNotInvoiced(auth.shop.id, serviceOrderId);
 
   await autoServiceOrderService.addPartLine(auth.shop.id, serviceOrderId, {
     inventoryItemId,
@@ -187,6 +197,7 @@ export async function returnUsedServicePartAction(formData: FormData) {
   const note = z.string().trim().max(500, "ملاحظة الإرجاع طويلة جداً.").parse(readString(formData, "note"));
   const auth = await requirePermission("service_orders:update");
   await requirePermission("inventory:use_parts");
+  await assertServiceLinesNotInvoiced(auth.shop.id, serviceOrderId);
 
   await servicePartReturnService.returnUsedServicePartToInventory(
     auth.shop.id,
