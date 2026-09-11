@@ -14,6 +14,7 @@ import {
   type ApprovalChannel,
   type ApprovalDecision,
 } from "@/lib/services/quotationService";
+import { serviceOrderWorkflowService } from "@/lib/services/serviceOrderWorkflowService";
 
 function readString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -91,6 +92,33 @@ export async function updateServiceOrderStatusAction(formData: FormData) {
   revalidatePath("/service-orders");
   revalidatePath(`/service-orders/${serviceOrderId}`);
   revalidatePath("/vehicles");
+}
+
+export async function updateServiceOrderDiagnosisAction(formData: FormData) {
+  const serviceOrderId = z.string().uuid().parse(readString(formData, "serviceOrderId"));
+  const diagnosis = z.string().max(6000, "التشخيص طويل جداً.").parse(readString(formData, "diagnosis"));
+  const auth = await requirePermission("service_orders:update");
+
+  await serviceOrderWorkflowService.updateDiagnosis(auth.shop.id, serviceOrderId, auth.user.id, diagnosis);
+  revalidatePath(`/service-orders/${serviceOrderId}`);
+  revalidatePath("/service-orders");
+  revalidatePath("/vehicles");
+}
+
+export async function assignServiceOrderTechnicianAction(formData: FormData) {
+  const serviceOrderId = z.string().uuid().parse(readString(formData, "serviceOrderId"));
+  const technicianRaw = readString(formData, "technicianUserId");
+  const technicianUserId = technicianRaw ? z.string().uuid().parse(technicianRaw) : null;
+  const auth = await requirePermission("service_orders:assign");
+
+  await serviceOrderWorkflowService.assignTechnician(
+    auth.shop.id,
+    serviceOrderId,
+    auth.user.id,
+    technicianUserId,
+  );
+  revalidatePath(`/service-orders/${serviceOrderId}`);
+  revalidatePath("/service-orders");
 }
 
 export async function addServiceLaborLineAction(formData: FormData) {
