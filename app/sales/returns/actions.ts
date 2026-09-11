@@ -66,7 +66,7 @@ export async function createSalesReturnAction(formData: FormData) {
     revalidatePath(`/sales/${parsed.saleId}`);
     revalidatePath("/sales/returns");
     revalidatePath("/inventory");
-    revalidatePath("/warehouses");
+    revalidatePath("/inventory/warehouses");
     revalidatePath("/cash-drawer");
     revalidatePath("/bank-accounts");
     revalidatePath("/transfers");
