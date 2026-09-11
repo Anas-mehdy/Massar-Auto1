@@ -1,0 +1,69 @@
+name: Auto purchase warehouses bootstrap
+
+on:
+  push:
+    branches:
+      - feature/auto-core-v1
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      NEXT_TELEMETRY_DISABLED: "1"
+      OPENAI_API_KEY: ""
+      PURCHASE_AI_MODEL: gpt-4.1-mini
+      PURCHASE_AI_SHOP_DAILY_LIMIT: "6"
+      PURCHASE_AI_FEATURE_BUDGET_USD: "5"
+      PURCHASE_AI_MAX_OUTPUT_TOKENS: "8000"
+      PURCHASE_IMPORT_MAX_FILE_MB: "4"
+      PURCHASE_IMPORT_MAX_PDF_PAGES: "3"
+      PURCHASE_IMPORT_EXTRACTING_STALE_MINUTES: "5"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/auto-core-v1
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply purchase warehouse patch
+        run: python3 scripts/patch-auto-purchase-warehouses.py
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Prisma validate and generate
+        run: |
+          npx prisma validate
+          npx prisma generate
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: Purchase static safeguards
+        run: |
+          node scripts/test-purchase-receiving-phase4-static.cjs
+          node scripts/test-purchase-receiving-lifecycle.cjs
+          node scripts/test-purchase-legacy-cost-compat-static.cjs
+          node scripts/test-supplier-ledger-static.cjs
+
+      - name: Full application build
+        run: npm run build
+
+      - name: Commit verified purchase warehouse integration
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/services/purchaseReceivingService.ts app/inventory/purchases/actions.ts app/inventory/purchases/new/page.tsx app/inventory/purchases/_purchase-form.tsx 'app/inventory/purchases/[id]/page.tsx' app/inventory/purchases/_purchase-operations-panel.tsx
+          git commit -m "feat(auto): choose warehouses for purchase receipts and returns"
+          git push origin HEAD:feature/auto-core-v1
