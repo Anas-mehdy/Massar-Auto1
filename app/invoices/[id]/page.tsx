@@ -54,7 +54,8 @@ export default async function InvoiceDetailsPage({ params, searchParams }: Invoi
   if (!invoice) notFound();
   const whatsappShare = whatsappService.buildInvoiceShareLinkFromData(invoice, shopName, currency);
   const canAddPayment = invoice.status !== InvoiceStatus.VOID && invoice.status !== InvoiceStatus.PAID && Number(invoice.balanceDue) > 0 && !invoice.installmentPlan;
-  const canVoid = invoice.status !== InvoiceStatus.VOID && !invoice.installmentPlan;
+  const autoInvoiceLocked = Boolean(invoice.autoServiceOrder && ["DELIVERED", "CLOSED"].includes(invoice.autoServiceOrder.status));
+  const canVoid = invoice.status !== InvoiceStatus.VOID && !invoice.installmentPlan && !autoInvoiceLocked;
   const hasPayments = invoice.payments.length > 0;
 
   return <div className="space-y-6">
@@ -115,6 +116,7 @@ export default async function InvoiceDetailsPage({ params, searchParams }: Invoi
             <Button asChild variant="outline" className="w-full font-bold shadow-sm border-slate-200/80 hover:bg-slate-50 rounded-xl h-11 text-xs justify-center"><Link href={`/invoices/${invoice.id}/print`} target="_blank"><Printer className="h-4 w-4 ml-1.5 shrink-0 text-slate-700" />طباعة الفاتورة (حراري 80mm)</Link></Button>
             {whatsappShare.ok ? <Button asChild variant="outline" className="w-full font-bold shadow-sm border-slate-200 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl h-11 text-xs justify-center"><a href={whatsappShare.url} target="_blank" rel="noreferrer"><MessageCircle className="h-4.5 w-4.5 ml-2 text-emerald-600 shrink-0" />إرسال الفاتورة عبر واتساب</a></Button> : <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3.5 text-[10px] text-slate-400 font-bold leading-normal text-right">⚠️ {whatsappShare.message}</div>}
             <form action={voidInvoiceAction}><input type="hidden" name="invoiceId" value={invoice.id} /><ConfirmSubmitButton type="submit" variant="destructive" disabled={!canVoid} className="w-full font-bold shadow-sm rounded-xl h-11 text-xs justify-center" message={hasPayments ? "سيتم إلغاء الفاتورة وعكس جميع الدفعات وسندات القبض المسجلة عليها. هل تريد المتابعة؟" : "هل تريد إلغاء هذه الفاتورة؟"}><Ban className="h-4 w-4 ml-1.5 shrink-0" />{hasPayments ? "إلغاء الفاتورة وعكس الدفعات" : "إلغاء الفاتورة (Void)"}</ConfirmSubmitButton></form>
+            {autoInvoiceLocked ? <p className="rounded-xl border border-violet-200/70 bg-violet-50/70 p-3 text-right text-[10px] font-bold leading-relaxed text-violet-800">تم تسليم المركبة، لذلك تم قفل إلغاء الفاتورة المباشر حفاظاً على سجل التسليم والذمم. أي تصحيح لاحق يجب أن يتم عبر مسار إشعار دائن/تسوية مالية.</p> : null}
             {hasPayments && canVoid ? <p className="text-[10px] leading-relaxed text-amber-700 font-bold bg-amber-50/70 p-3 rounded-xl border border-amber-200/70 text-right">⚠️ سيتم عكس أثر {invoice.payments.length} دفعة/سند قبض وحفظ سجلاتها تاريخياً، ثم تحويل الفاتورة إلى ملغاة. بعدها يمكن حذف تذكرة الصيانة المرتبطة إذا لم يوجد مانع آخر.</p> : null}
             {invoice.installmentPlan && invoice.status !== InvoiceStatus.VOID ? <p className="text-[10px] leading-relaxed text-slate-400 font-bold bg-slate-50/50 p-3 rounded-xl border border-slate-100/50 text-right">⚠️ هذه الفاتورة مرتبطة بخطة أقساط. يجب إلغاء أو معالجة خطة الأقساط أولاً قبل إلغاء الفاتورة.</p> : null}
           </div>
