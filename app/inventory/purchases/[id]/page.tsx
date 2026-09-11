@@ -1,4 +1,4 @@
-import { ArrowRight, Banknote, Boxes, CheckCircle2, Clock3, PackageCheck, Pencil, ReceiptText, RotateCcw, Scale, Truck, Warehouse } from "lucide-react";
+import { AlertTriangle, ArrowRight, Banknote, Boxes, CheckCircle2, Clock3, PackageCheck, Pencil, ReceiptText, RotateCcw, Scale, Truck, Warehouse } from "lucide-react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -13,7 +13,7 @@ import { ClonePurchaseButton } from "../_clone-purchase-button";
 import { PurchaseOperationsPanel } from "../_purchase-operations-panel";
 
 export const dynamic = "force-dynamic";
-type PurchaseDetailPageProps = { params: Promise<{ id: string }>; searchParams: Promise<{ posted?: string }> };
+type PurchaseDetailPageProps = { params: Promise<{ id: string }>; searchParams: Promise<{ posted?: string; receiptWarning?: string }> };
 
 export default async function PurchaseDetailPage({ params, searchParams }: PurchaseDetailPageProps) {
   const { id } = await params;
@@ -55,7 +55,7 @@ export default async function PurchaseDetailPage({ params, searchParams }: Purch
       actions={<div className="flex flex-wrap items-start gap-2"><Button asChild variant="outline"><Link href="/inventory/purchases"><ArrowRight className="ml-1.5 h-4 w-4" />القائمة</Link></Button>{invoice.status === "DRAFT" && canManage && <Button asChild><Link href={`/inventory/purchases/new?draft=${invoice.id}`}><Pencil className="ml-1.5 h-4 w-4" />متابعة المسودة</Link></Button>}{canManage && <ClonePurchaseButton purchaseId={invoice.id} />}</div>}
     />
 
-    {query.posted && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-black text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"><CheckCircle2 className="ml-2 inline h-4 w-4" />{query.posted === "partial" ? "تم اعتماد الفاتورة وتسجيل الكميات المستلمة فقط. الباقي ينتظر استلاماً لاحقاً." : "تم اعتماد الفاتورة واستلام كل الكميات."}</div>}
+    {query.posted && query.receiptWarning ? <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100"><div className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" /><div><div className="font-black">تم اعتماد الفاتورة، لكن الاستلام الأول لم يُسجل في المخزون.</div><div className="mt-1 text-xs font-semibold leading-6">{query.receiptWarning}</div><div className="mt-1 text-xs font-bold leading-6">لم يتم تحويل الكمية إلى المستودع الافتراضي كحل بديل. استخدم «استلام كمية إضافية» أدناه وحدد المستودع الصحيح لإكمال الاستلام بأمان.</div></div></div></div> : query.posted ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-black text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"><CheckCircle2 className="ml-2 inline h-4 w-4" />{query.posted === "partial" ? "تم اعتماد الفاتورة وتسجيل الكميات المستلمة فقط. الباقي ينتظر استلاماً لاحقاً." : "تم اعتماد الفاتورة واستلام كل الكميات."}</div> : null}
     {invoice.status === "POSTED" && <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs font-semibold leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">الفاتورة الأصلية بعد الاعتماد لا تُعاد كتابتها ولا تُحذف آثارها. أي استلام لاحق أو دفعة أو مرتجع أو تسوية يُسجل كسجل مستقل مرتبط بها. الاستلام والمرتجع يوثقان المستودع الفعلي لكل حركة.</div>}
 
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
