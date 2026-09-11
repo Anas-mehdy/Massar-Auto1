@@ -97,7 +97,7 @@ export async function createInvoiceFromServiceOrder(
         FROM "ServicePartLine"
         WHERE "shopId" = ${shopId}::uuid
           AND "serviceOrderId" = ${serviceOrderId}::uuid
-          AND "status" <> 'CANCELLED'
+          AND "status" NOT IN ('CANCELLED','RETURNED')
       ) x
     `;
     const subtotal = roundMoney(Number(totals[0]?.subtotal ?? 0));
