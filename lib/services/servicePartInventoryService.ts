@@ -475,7 +475,7 @@ export async function completeServiceWorkInTx(tx: Tx, shopId: string, serviceOrd
       FROM "ServicePartLine"
       WHERE "shopId" = ${shopId}::uuid
         AND "serviceOrderId" = ${serviceOrderId}::uuid
-        AND "status" <> 'CANCELLED'
+        AND "status" NOT IN ('CANCELLED','RETURNED')
     ) totals
   `;
   const total = Math.round(Number(totals[0]?.total ?? 0) * 100) / 100;
