@@ -5,6 +5,7 @@ import { AnalyticsIdentity, type AnalyticsIdentityData } from "@/components/anal
 import { AnalyticsPageTracker } from "@/components/analytics/analytics-page-tracker";
 import { DashboardKpiNavigation } from "@/components/dashboard/dashboard-kpi-navigation";
 import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
+import { AutoPrintShortcuts } from "@/components/auto-print-shortcuts";
 import { LifetimeOfferBanner } from "@/components/lifetime-offer-banner";
 import { QuickOperationsLauncher } from "@/components/quick-operations";
 import { ThemeRouteSync } from "@/components/theme-route-sync";
@@ -130,6 +131,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       <PwaInstallPrompt />
       {lifetimeBanner ? <LifetimeOfferBanner remaining={lifetimeBanner.remaining} total={lifetimeBanner.total} /> : null}
       <AppShell canSettings={canSettings} canReports={canReports} canManageSubscription={canManageSubscription} canManageDebts={canManageDebts} subscriptionReadOnly={subscriptionReadOnly} tutorialInitialShowBanner={showTutorialBanner}>{children}</AppShell>
+      <AutoPrintShortcuts />
       <QuickOperationsLauncher canManageDebts={canManageDebts} readOnly={subscriptionReadOnly} />
     </body>
   </html>;
