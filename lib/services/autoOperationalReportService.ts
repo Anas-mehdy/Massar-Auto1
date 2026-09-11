@@ -83,7 +83,7 @@ export async function getAutoOperationalReport(
   shopId: string,
   range: AutoReportRange,
 ): Promise<AutoOperationalReport> {
-  const [periodRows, revenueRows, statusRows, technicianRows, topServiceRows, topIssueRows, overdueRows, costs] = await Promise.all([
+  const [periodRows, revenueRows, currentRows, statusRows, technicianRows, topServiceRows, topIssueRows, overdueRows, costs] = await Promise.all([
     prisma.$queryRaw<Array<{
       receivedOrders: bigint;
       deliveredOrders: bigint;
@@ -165,6 +165,20 @@ export async function getAutoOperationalReport(
         ), 0)::double precision AS "partsRevenue"
       FROM line_totals lt
     `,
+    prisma.$queryRaw<Array<{ activeOrders: bigint; overdueOrders: bigint }>>`
+      SELECT
+        COUNT(*) FILTER (
+          WHERE so."status" NOT IN ('CLOSED','CANCELLED','REJECTED')
+        )::bigint AS "activeOrders",
+        COUNT(*) FILTER (
+          WHERE so."promisedAt" IS NOT NULL
+            AND so."promisedAt" < now()
+            AND so."status" NOT IN ('DELIVERED','CLOSED','CANCELLED','REJECTED')
+        )::bigint AS "overdueOrders"
+      FROM "ServiceOrder" so
+      WHERE so."shopId" = ${shopId}::uuid
+        AND so."deletedAt" IS NULL
+    `,
     prisma.$queryRaw<Array<{ status: string; count: bigint }>>`
       SELECT so."status", COUNT(*)::bigint AS "count"
       FROM "ServiceOrder" so
@@ -197,29 +211,38 @@ export async function getAutoOperationalReport(
       SELECT
         u."id" AS "userId",
         u."name",
-        COUNT(DISTINCT period_order."id")::bigint AS "completedOrders",
-        COUNT(DISTINCT active_order."id")::bigint AS "activeOrders",
-        COUNT(period_labor."id")::bigint AS "laborLineCount",
-        COALESCE(SUM(period_labor."hours"), 0)::double precision AS "laborHours",
-        COALESCE(SUM(period_labor."lineTotal"), 0)::double precision AS "laborValue"
+        COALESCE(period_stats."completedOrders", 0)::bigint AS "completedOrders",
+        COALESCE(active_stats."activeOrders", 0)::bigint AS "activeOrders",
+        COALESCE(period_stats."laborLineCount", 0)::bigint AS "laborLineCount",
+        COALESCE(period_stats."laborHours", 0)::double precision AS "laborHours",
+        COALESCE(period_stats."laborValue", 0)::double precision AS "laborValue"
       FROM relevant_users ru
       JOIN "User" u ON u."id" = ru."userId" AND u."deletedAt" IS NULL
-      LEFT JOIN "ServiceOrder" period_order
-        ON period_order."shopId" = ${shopId}::uuid
-        AND period_order."assignedToUserId" = u."id"
-        AND period_order."deletedAt" IS NULL
-        AND period_order."deliveredAt" >= ${range.start}
-        AND period_order."deliveredAt" < ${range.end}
-      LEFT JOIN "ServiceLaborLine" period_labor
-        ON period_labor."shopId" = ${shopId}::uuid
-        AND period_labor."serviceOrderId" = period_order."id"
-        AND period_labor."status" <> 'CANCELLED'
-      LEFT JOIN "ServiceOrder" active_order
-        ON active_order."shopId" = ${shopId}::uuid
-        AND active_order."assignedToUserId" = u."id"
-        AND active_order."deletedAt" IS NULL
-        AND active_order."status" NOT IN ('CLOSED','CANCELLED','REJECTED','DELIVERED')
-      GROUP BY u."id", u."name"
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(DISTINCT so."id")::bigint AS "completedOrders",
+          COUNT(sl."id")::bigint AS "laborLineCount",
+          COALESCE(SUM(sl."hours"), 0)::double precision AS "laborHours",
+          COALESCE(SUM(sl."lineTotal"), 0)::double precision AS "laborValue"
+        FROM "ServiceOrder" so
+        LEFT JOIN "ServiceLaborLine" sl
+          ON sl."shopId" = so."shopId"
+          AND sl."serviceOrderId" = so."id"
+          AND sl."status" <> 'CANCELLED'
+        WHERE so."shopId" = ${shopId}::uuid
+          AND so."assignedToUserId" = u."id"
+          AND so."deletedAt" IS NULL
+          AND so."deliveredAt" >= ${range.start}
+          AND so."deliveredAt" < ${range.end}
+      ) period_stats ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::bigint AS "activeOrders"
+        FROM "ServiceOrder" so
+        WHERE so."shopId" = ${shopId}::uuid
+          AND so."assignedToUserId" = u."id"
+          AND so."deletedAt" IS NULL
+          AND so."status" NOT IN ('CLOSED','CANCELLED','REJECTED','DELIVERED')
+      ) active_stats ON TRUE
       ORDER BY "completedOrders" DESC, "laborValue" DESC, u."name"
       LIMIT 20
     `,
@@ -288,6 +311,7 @@ export async function getAutoOperationalReport(
 
   const period = periodRows[0];
   const revenue = revenueRows[0];
+  const current = currentRows[0];
   const laborRevenue = money(number(revenue?.laborRevenue));
   const partsRevenue = money(number(revenue?.partsRevenue));
   const laborCost = money(Number(costs.laborCost));
@@ -311,8 +335,8 @@ export async function getAutoOperationalReport(
       partsProfit: money(partsRevenue - partsCost),
     },
     current: {
-      activeOrders: byStatus.reduce((sum, row) => sum + row.count, 0),
-      overdueOrders: overdueRows.length,
+      activeOrders: Number(current?.activeOrders ?? 0),
+      overdueOrders: Number(current?.overdueOrders ?? 0),
       waitingParts: statusCount("WAITING_PARTS"),
       readyForDelivery: statusCount("READY_FOR_DELIVERY"),
       byStatus,
