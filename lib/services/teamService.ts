@@ -133,12 +133,15 @@ export async function createInvitation(
   }
 
   if (input.role === MembershipRole.OWNER) {
-    throw new Error("لا يمكن إنشاء أو دعوة مالك متجر جديد. يمكنك فقط دعوة مدير أو فني أو مشاهد.");
+    throw new Error("لا يمكن إنشاء أو دعوة مالك جديد. اختر مديراً أو استقبالاً أو فنياً أو مستودعاً أو محاسباً أو مشاهداً.");
   }
 
   const allowedRoles: MembershipRole[] = [
     MembershipRole.ADMIN,
+    MembershipRole.RECEPTIONIST,
     MembershipRole.TECHNICIAN,
+    MembershipRole.WAREHOUSE,
+    MembershipRole.FINANCE,
     MembershipRole.VIEWER,
   ];
 
@@ -222,7 +225,10 @@ export async function updateMemberRole(
 
   const allowedRoles: MembershipRole[] = [
     MembershipRole.ADMIN,
+    MembershipRole.RECEPTIONIST,
     MembershipRole.TECHNICIAN,
+    MembershipRole.WAREHOUSE,
+    MembershipRole.FINANCE,
     MembershipRole.VIEWER,
   ];
 

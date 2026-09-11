@@ -87,6 +87,24 @@ const ROLE_DISPLAY: Record<MembershipRole, { label: string; colorClass: string; 
     bgClass: "bg-teal-50",
     borderClass: "border-teal-200",
   },
+  RECEPTIONIST: {
+    label: "موظف استقبال",
+    colorClass: "text-cyan-800",
+    bgClass: "bg-cyan-50",
+    borderClass: "border-cyan-200",
+  },
+  WAREHOUSE: {
+    label: "أمين مستودع",
+    colorClass: "text-amber-800",
+    bgClass: "bg-amber-50",
+    borderClass: "border-amber-200",
+  },
+  FINANCE: {
+    label: "محاسب / مالية",
+    colorClass: "text-emerald-800",
+    bgClass: "bg-emerald-50",
+    borderClass: "border-emerald-200",
+  },
   VIEWER: {
     label: "مشاهد تقارير",
     colorClass: "text-slate-800",
@@ -252,7 +270,7 @@ export function TeamManagementSection({
               </span>
             </div>
             <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
-              إدارة الفنيين والمديرين والصلاحيات المرتبطة بهذا الفرع
+              إدارة الاستقبال والفنيين والمستودع والمالية والصلاحيات المرتبطة بهذا الفرع
             </p>
           </div>
         </div>
@@ -655,7 +673,10 @@ export function TeamManagementSection({
                     disabled={isPending}
                     className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-900 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-xs"
                   >
-                    <option value={MembershipRole.TECHNICIAN}>فني صيانة (TECHNICIAN) — إنشاء وتحديث طلبات الصيانة</option>
+                    <option value={MembershipRole.RECEPTIONIST}>موظف استقبال (RECEPTIONIST) — العملاء والمركبات وأوامر الصيانة وعروض الأسعار</option>
+                    <option value={MembershipRole.TECHNICIAN}>فني صيانة (TECHNICIAN) — تنفيذ وتحديث أوامر الصيانة واستخدام القطع</option>
+                    <option value={MembershipRole.WAREHOUSE}>أمين مستودع (WAREHOUSE) — المخزون والمستودعات والجرد</option>
+                    <option value={MembershipRole.FINANCE}>محاسب / مالية (FINANCE) — الفواتير والذمم والمصروفات والإقفال</option>
                     <option value={MembershipRole.ADMIN}>مدير فرع (ADMIN) — إدارة كاملة للعمليات والمخزون والفريق</option>
                     <option value={MembershipRole.VIEWER}>مشاهد تقارير (VIEWER) — قراءة فقط دون تعديل أو حذف</option>
                   </select>
@@ -725,7 +746,10 @@ export function TeamManagementSection({
                   className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-900 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-xs"
                 >
                   <option value={MembershipRole.ADMIN}>مدير فرع (ADMIN)</option>
+                  <option value={MembershipRole.RECEPTIONIST}>موظف استقبال (RECEPTIONIST)</option>
                   <option value={MembershipRole.TECHNICIAN}>فني صيانة (TECHNICIAN)</option>
+                  <option value={MembershipRole.WAREHOUSE}>أمين مستودع (WAREHOUSE)</option>
+                  <option value={MembershipRole.FINANCE}>محاسب / مالية (FINANCE)</option>
                   <option value={MembershipRole.VIEWER}>مشاهد تقارير (VIEWER)</option>
                 </select>
               </div>

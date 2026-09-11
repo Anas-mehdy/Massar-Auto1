@@ -111,8 +111,8 @@ export const ALL_APP_PERMISSIONS: readonly AppPermission[] = [
 ] as const;
 
 /**
- * Transitional mapping. New automotive role presets (manager/receptionist/
- * warehouse/finance) will be added after the Prisma membership enum is migrated.
+ * Automotive role presets. ADMIN acts as the workshop/branch manager while
+ * RECEPTIONIST, TECHNICIAN, WAREHOUSE and FINANCE are least-privilege presets.
  */
 export const ROLE_PERMISSIONS_MATRIX: Record<MembershipRole, readonly AppPermission[]> = {
   OWNER: ALL_APP_PERMISSIONS,
@@ -189,6 +189,64 @@ export const ROLE_PERMISSIONS_MATRIX: Record<MembershipRole, readonly AppPermiss
     "invoices:read",
     "invoices:pay",
     "customers:manage",
+    "team:read",
+  ],
+
+  RECEPTIONIST: [
+    "repairs:read",
+    "repairs:create",
+    "repairs:update",
+    "repairs:update_status",
+    "vehicles:read",
+    "vehicles:manage",
+    "service_orders:read",
+    "service_orders:create",
+    "service_orders:update",
+    "service_orders:update_status",
+    "quotes:read",
+    "quotes:manage",
+    "sales:read",
+    "sales:create",
+    "inventory:read",
+    "inventory:use_parts",
+    "warehouse:read",
+    "invoices:read",
+    "invoices:pay",
+    "customers:manage",
+    "reports:read",
+    "team:read",
+  ],
+
+  WAREHOUSE: [
+    "sales:read",
+    "inventory:read",
+    "inventory:use_parts",
+    "inventory:manage",
+    "inventory:adjust",
+    "warehouse:read",
+    "warehouse:manage",
+    "warehouse:transfer",
+    "warehouse:stocktake",
+    "suppliers:manage",
+    "reports:read",
+    "team:read",
+  ],
+
+  FINANCE: [
+    "sales:read",
+    "sales:create",
+    "sales:cancel",
+    "sales:return",
+    "invoices:read",
+    "invoices:pay",
+    "invoices:void",
+    "customers:manage",
+    "suppliers:manage",
+    "reports:read",
+    "expenses:manage",
+    "debts:manage",
+    "finance:vouchers",
+    "cash:close",
     "team:read",
   ],
 
