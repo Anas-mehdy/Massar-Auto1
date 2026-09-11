@@ -22,6 +22,7 @@ import { can, requirePermission } from "@/lib/auth/context";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { getInventoryDamageReportSummary } from "@/lib/services/inventoryDamageReportService";
 import { autoFinancialReportService } from "@/lib/services/autoFinancialReportService";
+import { autoOperationalReportService } from "@/lib/services/autoOperationalReportService";
 import { getTransferCommissionReportSummary } from "@/lib/services/transferCommissionReportService";
 import { financialTransferService } from "@/lib/services/financialTransferService";
 import { cashDrawerService } from "@/lib/services/cashDrawerService";
@@ -38,6 +39,7 @@ import {
   zonedDateTimeToUtc,
 } from "@/lib/timezone";
 import { deleteExpenseAction } from "./actions";
+import { AutoWorkshopReport } from "./_auto-workshop-report";
 import { ExpenseForm } from "./_expense-form";
 
 export const dynamic = "force-dynamic";
@@ -112,8 +114,9 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
   const auth = await requirePermission("reports:read");
   const timeZone = timeZoneForCountry(auth.shop.countryCode);
   const range = resolveRange(params, timeZone);
-  const [report, damageSummary, transferCommission, wallets, bankAccounts, drawer] = await Promise.all([
+  const [report, autoWorkshop, damageSummary, transferCommission, wallets, bankAccounts, drawer] = await Promise.all([
     autoFinancialReportService.getFinancialReport(auth.shop.id, range),
+    autoOperationalReportService.getAutoOperationalReport(auth.shop.id, range),
     getInventoryDamageReportSummary(auth.shop.id, range.start, range.end),
     getTransferCommissionReportSummary(auth.shop.id, range.start, range.end),
     financialTransferService.listWallets(auth.shop.id).catch(() => []),
@@ -209,6 +212,8 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-3"><ElectronicMetric label="الدرج النقدي" value={formatCurrency(drawerLiquidity, currency)} /><ElectronicMetric label="المحافظ" value={formatCurrency(walletLiquidity, currency)} /><ElectronicMetric label="الحسابات البنكية" value={formatCurrency(bankLiquidity, currency)} /></div>
       </section>
+
+      <AutoWorkshopReport report={autoWorkshop} currency={currency} timeZone={timeZone} />
 
       <section className="rounded-2xl border border-cyan-200 bg-gradient-to-br from-cyan-50 via-white to-teal-50/60 p-5 shadow-sm dark:border-cyan-900/60 dark:from-slate-950 dark:via-slate-950 dark:to-cyan-950/25">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
