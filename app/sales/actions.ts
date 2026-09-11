@@ -23,6 +23,7 @@ const rawLineItemSchema = z.object({
 }).refine((item) => item.inventoryItemId || item.description, { message: "اختر قطعة مخزون أو أدخل وصف بند يدوي" });
 
 const createSaleSchema = z.object({
+  warehouseId: z.string().uuid("اختر مستودع البيع."),
   customerMode: z.enum(["EXISTING", "NEW", "CASH"]),
   customerId: z.string().uuid().optional().or(z.literal("")),
   customerName: z.string().optional(),
@@ -47,11 +48,12 @@ const cancelSaleSchema = z.object({ saleId: z.string().uuid() });
 function readString(formData: FormData, key: string) { const value = formData.get(key); return typeof value === "string" ? value : ""; }
 function getErrorMessage(error: unknown) { if (error instanceof z.ZodError) return error.issues[0]?.message ?? "البيانات غير صحيحة."; if (error instanceof Error) return error.message; return "حدث خطأ غير متوقع."; }
 
-export async function searchInventoryForSaleAction(query: string) {
+export async function searchInventoryForSaleAction(query: string, warehouseId: string) {
   const safeQuery = z.string().max(120).parse(query).trim();
   if (!safeQuery) return [];
+  const safeWarehouseId = z.string().uuid("اختر مستودع البيع أولاً.").parse(warehouseId);
   const auth = await requirePermission("sales:create");
-  return salesInventorySearchService.searchInventoryForSale(auth.shop.id, safeQuery, 20);
+  return salesInventorySearchService.searchInventoryForSale(auth.shop.id, safeQuery, safeWarehouseId, 20);
 }
 
 export async function searchCustomersForSaleAction(query: string) {
@@ -68,6 +70,7 @@ export async function createSaleAction(_state: SaleActionState, formData: FormDa
   try {
     const rawItems = JSON.parse(readString(formData, "items"));
     const parsed = createSaleSchema.parse({
+      warehouseId: readString(formData, "warehouseId"),
       customerMode: readString(formData, "customerMode") || "CASH",
       customerId: readString(formData, "customerId"),
       customerName: readString(formData, "customerName"),
@@ -92,6 +95,7 @@ export async function createSaleAction(_state: SaleActionState, formData: FormDa
     if (!entitlement.allowed) return { error: entitlement.message };
 
     const sale = await salesService.createSale(auth.shop.id, auth.user.id, {
+      warehouseId: parsed.warehouseId,
       customerId: parsed.customerMode === "EXISTING" ? parsed.customerId || undefined : undefined,
       customerName: parsed.customerMode === "NEW" ? parsed.customerName : undefined,
       customerPhone: parsed.customerMode === "NEW" ? parsed.customerPhone : undefined,
@@ -105,7 +109,7 @@ export async function createSaleAction(_state: SaleActionState, formData: FormDa
       changeBankAccountId: parsed.changeBankAccountId || undefined,
     });
     saleId = sale.id;
-    await captureServerEvent({ event: ANALYTICS_EVENTS.SALE_COMPLETED, distinctId: auth.user.id, shopId: auth.shop.id, countryCode: auth.shop.countryCode, properties: { source: onboardingMode ? "point_of_sale_onboarding" : pointOfSaleReturn ? "point_of_sale" : "sales", onboarding_mode: onboardingMode, payment_destination: parsed.paymentDestination, customer_mode: parsed.customerMode, item_count: parsed.items.length } });
+    await captureServerEvent({ event: ANALYTICS_EVENTS.SALE_COMPLETED, distinctId: auth.user.id, shopId: auth.shop.id, countryCode: auth.shop.countryCode, properties: { source: onboardingMode ? "point_of_sale_onboarding" : pointOfSaleReturn ? "point_of_sale" : "sales", onboarding_mode: onboardingMode, payment_destination: parsed.paymentDestination, customer_mode: parsed.customerMode, item_count: parsed.items.length, warehouse_id: parsed.warehouseId } });
   } catch (error) {
     return { error: getErrorMessage(error) };
   }
@@ -113,6 +117,7 @@ export async function createSaleAction(_state: SaleActionState, formData: FormDa
   revalidatePath("/sales");
   revalidatePath("/customers");
   revalidatePath("/inventory");
+  revalidatePath("/inventory/warehouses");
   revalidatePath("/transfers");
   revalidatePath("/bank-accounts");
   revalidatePath("/cash-drawer");
@@ -129,6 +134,7 @@ export async function cancelSaleAction(formData: FormData) {
   revalidatePath("/sales");
   revalidatePath(`/sales/${input.saleId}`);
   revalidatePath("/inventory");
+  revalidatePath("/inventory/warehouses");
   revalidatePath("/bank-accounts");
   revalidatePath("/cash-drawer");
   revalidatePath("/debts");
