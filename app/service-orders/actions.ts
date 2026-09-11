@@ -157,6 +157,10 @@ export async function addServicePartLineAction(formData: FormData) {
     if (warehouseId) warehouseId = z.string().uuid().parse(warehouseId);
   }
 
+  if (inventoryItemId && !warehouseId) {
+    throw new Error("اختر المستودع الذي ستُحجز منه قطعة الغيار قبل إضافتها لأمر الصيانة.");
+  }
+
   const auth = await requirePermission("service_orders:update");
   if (inventoryItemId) await requirePermission("inventory:use_parts");
 
