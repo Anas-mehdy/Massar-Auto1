@@ -14,6 +14,7 @@ import {
   Tags,
   Trash2,
   Truck,
+  Warehouse,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -27,15 +28,16 @@ import { PurchaseDocumentImportPanel, type ResolvedDocumentPurchaseRow } from ".
 import { quickCreatePurchaseCategoryAction } from "./category-actions";
 import {
   deletePurchaseDraftAction,
-  postPurchaseInvoiceAction,
   quickCreatePurchaseSupplierAction,
   savePurchaseDraftAction,
   searchPurchaseInventoryAction,
   suggestPurchaseItemMetadataAction,
 } from "./actions";
+import { postPurchaseInvoiceToWarehouseAction } from "./warehouse-post-actions";
 
 type SupplierOption = { id: string; name: string; phone: string | null };
 type CategoryOption = { id: string; name: string; itemCount: number };
+type WarehouseOption = { id: string; name: string; code: string | null; isDefault: boolean };
 type InventoryResult = Awaited<ReturnType<typeof searchPurchaseInventoryAction>>[number];
 type PaymentMethodValue = "CASH" | "CARD" | "BANK_TRANSFER" | "OTHER";
 type CompatibilitySelection = { groupId: string; deviceName: string; dataset: string };
@@ -172,6 +174,7 @@ export function PurchaseReceivingForm({
   bankAccounts,
   drawerBalance,
   categories,
+  warehouses,
   currency,
   initialDraft,
 }: {
@@ -180,10 +183,12 @@ export function PurchaseReceivingForm({
   bankAccounts: { id: string; name: string; bankName: string | null; currentBalance: string }[];
   drawerBalance: string;
   categories: CategoryOption[];
+  warehouses: WarehouseOption[];
   currency: string;
   initialDraft?: InitialDraft | null;
 }) {
   const router = useRouter();
+  const defaultWarehouseId = warehouses.find((warehouse) => warehouse.isDefault)?.id ?? warehouses[0]?.id ?? "";
   const [suppliers, setSuppliers] = useState(initialSuppliers);
   const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>(categories);
   const [draftId, setDraftId] = useState<string | null>(initialDraft?.id ?? null);
@@ -201,6 +206,7 @@ export function PurchaseReceivingForm({
   const paymentMethod: PaymentMethodValue = paymentAccountType === "DRAWER" ? "CASH" : paymentAccountType === "BANK" ? "BANK_TRANSFER" : paymentAccountType === "WALLET" ? "OTHER" : "OTHER";
   const paymentSourceName = paymentAccountType === "DRAWER" ? "الدرج النقدي" : paymentAccountType === "WALLET" ? wallets.find(wallet => wallet.id === paymentWalletId)?.name ?? "" : paymentAccountType === "BANK" ? bankAccounts.find(account => account.id === paymentBankAccountId)?.name ?? "" : "دفع خارج النظام";
   const [paymentReference, setPaymentReference] = useState(initialDraft?.paymentReference ?? "");
+  const [initialWarehouseId, setInitialWarehouseId] = useState(defaultWarehouseId);
   const [lines, setLines] = useState<FormLine[]>(() => {
     const loaded = (initialDraft?.lines ?? []).map((line) => {
       const existingItem: InventoryResult | null = line.inventoryItemId ? {
@@ -259,6 +265,7 @@ export function PurchaseReceivingForm({
   const savePromiseRef = useRef<Promise<string | null> | null>(null);
   const payloadRef = useRef<(() => Parameters<typeof savePurchaseDraftAction>[0]) | null>(null);
   const postingBarrierRef = useRef(false);
+  const postingKeyRef = useRef<string | null>(null);
   const postedRef = useRef(false);
   const mountedRef = useRef(false);
   const approvalErrorRef = useRef<HTMLDivElement | null>(null);
@@ -278,6 +285,10 @@ export function PurchaseReceivingForm({
   const [priceRounding, setPriceRounding] = useState<"none" | "0.5" | "1" | "5">("1");
   const [partialReceipt, setPartialReceipt] = useState(false);
   const [initialReceiptQuantities, setInitialReceiptQuantities] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!initialWarehouseId && defaultWarehouseId) setInitialWarehouseId(defaultWarehouseId);
+  }, [defaultWarehouseId, initialWarehouseId]);
 
   const activeLines = useMemo(() => lines.filter((line) => line.inventoryItemId || line.newItemName.trim() || line.newItemBarcode.trim()), [lines]);
   const selectedLines = useMemo(() => activeLines.filter((line) => line.selected), [activeLines]);
@@ -465,7 +476,6 @@ export function PurchaseReceivingForm({
     if (!result.ok) { setSaveError("error" in result ? result.error : "تعذر إنشاء المورد."); return; }
     setSuppliers((current) => [result.supplier, ...current]);
     setSupplierId(result.supplier.id);
-
     setSupplierCreator({ name: "", phone: "" });
     setSupplierCreatorOpen(false);
     markDirty();
@@ -637,25 +647,43 @@ export function PurchaseReceivingForm({
     const id = savedId || draftIdRef.current;
     if (!id) { postingBarrierRef.current = false; setPosting(false); showApprovalError("تعذر حفظ المسودة قبل الاعتماد."); return; }
     if (!activeLines.length) { postingBarrierRef.current = false; setPosting(false); showApprovalError("أضف بنداً واحداً على الأقل."); return; }
+    if (!initialWarehouseId) { postingBarrierRef.current = false; setPosting(false); showApprovalError("اختر مستودع الاستلام قبل اعتماد الفاتورة."); return; }
     if (validation.supplier || validation.discount || validation.amountPaid || validation.lines || validation.matching || partialReceiptError) { postingBarrierRef.current = false; setPosting(false); showApprovalError(validation.supplier || validation.discount || validation.amountPaid || validation.lines || validation.matching || partialReceiptError || "تحقق من البيانات."); return; }
     if (duplicateNewBarcodes.size) { postingBarrierRef.current = false; setPosting(false); showApprovalError("يوجد باركود مكرر بين أصناف جديدة. راجع البنود قبل الاعتماد."); return; }
     if (num(amountPaid) > 0 && paymentAccountType === "WALLET" && !paymentWalletId) { postingBarrierRef.current = false; setPosting(false); showApprovalError("اختر المحفظة التي خرجت منها الدفعة."); return; }
     if (num(amountPaid) > 0 && paymentAccountType === "BANK" && !paymentBankAccountId) { postingBarrierRef.current = false; setPosting(false); showApprovalError("اختر الحساب البنكي الذي خرجت منه الدفعة."); return; }
 
     if (duplicate && !window.confirm("يوجد رقم فاتورة مشابه لنفس المورد. هل راجعت الفاتورة وتريد المتابعة بالاعتماد؟")) { postingBarrierRef.current = false; setPosting(false); return; }
-    const result = await postPurchaseInvoiceAction({
-      purchaseId: id,
-      postingKey: freshKey(),
-      receiptMode: partialReceipt ? "PARTIAL" : "FULL",
-      initialReceipt: partialReceipt ? activeLines.map((line, sortOrder) => ({
-        sortOrder,
-        quantity: Number(initialReceiptQuantities[line.key] ?? "0"),
-      })) : undefined,
-    });
+    postingKeyRef.current ??= freshKey();
+    let result: Awaited<ReturnType<typeof postPurchaseInvoiceToWarehouseAction>>;
+    try {
+      result = await postPurchaseInvoiceToWarehouseAction({
+        purchaseId: id,
+        warehouseId: initialWarehouseId,
+        postingKey: postingKeyRef.current,
+        receiptMode: partialReceipt ? "PARTIAL" : "FULL",
+        initialReceipt: partialReceipt ? activeLines.map((line, sortOrder) => ({
+          sortOrder,
+          quantity: Number(initialReceiptQuantities[line.key] ?? "0"),
+        })) : undefined,
+      });
+    } catch {
+      postingBarrierRef.current = false;
+      setPosting(false);
+      showApprovalError("تعذر تأكيد نتيجة الاعتماد. أعد المحاولة؛ سيُستخدم نفس مفتاح العملية لمنع تكرار الفاتورة أو الدفعة.");
+      return;
+    }
     setPosting(false);
-    if (!result.ok) { postingBarrierRef.current = false; showApprovalError("error" in result ? result.error : "تعذر اعتماد الفاتورة."); return; }
+    if (!result.ok) {
+      postingBarrierRef.current = false;
+      postingKeyRef.current = null;
+      showApprovalError("error" in result ? result.error : "تعذر اعتماد الفاتورة.");
+      return;
+    }
     postedRef.current = true;
-    router.push(`/inventory/purchases/${result.id}?posted=${partialReceipt ? "partial" : "full"}`);
+    postingKeyRef.current = null;
+    const warning = result.receiptError ? `&receiptWarning=${encodeURIComponent(result.receiptError)}` : "";
+    router.push(`/inventory/purchases/${result.id}?posted=${partialReceipt ? "partial" : "full"}${warning}`);
     router.refresh();
   }
 
@@ -729,12 +757,17 @@ export function PurchaseReceivingForm({
     </section>
 
     <section className="rounded-3xl border border-cyan-200 bg-cyan-50/40 p-5 shadow-sm dark:border-cyan-900/70 dark:bg-cyan-950/20">
+      <div className="mb-4 grid gap-3 rounded-2xl border border-cyan-200 bg-white/80 p-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center dark:border-cyan-900 dark:bg-slate-950/40">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-200"><Warehouse className="h-5 w-5" /></span>
+        <label className="grid gap-1.5 text-xs font-black text-slate-700 dark:text-slate-200">مستودع الاستلام *<select value={initialWarehouseId} onChange={(event) => setInitialWarehouseId(event.target.value)} className="erp-input"><option value="">اختر مستودع الاستلام</option>{warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}{warehouse.code ? ` — ${warehouse.code}` : ""}{warehouse.isDefault ? " (افتراضي)" : ""}</option>)}</select><span className="font-semibold text-slate-500 dark:text-slate-400">كل كمية تُستلم عند الاعتماد ستدخل إلى هذا المستودع تحديداً. يمكنك استلام الكميات المتبقية لاحقاً في مستودعات أخرى.</span></label>
+      </div>
+      {!warehouses.length && <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-black text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">لا يوجد مستودع نشط. أنشئ أو فعّل مستودعاً قبل اعتماد فاتورة الشراء.</div>}
       <label className="flex cursor-pointer items-start gap-3">
         <input type="checkbox" className="mt-1" checked={partialReceipt} onChange={(event) => {
           setPartialReceipt(event.target.checked);
           if (event.target.checked) setInitialReceiptQuantities((current) => Object.fromEntries(activeLines.map((line) => [line.key, current[line.key] ?? "0"])));
         }} />
-        <span><strong className="block text-sm font-black text-slate-900 dark:text-slate-100">استلمت جزءاً من البضاعة</strong><span className="mt-1 block text-xs font-semibold leading-6 text-slate-500 dark:text-slate-400">اتركها غير مفعلة للمسار السريع: اعتماد الفاتورة واستلام كل الكميات. فعّلها إذا وصل جزء فقط أو لم تصل بعض البنود بعد.</span></span>
+        <span><strong className="block text-sm font-black text-slate-900 dark:text-slate-100">استلمت جزءاً من البضاعة</strong><span className="mt-1 block text-xs font-semibold leading-6 text-slate-500 dark:text-slate-400">اتركها غير مفعلة للمسار السريع: اعتماد الفاتورة واستلام كل الكميات في المستودع المحدد. فعّلها إذا وصل جزء فقط أو لم تصل بعض البنود بعد.</span></span>
       </label>
       {partialReceipt && <div className="mt-4 space-y-2">
         {activeLines.map((line, index) => {
@@ -749,7 +782,7 @@ export function PurchaseReceivingForm({
           </div>;
         })}
         {partialReceiptError && <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">{partialReceiptError}</div>}
-        <p className="text-[11px] font-semibold leading-5 text-slate-500 dark:text-slate-400">الفاتورة والمبلغ المستحق سيُعتمدان كاملين، لكن المخزون سيزداد فقط بالكميات التي تسجلها كمستلمة الآن. يمكن استلام الباقي لاحقاً من صفحة الفاتورة نفسها.</p>
+        <p className="text-[11px] font-semibold leading-5 text-slate-500 dark:text-slate-400">الفاتورة والمبلغ المستحق سيُعتمدان كاملين، لكن المخزون سيزداد فقط بالكميات التي تسجلها كمستلمة الآن. يمكن استلام الباقي لاحقاً من صفحة الفاتورة نفسها وفي أي مستودع نشط تختاره.</p>
       </div>}
     </section>
 
@@ -790,7 +823,7 @@ export function PurchaseReceivingForm({
         {num(amountPaid) > 0 && <p className="mt-3 text-xs leading-6 text-slate-500 dark:text-slate-400">{paymentAccountType === "DRAWER" ? `رصيد الدرج الحالي: ${money(num(drawerBalance), currency)}. يُخصم المدفوع وتسجّل الحركة عند الاعتماد.` : paymentAccountType === "WALLET" ? "يُخصم المدفوع من المحفظة المختارة وتسجّل الحركة عند الاعتماد." : "تُسجّل الدفعة وتسدد من الفاتورة، دون تغيير رصيد الدرج أو المحافظ."}</p>}
         <div aria-live="polite" className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">الدين المتبقي للمورد: {money(remaining, currency)}<p className="mt-1 text-xs font-normal">{remaining > 0 ? "يظهر في صفحة المورد بعد الاعتماد، ويمكن تسديده لاحقاً بالكامل أو على دفعات." : "لا يتبقى دين على هذه الفاتورة."}</p></div>
       </section>
-      <div className="rounded-3xl border border-slate-200 bg-slate-950 p-5 text-white shadow-sm dark:border-slate-700"><h2 className="font-black">ملخص الفاتورة</h2><div className="mt-4 space-y-3 text-sm"><Summary label="مجموع البنود" value={money(subtotal, currency)} /><div><label className="flex items-center justify-between gap-4"><span className="text-slate-300">الخصم</span><input data-purchase-field type="number" min="0" step="0.01" value={discountTotal} onKeyDown={enterToNext} onChange={(e) => { setDiscountTotal(e.target.value); markDirty(); }} className="h-9 w-32 rounded-lg border border-slate-700 bg-slate-900 px-2 text-left font-numeric" /></label>{validation.discount && <div className="mt-1 text-[10px] font-bold text-rose-300">{validation.discount}</div>}</div><label className="flex items-center justify-between gap-4"><span className="text-slate-300">الشحن / مصاريف إضافية</span><input data-purchase-field type="number" min="0" step="0.01" value={extraCostsTotal} onKeyDown={enterToNext} onChange={(e) => { setExtraCostsTotal(e.target.value); markDirty(); }} className="h-9 w-32 rounded-lg border border-slate-700 bg-slate-900 px-2 text-left font-numeric" /></label><div className="border-t border-slate-700 pt-3"><Summary label="الإجمالي النهائي" value={money(finalTotal, currency)} strong /><Summary label="المدفوع" value={money(num(amountPaid), currency)} /><Summary label="المتبقي" value={money(remaining, currency)} strong tone={remaining > 0 ? "amber" : "green"} /></div></div><p className="mt-4 text-[11px] font-semibold leading-5 text-slate-400">عند الاعتماد يُثبت توزيع الخصم والشحن/مصاريف الشراء المباشرة على البنود. متوسط تكلفة المخزون لا يتغير عند الاعتماد، بل فقط عند الاستلام الفعلي وبحسب الكمية المستلمة. الشحن غير مسترد تلقائياً في مرتجع المورد.</p>{approvalError && <div ref={approvalErrorRef} role="alert" className="mt-4 rounded-xl border border-rose-500/50 bg-rose-950/70 p-3 text-xs font-bold leading-5 text-rose-100">{approvalError}</div>}<Button type="button" onClick={() => void postInvoice()} disabled={posting || !activeLines.length} className="mt-5 h-12 w-full rounded-xl bg-emerald-600 font-black hover:bg-emerald-700">{posting ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ الاعتماد…</> : <><Check className="ml-2 h-4 w-4" />{partialReceipt ? "اعتماد وتسجيل الاستلام الجزئي" : "اعتماد واستلام كل البضاعة"}</>}</Button></div>
+      <div className="rounded-3xl border border-slate-200 bg-slate-950 p-5 text-white shadow-sm dark:border-slate-700"><h2 className="font-black">ملخص الفاتورة</h2><div className="mt-4 space-y-3 text-sm"><Summary label="مجموع البنود" value={money(subtotal, currency)} /><div><label className="flex items-center justify-between gap-4"><span className="text-slate-300">الخصم</span><input data-purchase-field type="number" min="0" step="0.01" value={discountTotal} onKeyDown={enterToNext} onChange={(e) => { setDiscountTotal(e.target.value); markDirty(); }} className="h-9 w-32 rounded-lg border border-slate-700 bg-slate-900 px-2 text-left font-numeric" /></label>{validation.discount && <div className="mt-1 text-[10px] font-bold text-rose-300">{validation.discount}</div>}</div><label className="flex items-center justify-between gap-4"><span className="text-slate-300">الشحن / مصاريف إضافية</span><input data-purchase-field type="number" min="0" step="0.01" value={extraCostsTotal} onKeyDown={enterToNext} onChange={(e) => { setExtraCostsTotal(e.target.value); markDirty(); }} className="h-9 w-32 rounded-lg border border-slate-700 bg-slate-900 px-2 text-left font-numeric" /></label><div className="border-t border-slate-700 pt-3"><Summary label="الإجمالي النهائي" value={money(finalTotal, currency)} strong /><Summary label="المدفوع" value={money(num(amountPaid), currency)} /><Summary label="المتبقي" value={money(remaining, currency)} strong tone={remaining > 0 ? "amber" : "green"} /></div></div><p className="mt-4 text-[11px] font-semibold leading-5 text-slate-400">عند الاعتماد يُثبت توزيع الخصم والشحن/مصاريف الشراء المباشرة على البنود. متوسط تكلفة المخزون لا يتغير عند الاعتماد، بل فقط عند الاستلام الفعلي وبحسب الكمية المستلمة في المستودع المحدد.</p>{approvalError && <div ref={approvalErrorRef} role="alert" className="mt-4 rounded-xl border border-rose-500/50 bg-rose-950/70 p-3 text-xs font-bold leading-5 text-rose-100">{approvalError}</div>}<Button type="button" onClick={() => void postInvoice()} disabled={posting || !activeLines.length || !initialWarehouseId} className="mt-5 h-12 w-full rounded-xl bg-emerald-600 font-black hover:bg-emerald-700">{posting ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جارٍ الاعتماد…</> : <><Check className="ml-2 h-4 w-4" />{partialReceipt ? "اعتماد وتسجيل الاستلام الجزئي" : "اعتماد واستلام كل البضاعة"}</>}</Button></div>
     </section>
   </div>;
 }
