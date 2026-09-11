@@ -6,6 +6,7 @@ import { z } from "zod";
 import { requirePermission } from "@/lib/auth/context";
 import { supplierService } from "@/lib/services/supplierService";
 import { purchaseReceivingService, type PurchaseDraftInput } from "@/lib/services/purchaseReceivingService";
+import { purchaseWarehouseOperationsService } from "@/lib/services/purchaseWarehouseOperationsService";
 import { purchaseDocumentImportService } from "@/lib/services/purchaseDocumentImportService";
 
 const uuid = z.string().uuid("معرّف غير صالح");
@@ -184,7 +185,7 @@ export async function quickCreatePurchaseSupplierAction(input: { name: string; p
     const parsed = z.object({ name: z.string().trim().min(1, "اسم المورد مطلوب").max(180), phone: z.string().trim().max(60).optional() }).parse(input);
     const supplier = await supplierService.createSupplier(auth.shop.id, parsed);
     revalidatePath("/suppliers");
-  revalidatePath("/suppliers/[id]", "page");
+    revalidatePath("/suppliers/[id]", "page");
     revalidatePath("/inventory/purchases");
     return { ok: true as const, supplier: { id: supplier.id, name: supplier.name, phone: supplier.phone } };
   } catch (error) {
@@ -231,6 +232,7 @@ function revalidatePurchasePaths(purchaseId: string) {
   revalidatePath("/bank-accounts");
   revalidatePath("/financial-transfers");
   revalidatePath("/reports");
+  revalidatePath("/inventory/warehouses");
 }
 
 const operationLineSchema = z.object({ purchaseItemId: uuid, quantity: z.number().int().positive() });
@@ -239,6 +241,7 @@ const accountTypeSchema = z.enum(["DRAWER", "WALLET", "BANK", "OTHER"]);
 
 export async function recordPurchaseReceiptAction(input: {
   purchaseId: string;
+  warehouseId: string;
   requestKey: string;
   receivedAt: string;
   reference?: string | null;
@@ -249,15 +252,27 @@ export async function recordPurchaseReceiptAction(input: {
     const auth = await requirePermission("inventory:manage");
     const parsed = z.object({
       purchaseId: uuid,
+      warehouseId: uuid,
       requestKey: z.string().trim().min(12).max(120),
       receivedAt: operationDateSchema,
       reference: z.string().trim().max(180).nullable().optional(),
       note: z.string().trim().max(1000).nullable().optional(),
       lines: z.array(operationLineSchema).min(1).max(250),
     }).parse(input);
-    const result = await purchaseReceivingService.recordPurchaseReceipt(auth.shop.id, auth.user.id, parsed.purchaseId, parsed);
+    const result = await purchaseWarehouseOperationsService.recordWarehousePurchaseReceipt(
+      auth.shop.id,
+      auth.user.id,
+      parsed.purchaseId,
+      parsed,
+    );
     revalidatePurchasePaths(parsed.purchaseId);
-    return { ok: true as const, id: result.id, alreadyApplied: result.alreadyApplied };
+    return {
+      ok: true as const,
+      id: result.id,
+      alreadyApplied: result.alreadyApplied,
+      warehouseId: "warehouseId" in result ? result.warehouseId : parsed.warehouseId,
+      warehouseName: "warehouseName" in result ? result.warehouseName : null,
+    };
   } catch (error) {
     return failure(error);
   }
@@ -299,6 +314,7 @@ export async function recordPurchasePaymentAction(input: {
 
 export async function recordSupplierReturnAction(input: {
   purchaseId: string;
+  warehouseId: string;
   requestKey: string;
   reason: string;
   reference?: string | null;
@@ -312,6 +328,7 @@ export async function recordSupplierReturnAction(input: {
     const auth = await requirePermission("inventory:manage");
     const parsed = z.object({
       purchaseId: uuid,
+      warehouseId: uuid,
       requestKey: z.string().trim().min(12).max(120),
       reason: z.string().trim().min(2, "سبب المرتجع مطلوب").max(1000),
       reference: z.string().trim().max(180).nullable().optional(),
@@ -323,9 +340,21 @@ export async function recordSupplierReturnAction(input: {
     }).parse(input);
     const hasFinancialAdjustment = Number(parsed.shippingRefundAmount ?? 0) !== 0 || Number(parsed.settlementAdjustmentAmount ?? 0) !== 0;
     if (hasFinancialAdjustment && !auth.permissions.includes("expenses:manage")) throw new Error("لا تملك صلاحية تعديل القيمة المالية المعتمدة للمرتجع.");
-    const result = await purchaseReceivingService.recordSupplierReturn(auth.shop.id, auth.user.id, parsed.purchaseId, { ...parsed, allowFinancialAdjustment: hasFinancialAdjustment && auth.permissions.includes("expenses:manage") });
+    const result = await purchaseWarehouseOperationsService.recordWarehouseSupplierReturn(
+      auth.shop.id,
+      auth.user.id,
+      parsed.purchaseId,
+      { ...parsed, allowFinancialAdjustment: hasFinancialAdjustment && auth.permissions.includes("expenses:manage") },
+    );
     revalidatePurchasePaths(parsed.purchaseId);
-    return { ok: true as const, id: result.id, alreadyApplied: result.alreadyApplied, totalValue: result.totalValue?.toString() ?? null };
+    return {
+      ok: true as const,
+      id: result.id,
+      alreadyApplied: result.alreadyApplied,
+      totalValue: result.totalValue?.toString() ?? null,
+      warehouseId: "warehouseId" in result ? result.warehouseId : parsed.warehouseId,
+      warehouseName: "warehouseName" in result ? result.warehouseName : null,
+    };
   } catch (error) {
     return failure(error);
   }
@@ -380,7 +409,6 @@ export async function clonePurchaseToDraftAction(purchaseId: string) {
     return failure(error);
   }
 }
-
 
 export async function createPurchaseTextImportSourceAction(input: { purchaseId: string; text: string }) {
   try {
