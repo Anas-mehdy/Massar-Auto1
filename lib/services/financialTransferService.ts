@@ -25,6 +25,7 @@ export type FinancialTransferSourceType =
   | "SOFTWARE_SERVICE"
   | "CASH_DRAWER_TRANSFER"
   | "BANK_TRANSFER"
+  | "CREDIT_NOTE"
   | "SUPPLIER";
 
 export type WalletRow = {
