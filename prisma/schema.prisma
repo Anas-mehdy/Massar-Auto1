@@ -178,6 +178,9 @@ model Shop {
   repairOrders              RepairOrder[]
   vehicles                  Vehicle[]      @relation("AutoVehicleShop")
   autoServiceOrders         ServiceOrder[] @relation("AutoServiceOrderShop")
+  autoServiceOrderHistories ServiceOrderStatusHistory[] @relation("AutoServiceOrderHistoryShop")
+  autoServiceInspections    ServiceInspection[] @relation("AutoServiceInspectionShop")
+  autoServiceInspectionItems ServiceInspectionItem[] @relation("AutoServiceInspectionItemShop")
   repairOrderItems          RepairOrderItem[]
   repairStatusHistories     RepairStatusHistory[]
   repairAssignmentHistories RepairOrderAssignmentHistory[]
@@ -362,6 +365,8 @@ model User {
   updatedAutoServiceOrders   ServiceOrder[]       @relation("AutoServiceOrderUpdater")
   deliveredAutoServiceOrders ServiceOrder[]       @relation("AutoServiceOrderDeliveredBy")
   closedAutoServiceOrders    ServiceOrder[]       @relation("AutoServiceOrderClosedBy")
+  createdAutoServiceOrderHistories ServiceOrderStatusHistory[] @relation("AutoServiceOrderHistoryCreator")
+  autoServiceInspections     ServiceInspection[] @relation("AutoServiceInspectionInspector")
   passwordResetTokens        PasswordResetToken[]
 
   shopId String   @db.Uuid
@@ -868,7 +873,9 @@ model ServiceOrder {
   updatedBy    User?     @relation("AutoServiceOrderUpdater", fields: [updatedByUserId], references: [id], onDelete: SetNull, map: "ServiceOrder_updatedByUserId_fkey")
   deliveredBy  User?     @relation("AutoServiceOrderDeliveredBy", fields: [deliveredByUserId], references: [id], onDelete: SetNull, map: "ServiceOrder_deliveredByUserId_fkey")
   closedBy     User?     @relation("AutoServiceOrderClosedBy", fields: [closedByUserId], references: [id], onDelete: SetNull, map: "ServiceOrder_closedByUserId_fkey")
-  invoices     Invoice[] @relation("AutoServiceOrderInvoices")
+  invoices       Invoice[] @relation("AutoServiceOrderInvoices")
+  statusHistory  ServiceOrderStatusHistory[] @relation("AutoServiceOrderHistoryOrder")
+  inspections    ServiceInspection[] @relation("AutoServiceInspectionOrder")
 
   @@unique([shopId, orderNumber], map: "ServiceOrder_shop_order_number_key")
   @@unique([shopId, id], map: "ServiceOrder_shop_id_key")
@@ -877,6 +884,64 @@ model ServiceOrder {
   @@index([shopId, customerId, receivedAt(sort: Desc)], map: "ServiceOrder_shop_customer_idx")
   @@index([shopId, assignedToUserId, status], map: "ServiceOrder_shop_assignee_idx")
   @@index([shopId, deletedAt], map: "ServiceOrder_shop_deleted_idx")
+}
+
+
+model ServiceOrderStatusHistory {
+  id              String   @id @default(uuid()) @db.Uuid
+  shopId          String   @db.Uuid
+  serviceOrderId  String   @db.Uuid
+  fromStatus      String?  @db.VarChar(40)
+  toStatus        String   @db.VarChar(40)
+  note            String?  @db.Text
+  createdByUserId String?  @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+
+  shop         Shop         @relation("AutoServiceOrderHistoryShop", fields: [shopId], references: [id], onDelete: Cascade, map: "ServiceOrderStatusHistory_shopId_fkey")
+  serviceOrder ServiceOrder @relation("AutoServiceOrderHistoryOrder", fields: [shopId, serviceOrderId], references: [shopId, id], onDelete: Cascade, map: "ServiceOrderStatusHistory_order_shop_fkey")
+  createdBy    User?        @relation("AutoServiceOrderHistoryCreator", fields: [createdByUserId], references: [id], onDelete: SetNull, map: "ServiceOrderStatusHistory_createdByUserId_fkey")
+
+  @@index([shopId, serviceOrderId, createdAt], map: "ServiceOrderStatusHistory_order_idx")
+}
+
+model ServiceInspection {
+  id              String    @id @default(uuid()) @db.Uuid
+  shopId          String    @db.Uuid
+  serviceOrderId  String    @db.Uuid
+  inspectionType  String    @default("INITIAL") @db.VarChar(16)
+  status          String    @default("DRAFT") @db.VarChar(16)
+  summary         String?   @db.Text
+  inspectorUserId String?   @db.Uuid
+  inspectedAt     DateTime? @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @db.Timestamptz(6)
+
+  shop         Shop                    @relation("AutoServiceInspectionShop", fields: [shopId], references: [id], onDelete: Cascade, map: "ServiceInspection_shopId_fkey")
+  serviceOrder ServiceOrder            @relation("AutoServiceInspectionOrder", fields: [shopId, serviceOrderId], references: [shopId, id], onDelete: Cascade, map: "ServiceInspection_order_shop_fkey")
+  inspector    User?                   @relation("AutoServiceInspectionInspector", fields: [inspectorUserId], references: [id], onDelete: SetNull, map: "ServiceInspection_inspectorUserId_fkey")
+  items        ServiceInspectionItem[] @relation("AutoServiceInspectionItems")
+
+  @@unique([shopId, id], map: "ServiceInspection_shop_id_key")
+  @@index([shopId, serviceOrderId, createdAt(sort: Desc)], map: "ServiceInspection_order_idx")
+}
+
+model ServiceInspectionItem {
+  id                String    @id @default(uuid()) @db.Uuid
+  shopId            String    @db.Uuid
+  inspectionId      String    @db.Uuid
+  component         String    @db.Text
+  result            String    @default("NOT_CHECKED") @db.VarChar(16)
+  notes             String?   @db.Text
+  recommendedAction String?   @db.Text
+  estimatedCost     Decimal?  @db.Decimal(14, 2)
+  sortOrder         Int       @default(0)
+  createdAt         DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @db.Timestamptz(6)
+
+  shop       Shop              @relation("AutoServiceInspectionItemShop", fields: [shopId], references: [id], onDelete: Cascade, map: "ServiceInspectionItem_shopId_fkey")
+  inspection ServiceInspection @relation("AutoServiceInspectionItems", fields: [shopId, inspectionId], references: [shopId, id], onDelete: Cascade, map: "ServiceInspectionItem_inspection_shop_fkey")
+
+  @@index([shopId, inspectionId, sortOrder], map: "ServiceInspectionItem_inspection_idx")
 }
 
 model RepairOrder {

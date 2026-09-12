@@ -337,18 +337,16 @@ export async function getServiceOrderById(shopId: string, serviceOrderId: string
   const order = mapServiceOrderSummary(row);
 
   const [history, inspections, laborLines, partLines, quotations, approvals] = await Promise.all([
-    prisma.$queryRaw<Array<{ id: string; fromStatus: string | null; toStatus: string; note: string | null; createdAt: Date }>>`
-      SELECT "id", "fromStatus", "toStatus", "note", "createdAt"
-      FROM "ServiceOrderStatusHistory"
-      WHERE "shopId" = ${shopId}::uuid AND "serviceOrderId" = ${serviceOrderId}::uuid
-      ORDER BY "createdAt" ASC
-    `,
-    prisma.$queryRaw<Array<{ id: string; inspectionType: string; status: string; summary: string | null; inspectedAt: Date | null; createdAt: Date }>>`
-      SELECT "id", "inspectionType", "status", "summary", "inspectedAt", "createdAt"
-      FROM "ServiceInspection"
-      WHERE "shopId" = ${shopId}::uuid AND "serviceOrderId" = ${serviceOrderId}::uuid
-      ORDER BY "createdAt" DESC
-    `,
+    prisma.serviceOrderStatusHistory.findMany({
+      where: { shopId, serviceOrderId },
+      select: { id: true, fromStatus: true, toStatus: true, note: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.serviceInspection.findMany({
+      where: { shopId, serviceOrderId },
+      select: { id: true, inspectionType: true, status: true, summary: true, inspectedAt: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    }),
     prisma.$queryRaw<Array<Record<string, unknown>>>`
       SELECT * FROM "ServiceLaborLine"
       WHERE "shopId" = ${shopId}::uuid AND "serviceOrderId" = ${serviceOrderId}::uuid
