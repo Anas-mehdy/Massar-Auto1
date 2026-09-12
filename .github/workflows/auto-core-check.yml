@@ -17,26 +17,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Enable covered warranty settlement invoice
-        run: python scripts/enable-covered-warranty-settlement-invoice.py
-
-      - name: Verify warranty invoice flow
-        run: |
-          grep -F 'const fullyCoveredWarranty = warrantyClaim?.coverageDecision === "COVERED"' lib/services/autoInvoiceService.ts
-          grep -F 'discountTotal = subtotal' lib/services/autoInvoiceService.ts
-          grep -F 'إصدار فاتورة ضمان (0)' 'app/service-orders/[id]/page.tsx'
-          test -f prisma/migrations/20260912130500_guard_covered_warranty_invoices/migration.sql
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -57,15 +43,3 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      - name: Commit covered warranty invoice flow
-        if: github.event_name == 'push'
-        run: |
-          if git diff --quiet -- lib/services/autoInvoiceService.ts 'app/service-orders/[id]/page.tsx'; then
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add lib/services/autoInvoiceService.ts 'app/service-orders/[id]/page.tsx'
-          git commit -m 'feat(auto): settle fully covered warranty invoices at zero'
-          git push origin HEAD:feature/auto-core-v1
