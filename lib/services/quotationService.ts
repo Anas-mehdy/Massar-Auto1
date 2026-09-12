@@ -307,25 +307,48 @@ export async function recordCustomerApproval(
 }
 
 export async function getQuotation(shopId: string, quotationId: string) {
-  const quotes = await prisma.$queryRaw<Array<Record<string, unknown>> & { serviceOrderId?: never }>`
-    SELECT q.*, so."orderNumber", c."name" AS "customerName", c."phone" AS "customerPhone",
-           v."make" AS "vehicleMake", v."model" AS "vehicleModel", v."year" AS "vehicleYear", v."plateNumber", v."vin"
-    FROM "Quotation" q
-    JOIN "ServiceOrder" so ON so."id" = q."serviceOrderId" AND so."shopId" = q."shopId"
-    JOIN "Vehicle" v ON v."id" = so."vehicleId" AND v."shopId" = so."shopId"
-    JOIN "Customer" c ON c."id" = so."customerId" AND c."shopId" = so."shopId"
-    WHERE q."id" = ${quotationId}::uuid AND q."shopId" = ${shopId}::uuid
-    LIMIT 1
-  `;
-  const quote = quotes[0];
-  if (!quote) return null;
+  const quote = await prisma.quotation.findFirst({
+    where: { id: quotationId, shopId },
+    include: {
+      serviceOrder: {
+        select: {
+          orderNumber: true,
+          customer: { select: { shopId: true, name: true, phone: true } },
+          vehicle: { select: { make: true, model: true, year: true, plateNumber: true, vin: true } },
+        },
+      },
+    },
+  });
+  if (!quote || quote.serviceOrder.customer.shopId !== shopId) return null;
 
-  const lines = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-    SELECT * FROM "QuotationLine"
-    WHERE "shopId" = ${shopId}::uuid AND "quotationId" = ${quotationId}::uuid
-    ORDER BY "sortOrder", "createdAt"
-  `;
-  return { ...quote, lines };
+  const lines = await prisma.quotationLine.findMany({
+    where: { shopId, quotationId },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+  });
+  const { serviceOrder, ...quoteData } = quote;
+  return {
+    ...quoteData,
+    subtotal: Number(quote.subtotal),
+    discountTotal: Number(quote.discountTotal),
+    taxTotal: Number(quote.taxTotal),
+    total: Number(quote.total),
+    orderNumber: serviceOrder.orderNumber,
+    customerName: serviceOrder.customer.name,
+    customerPhone: serviceOrder.customer.phone,
+    vehicleMake: serviceOrder.vehicle.make,
+    vehicleModel: serviceOrder.vehicle.model,
+    vehicleYear: serviceOrder.vehicle.year,
+    plateNumber: serviceOrder.vehicle.plateNumber,
+    vin: serviceOrder.vehicle.vin,
+    lines: lines.map((line) => ({
+      ...line,
+      quantity: Number(line.quantity),
+      unitCost: line.unitCost == null ? null : Number(line.unitCost),
+      unitPrice: Number(line.unitPrice),
+      discountTotal: Number(line.discountTotal),
+      lineTotal: Number(line.lineTotal),
+    })),
+  };
 }
 
 export const quotationService = {

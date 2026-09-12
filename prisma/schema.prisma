@@ -186,6 +186,7 @@ model Shop {
   warehouses            Warehouse[] @relation("AutoWarehouseShop")
   autoQuotations        Quotation[] @relation("AutoQuotationShop")
   autoCustomerApprovals CustomerApproval[] @relation("AutoCustomerApprovalShop")
+  autoQuotationLines     QuotationLine[] @relation("AutoQuotationLineShop")
   repairOrderItems          RepairOrderItem[]
   repairStatusHistories     RepairStatusHistory[]
   repairAssignmentHistories RepairOrderAssignmentHistory[]
@@ -1054,12 +1055,46 @@ model Quotation {
   serviceOrder ServiceOrder       @relation("AutoQuotationOrder", fields: [shopId, serviceOrderId], references: [shopId, id], onDelete: Cascade, map: "Quotation_order_shop_fkey")
   createdBy    User?              @relation("AutoQuotationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull, map: "Quotation_createdByUserId_fkey")
   approvals    CustomerApproval[] @relation("AutoCustomerApprovalQuotation")
+  lines        QuotationLine[] @relation("AutoQuotationLines")
 
   @@unique([shopId, id], map: "Quotation_shop_id_key")
   @@unique([shopId, quoteNumber], map: "Quotation_shop_quote_number_key")
   @@unique([serviceOrderId, revision], map: "Quotation_order_revision_key")
   @@index([shopId, serviceOrderId, revision(sort: Desc)], map: "Quotation_order_idx")
   @@index([shopId, status, createdAt(sort: Desc)], map: "Quotation_status_idx")
+}
+
+
+model QuotationLine {
+  id                 String    @id @default(uuid()) @db.Uuid
+  shopId             String    @db.Uuid
+  quotationId        String    @db.Uuid
+  lineType           String    @default("LABOR") @db.VarChar(12)
+  description        String    @db.Text
+  inventoryItemId    String?   @db.Uuid
+  serviceLaborLineId String?   @db.Uuid
+  servicePartLineId  String?   @db.Uuid
+  quantity           Decimal   @default(1) @db.Decimal(12, 2)
+  unitCost           Decimal?  @db.Decimal(18, 6)
+  unitPrice          Decimal   @default(0) @db.Decimal(14, 2)
+  discountTotal      Decimal   @default(0) @db.Decimal(14, 2)
+  lineTotal          Decimal   @default(0) @db.Decimal(14, 2)
+  approvalStatus     String    @default("PENDING") @db.VarChar(12)
+  sortOrder          Int       @default(0)
+  createdAt          DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @db.Timestamptz(6)
+
+  shop          Shop           @relation("AutoQuotationLineShop", fields: [shopId], references: [id], onDelete: Cascade, map: "QuotationLine_shopId_fkey")
+  quotation     Quotation      @relation("AutoQuotationLines", fields: [shopId, quotationId], references: [shopId, id], onDelete: Cascade, map: "QuotationLine_quote_shop_fkey")
+  inventoryItem InventoryItem? @relation("AutoQuotationLineInventoryItem", fields: [inventoryItemId], references: [id], onDelete: SetNull, map: "QuotationLine_inventoryItemId_fkey")
+
+  // The database also has composite FKs (shopId, serviceLaborLineId) and
+  // (shopId, servicePartLineId) with ON DELETE SET NULL. Because shopId is
+  // required, those referential actions cannot be represented faithfully as
+  // Prisma relations without changing semantics. Keep these UUIDs as scalar
+  // references; PostgreSQL remains authoritative for those two constraints.
+
+  @@index([shopId, quotationId, sortOrder], map: "QuotationLine_quote_idx")
 }
 
 model CustomerApproval {
@@ -1243,6 +1278,7 @@ model InventoryItem {
   repairOrderItems        RepairOrderItem[]
   compatibilityGroupLinks InventoryCompatibilityGroup[]
   autoServicePartLines     ServicePartLine[] @relation("AutoServicePartInventoryItem")
+  autoQuotationLines       QuotationLine[] @relation("AutoQuotationLineInventoryItem")
 
   @@unique([shopId, clientGeneratedId])
   @@index([shopId, sku])
