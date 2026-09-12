@@ -135,18 +135,18 @@ async function assertActiveShopMember(shopId: string, userId?: string | null) {
 
 async function assertActiveTechnician(shopId: string, userId?: string | null) {
   if (!userId) return;
-  const rows = await prisma.$queryRaw<Array<{ userId: string }>>`
-    SELECT m."userId"
-    FROM "Membership" m
-    JOIN "User" u ON u."id" = m."userId" AND u."deletedAt" IS NULL
-    WHERE m."shopId" = ${shopId}::uuid
-      AND m."userId" = ${userId}::uuid
-      AND m."deletedAt" IS NULL
-      AND m."status"::text = 'ACTIVE'
-      AND m."role"::text = 'TECHNICIAN'
-    LIMIT 1
-  `;
-  if (!rows[0]) throw new Error("الموظف المحدد ليس فني صيانة نشطاً في هذا المركز.");
+  const member = await prisma.membership.findFirst({
+    where: {
+      shopId,
+      userId,
+      status: "ACTIVE",
+      role: "TECHNICIAN",
+      deletedAt: null,
+      user: { is: { deletedAt: null } },
+    },
+    select: { id: true },
+  });
+  if (!member) throw new Error("الموظف المحدد ليس فني صيانة نشطاً في هذا المركز.");
 }
 
 export async function createServiceOrder(
@@ -214,62 +214,127 @@ export async function createServiceOrder(
   });
 }
 
+function mapServiceOrderSummary(row: {
+  id: string;
+  shopId: string;
+  vehicleId: string;
+  customerId: string;
+  orderNumber: string;
+  status: string;
+  reportedIssue: string;
+  receptionNotes: string | null;
+  diagnosis: string | null;
+  odometerAtIntake: number | null;
+  fuelLevelPercent: unknown;
+  estimatedTotal: unknown;
+  finalTotal: unknown;
+  receivedAt: Date;
+  promisedAt: Date | null;
+  deliveredAt: Date | null;
+  closedAt: Date | null;
+  assignedToUserId: string | null;
+  customer: { name: string; phone: string | null };
+  vehicle: { make: string; model: string; year: number | null; plateNumber: string | null; vin: string | null };
+}): ServiceOrderSummary {
+  return {
+    id: row.id,
+    shopId: row.shopId,
+    vehicleId: row.vehicleId,
+    customerId: row.customerId,
+    orderNumber: row.orderNumber,
+    status: row.status as ServiceOrderStatus,
+    reportedIssue: row.reportedIssue,
+    receptionNotes: row.receptionNotes,
+    diagnosis: row.diagnosis,
+    odometerAtIntake: row.odometerAtIntake,
+    fuelLevelPercent: row.fuelLevelPercent == null ? null : Number(row.fuelLevelPercent),
+    estimatedTotal: row.estimatedTotal == null ? null : Number(row.estimatedTotal),
+    finalTotal: row.finalTotal == null ? null : Number(row.finalTotal),
+    receivedAt: row.receivedAt,
+    promisedAt: row.promisedAt,
+    deliveredAt: row.deliveredAt,
+    closedAt: row.closedAt,
+    assignedToUserId: row.assignedToUserId,
+    customerName: row.customer.name,
+    customerPhone: row.customer.phone,
+    vehicleMake: row.vehicle.make,
+    vehicleModel: row.vehicle.model,
+    vehicleYear: row.vehicle.year,
+    plateNumber: row.vehicle.plateNumber,
+    vin: row.vehicle.vin,
+  };
+}
+
+const serviceOrderSummarySelect = {
+  id: true,
+  shopId: true,
+  vehicleId: true,
+  customerId: true,
+  orderNumber: true,
+  status: true,
+  reportedIssue: true,
+  receptionNotes: true,
+  diagnosis: true,
+  odometerAtIntake: true,
+  fuelLevelPercent: true,
+  estimatedTotal: true,
+  finalTotal: true,
+  receivedAt: true,
+  promisedAt: true,
+  deliveredAt: true,
+  closedAt: true,
+  assignedToUserId: true,
+  customer: { select: { name: true, phone: true } },
+  vehicle: { select: { make: true, model: true, year: true, plateNumber: true, vin: true } },
+} as const;
+
 export async function listServiceOrders(
   shopId: string,
   filters: { status?: ServiceOrderStatus; search?: string; assignedToUserId?: string } = {},
 ): Promise<ServiceOrderSummary[]> {
-  const pattern = filters.search?.trim() ? `%${filters.search.trim()}%` : null;
+  const search = filters.search?.trim();
+  const orders = await prisma.serviceOrder.findMany({
+    where: {
+      shopId,
+      deletedAt: null,
+      customer: { shopId },
+      ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.assignedToUserId ? { assignedToUserId: filters.assignedToUserId } : {}),
+      ...(search
+        ? {
+            OR: [
+              { orderNumber: { contains: search, mode: "insensitive" } },
+              { reportedIssue: { contains: search, mode: "insensitive" } },
+              { customer: { name: { contains: search, mode: "insensitive" } } },
+              { customer: { phone: { contains: search, mode: "insensitive" } } },
+              { vehicle: { make: { contains: search, mode: "insensitive" } } },
+              { vehicle: { model: { contains: search, mode: "insensitive" } } },
+              { vehicle: { plateNumber: { contains: search, mode: "insensitive" } } },
+              { vehicle: { vin: { contains: search, mode: "insensitive" } } },
+            ],
+          }
+        : {}),
+    },
+    select: serviceOrderSummarySelect,
+    orderBy: { receivedAt: "desc" },
+    take: 250,
+  });
 
-  return prisma.$queryRaw<ServiceOrderSummary[]>`
-    SELECT
-      so."id", so."shopId", so."vehicleId", so."customerId", so."orderNumber", so."status",
-      so."reportedIssue", so."receptionNotes", so."diagnosis", so."odometerAtIntake", so."fuelLevelPercent",
-      so."estimatedTotal", so."finalTotal", so."receivedAt", so."promisedAt", so."deliveredAt", so."closedAt",
-      so."assignedToUserId",
-      c."name" AS "customerName", c."phone" AS "customerPhone",
-      v."make" AS "vehicleMake", v."model" AS "vehicleModel", v."year" AS "vehicleYear",
-      v."plateNumber", v."vin"
-    FROM "ServiceOrder" so
-    JOIN "Vehicle" v ON v."id" = so."vehicleId" AND v."shopId" = so."shopId"
-    JOIN "Customer" c ON c."id" = so."customerId" AND c."shopId" = so."shopId"
-    WHERE so."shopId" = ${shopId}::uuid
-      AND so."deletedAt" IS NULL
-      AND (${filters.status ?? null}::text IS NULL OR so."status" = ${filters.status ?? null}::text)
-      AND (${filters.assignedToUserId ?? null}::uuid IS NULL OR so."assignedToUserId" = ${filters.assignedToUserId ?? null}::uuid)
-      AND (
-        ${pattern}::text IS NULL
-        OR so."orderNumber" ILIKE ${pattern}::text
-        OR so."reportedIssue" ILIKE ${pattern}::text
-        OR c."name" ILIKE ${pattern}::text
-        OR COALESCE(c."phone", '') ILIKE ${pattern}::text
-        OR v."make" ILIKE ${pattern}::text
-        OR v."model" ILIKE ${pattern}::text
-        OR COALESCE(v."plateNumber", '') ILIKE ${pattern}::text
-        OR COALESCE(v."vin", '') ILIKE ${pattern}::text
-      )
-    ORDER BY so."receivedAt" DESC
-    LIMIT 250
-  `;
+  return orders.map(mapServiceOrderSummary);
 }
 
 export async function getServiceOrderById(shopId: string, serviceOrderId: string) {
-  const orders = await prisma.$queryRaw<ServiceOrderSummary[]>`
-    SELECT
-      so."id", so."shopId", so."vehicleId", so."customerId", so."orderNumber", so."status",
-      so."reportedIssue", so."receptionNotes", so."diagnosis", so."odometerAtIntake", so."fuelLevelPercent",
-      so."estimatedTotal", so."finalTotal", so."receivedAt", so."promisedAt", so."deliveredAt", so."closedAt",
-      so."assignedToUserId",
-      c."name" AS "customerName", c."phone" AS "customerPhone",
-      v."make" AS "vehicleMake", v."model" AS "vehicleModel", v."year" AS "vehicleYear",
-      v."plateNumber", v."vin"
-    FROM "ServiceOrder" so
-    JOIN "Vehicle" v ON v."id" = so."vehicleId" AND v."shopId" = so."shopId"
-    JOIN "Customer" c ON c."id" = so."customerId" AND c."shopId" = so."shopId"
-    WHERE so."id" = ${serviceOrderId}::uuid AND so."shopId" = ${shopId}::uuid AND so."deletedAt" IS NULL
-    LIMIT 1
-  `;
-  const order = orders[0];
-  if (!order) return null;
+  const row = await prisma.serviceOrder.findFirst({
+    where: {
+      id: serviceOrderId,
+      shopId,
+      deletedAt: null,
+      customer: { shopId },
+    },
+    select: serviceOrderSummarySelect,
+  });
+  if (!row) return null;
+  const order = mapServiceOrderSummary(row);
 
   const [history, inspections, laborLines, partLines, quotations, approvals] = await Promise.all([
     prisma.$queryRaw<Array<{ id: string; fromStatus: string | null; toStatus: string; note: string | null; createdAt: Date }>>`
