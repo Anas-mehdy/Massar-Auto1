@@ -347,11 +347,17 @@ export async function getServiceOrderById(shopId: string, serviceOrderId: string
       select: { id: true, inspectionType: true, status: true, summary: true, inspectedAt: true, createdAt: true },
       orderBy: { createdAt: "desc" },
     }),
-    prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT * FROM "ServiceLaborLine"
-      WHERE "shopId" = ${shopId}::uuid AND "serviceOrderId" = ${serviceOrderId}::uuid
-      ORDER BY "sortOrder", "createdAt"
-    `,
+    prisma.serviceLaborLine.findMany({
+      where: { shopId, serviceOrderId },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    }).then((rows) => rows.map((row) => ({
+      ...row,
+      hours: row.hours == null ? null : Number(row.hours),
+      quantity: Number(row.quantity),
+      unitPrice: Number(row.unitPrice),
+      costAmount: row.costAmount == null ? null : Number(row.costAmount),
+      lineTotal: Number(row.lineTotal),
+    }))),
     prisma.$queryRaw<Array<Record<string, unknown>>>`
       SELECT spl.*, w."name" AS "warehouseName", i."sku", i."barcode"
       FROM "ServicePartLine" spl
@@ -459,13 +465,13 @@ export async function updateServiceOrderStatus(
 }
 
 async function assertOrderEditable(shopId: string, serviceOrderId: string) {
-  const rows = await prisma.$queryRaw<Array<{ status: ServiceOrderStatus }>>`
-    SELECT "status" FROM "ServiceOrder"
-    WHERE "id" = ${serviceOrderId}::uuid AND "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL
-    LIMIT 1
-  `;
-  if (!rows[0]) throw new Error("أمر الصيانة غير موجود.");
-  if (FINAL_STATUSES.has(rows[0].status) || rows[0].status === "DELIVERED") {
+  const order = await prisma.serviceOrder.findFirst({
+    where: { id: serviceOrderId, shopId, deletedAt: null },
+    select: { status: true },
+  });
+  if (!order) throw new Error("أمر الصيانة غير موجود.");
+  const status = order.status as ServiceOrderStatus;
+  if (FINAL_STATUSES.has(status) || status === "DELIVERED") {
     throw new Error("لا يمكن تعديل بنود أمر صيانة منتهي أو ملغى.");
   }
 }

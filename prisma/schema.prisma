@@ -181,6 +181,7 @@ model Shop {
   autoServiceOrderHistories ServiceOrderStatusHistory[] @relation("AutoServiceOrderHistoryShop")
   autoServiceInspections    ServiceInspection[] @relation("AutoServiceInspectionShop")
   autoServiceInspectionItems ServiceInspectionItem[] @relation("AutoServiceInspectionItemShop")
+  autoServiceLaborLines ServiceLaborLine[] @relation("AutoServiceLaborShop")
   repairOrderItems          RepairOrderItem[]
   repairStatusHistories     RepairStatusHistory[]
   repairAssignmentHistories RepairOrderAssignmentHistory[]
@@ -367,6 +368,7 @@ model User {
   closedAutoServiceOrders    ServiceOrder[]       @relation("AutoServiceOrderClosedBy")
   createdAutoServiceOrderHistories ServiceOrderStatusHistory[] @relation("AutoServiceOrderHistoryCreator")
   autoServiceInspections     ServiceInspection[] @relation("AutoServiceInspectionInspector")
+  autoServiceLaborLines      ServiceLaborLine[] @relation("AutoServiceLaborTechnician")
   passwordResetTokens        PasswordResetToken[]
 
   shopId String   @db.Uuid
@@ -876,6 +878,7 @@ model ServiceOrder {
   invoices       Invoice[] @relation("AutoServiceOrderInvoices")
   statusHistory  ServiceOrderStatusHistory[] @relation("AutoServiceOrderHistoryOrder")
   inspections    ServiceInspection[] @relation("AutoServiceInspectionOrder")
+  laborLines     ServiceLaborLine[] @relation("AutoServiceLaborOrder")
 
   @@unique([shopId, orderNumber], map: "ServiceOrder_shop_order_number_key")
   @@unique([shopId, id], map: "ServiceOrder_shop_id_key")
@@ -942,6 +945,33 @@ model ServiceInspectionItem {
   inspection ServiceInspection @relation("AutoServiceInspectionItems", fields: [shopId, inspectionId], references: [shopId, id], onDelete: Cascade, map: "ServiceInspectionItem_inspection_shop_fkey")
 
   @@index([shopId, inspectionId, sortOrder], map: "ServiceInspectionItem_inspection_idx")
+}
+
+
+model ServiceLaborLine {
+  id               String    @id @default(uuid()) @db.Uuid
+  shopId           String    @db.Uuid
+  serviceOrderId   String    @db.Uuid
+  description      String    @db.Text
+  technicianUserId String?   @db.Uuid
+  hours            Decimal?  @db.Decimal(8, 2)
+  quantity         Decimal   @default(1) @db.Decimal(10, 2)
+  unitPrice        Decimal   @default(0) @db.Decimal(14, 2)
+  costAmount       Decimal?  @db.Decimal(14, 2)
+  lineTotal        Decimal   @default(0) @db.Decimal(14, 2)
+  status           String    @default("PLANNED") @db.VarChar(16)
+  notes            String?   @db.Text
+  sortOrder        Int       @default(0)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @db.Timestamptz(6)
+
+  shop         Shop         @relation("AutoServiceLaborShop", fields: [shopId], references: [id], onDelete: Cascade, map: "ServiceLaborLine_shopId_fkey")
+  serviceOrder ServiceOrder @relation("AutoServiceLaborOrder", fields: [shopId, serviceOrderId], references: [shopId, id], onDelete: Cascade, map: "ServiceLaborLine_order_shop_fkey")
+  technician   User?        @relation("AutoServiceLaborTechnician", fields: [technicianUserId], references: [id], onDelete: SetNull, map: "ServiceLaborLine_technicianUserId_fkey")
+
+  @@unique([shopId, id], map: "ServiceLaborLine_shop_id_key")
+  @@index([shopId, serviceOrderId, sortOrder], map: "ServiceLaborLine_order_idx")
+  @@index([shopId, technicianUserId, status], map: "ServiceLaborLine_technician_idx")
 }
 
 model RepairOrder {
