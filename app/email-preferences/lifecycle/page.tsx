@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { MailCheck, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -5,6 +6,7 @@ import { verifyLifecycleUnsubscribeToken } from "@/lib/lifecycle/unsubscribe-tok
 import { unsubscribeLifecycleEmailAction } from "./actions";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 type SearchParams = { token?: string; done?: string; invalid?: string };
 
