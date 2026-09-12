@@ -25,29 +25,48 @@ function generateAutoInvoiceNumber() {
   return `INV-A-${date}-${randomBytes(4).toString("hex").toUpperCase()}`;
 }
 
+type InvoiceReader = Pick<Prisma.TransactionClient, "invoice">;
+
 async function findActiveInvoiceTx(
-  tx: Prisma.TransactionClient,
+  tx: InvoiceReader,
   shopId: string,
   serviceOrderId: string,
-) {
-  const rows = await tx.$queryRaw<AutoServiceInvoiceSummary[]>`
-    SELECT "id", "invoiceNumber", "status"::text AS "status",
-           "subtotal"::double precision AS "subtotal",
-           "discountTotal"::double precision AS "discountTotal",
-           "taxTotal"::double precision AS "taxTotal",
-           "total"::double precision AS "total",
-           "amountPaid"::double precision AS "amountPaid",
-           "balanceDue"::double precision AS "balanceDue",
-           "issuedAt"
-    FROM "Invoice"
-    WHERE "shopId" = ${shopId}::uuid
-      AND "serviceOrderId" = ${serviceOrderId}::uuid
-      AND "deletedAt" IS NULL
-      AND "status" <> 'VOID'::"InvoiceStatus"
-    ORDER BY "issuedAt" DESC
-    LIMIT 1
-  `;
-  return rows[0] ?? null;
+): Promise<AutoServiceInvoiceSummary | null> {
+  const row = await tx.invoice.findFirst({
+    where: {
+      shopId,
+      serviceOrderId,
+      deletedAt: null,
+      status: { not: "VOID" },
+    },
+    orderBy: { issuedAt: "desc" },
+    select: {
+      id: true,
+      invoiceNumber: true,
+      status: true,
+      subtotal: true,
+      discountTotal: true,
+      taxTotal: true,
+      total: true,
+      amountPaid: true,
+      balanceDue: true,
+      issuedAt: true,
+    },
+  });
+
+  if (!row) return null;
+  return {
+    id: row.id,
+    invoiceNumber: row.invoiceNumber,
+    status: row.status,
+    subtotal: Number(row.subtotal),
+    discountTotal: Number(row.discountTotal),
+    taxTotal: Number(row.taxTotal),
+    total: Number(row.total),
+    amountPaid: Number(row.amountPaid),
+    balanceDue: Number(row.balanceDue),
+    issuedAt: row.issuedAt,
+  };
 }
 
 export async function getServiceOrderInvoice(shopId: string, serviceOrderId: string) {
