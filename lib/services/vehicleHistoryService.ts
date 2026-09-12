@@ -13,8 +13,9 @@ export type VehicleHistoryOrder = {
   estimatedTotal: number | null; finalTotal: number | null; receivedAt: Date; promisedAt: Date | null; approvedAt: Date | null;
   startedAt: Date | null; readyAt: Date | null; deliveredAt: Date | null; closedAt: Date | null;
   assignedTechnicianName: string | null; receptionistName: string | null; deliveredByName: string | null; closedByName: string | null;
-  invoiceId: string | null; invoiceNumber: string | null; invoiceStatus: string | null; invoiceTotal: number | null;
-  invoiceAmountPaid: number | null; invoiceBalanceDue: number | null; invoiceIssuedAt: Date | null;
+  invoiceId: string | null; invoiceNumber: string | null; invoiceStatus: string | null;
+  invoiceOriginalTotal: number | null; invoiceCreditTotal: number | null; invoiceRefundedTotal: number | null;
+  invoiceTotal: number | null; invoiceAmountPaid: number | null; invoiceBalanceDue: number | null; invoiceIssuedAt: Date | null;
   laborLines: VehicleHistoryLaborLine[]; partLines: VehicleHistoryPartLine[]; inspections: VehicleHistoryInspection[];
   quotations: VehicleHistoryQuotation[]; approvals: VehicleHistoryApproval[]; payments: VehicleHistoryPayment[];
 };
@@ -43,7 +44,11 @@ export async function getVehicleLifetimeHistory(shopId: string, vehicleId: strin
              assigned."name" AS "assignedTechnicianName", receptionist."name" AS "receptionistName",
              delivered_by."name" AS "deliveredByName", closed_by."name" AS "closedByName",
              inv."id" AS "invoiceId", inv."invoiceNumber", inv."status"::text AS "invoiceStatus",
-             inv."total"::double precision AS "invoiceTotal", inv."amountPaid"::double precision AS "invoiceAmountPaid",
+             inv."originalTotal"::double precision AS "invoiceOriginalTotal",
+             inv."creditTotal"::double precision AS "invoiceCreditTotal",
+             inv."refundedTotal"::double precision AS "invoiceRefundedTotal",
+             inv."effectiveTotal"::double precision AS "invoiceTotal",
+             inv."netCollected"::double precision AS "invoiceAmountPaid",
              inv."balanceDue"::double precision AS "invoiceBalanceDue", inv."issuedAt" AS "invoiceIssuedAt"
       FROM "ServiceOrder" so
       LEFT JOIN "User" assigned ON assigned."id" = so."assignedToUserId"
@@ -51,7 +56,11 @@ export async function getVehicleLifetimeHistory(shopId: string, vehicleId: strin
       LEFT JOIN "User" delivered_by ON delivered_by."id" = so."deliveredByUserId"
       LEFT JOIN "User" closed_by ON closed_by."id" = so."closedByUserId"
       LEFT JOIN LATERAL (
-        SELECT i."id", i."invoiceNumber", i."status", i."total", i."amountPaid", i."balanceDue", i."issuedAt"
+        SELECT i."id", i."invoiceNumber", i."status", i."total" AS "originalTotal", i."balanceDue", i."issuedAt",
+               COALESCE((SELECT SUM(cn."amount") FROM "InvoiceCreditNote" cn WHERE cn."shopId"=i."shopId" AND cn."invoiceId"=i."id"),0) AS "creditTotal",
+               COALESCE((SELECT SUM(r."amount") FROM "InvoiceCreditRefund" r WHERE r."shopId"=i."shopId" AND r."invoiceId"=i."id"),0) AS "refundedTotal",
+               GREATEST(i."total" - COALESCE((SELECT SUM(cn."amount") FROM "InvoiceCreditNote" cn WHERE cn."shopId"=i."shopId" AND cn."invoiceId"=i."id"),0),0) AS "effectiveTotal",
+               GREATEST(i."amountPaid" - COALESCE((SELECT SUM(r."amount") FROM "InvoiceCreditRefund" r WHERE r."shopId"=i."shopId" AND r."invoiceId"=i."id"),0),0) AS "netCollected"
         FROM "Invoice" i
         WHERE i."shopId" = so."shopId" AND i."serviceOrderId" = so."id" AND i."deletedAt" IS NULL AND i."status" <> 'VOID'::"InvoiceStatus"
         ORDER BY i."issuedAt" DESC LIMIT 1
@@ -105,14 +114,26 @@ export async function getVehicleLifetimeHistory(shopId: string, vehicleId: strin
       ORDER BY ca."serviceOrderId", ca."decidedAt" DESC
     `,
     prisma.$queryRaw<VehicleHistoryPayment[]>`
-      SELECT p."id", inv."serviceOrderId", p."invoiceId", p."amount"::double precision AS "amount", p."method"::text AS "method",
-             p."sourceName", p."reference", p."note", p."paidAt"
-      FROM "Payment" p
-      JOIN "Invoice" inv ON inv."id" = p."invoiceId" AND inv."shopId" = p."shopId"
-      JOIN "ServiceOrder" so ON so."id" = inv."serviceOrderId" AND so."shopId" = inv."shopId"
-      WHERE p."shopId" = ${shopId}::uuid AND so."vehicleId" = ${vehicleId}::uuid AND so."deletedAt" IS NULL
-        AND p."deletedAt" IS NULL AND inv."deletedAt" IS NULL AND inv."status" <> 'VOID'::"InvoiceStatus"
-      ORDER BY inv."serviceOrderId", p."paidAt" DESC
+      SELECT history."id", history."serviceOrderId", history."invoiceId", history."amount", history."method",
+             history."sourceName", history."reference", history."note", history."paidAt"
+      FROM (
+        SELECT p."id"::text AS "id", inv."serviceOrderId", p."invoiceId", p."amount"::double precision AS "amount", p."method"::text AS "method",
+               p."sourceName", p."reference", p."note", p."paidAt"
+        FROM "Payment" p
+        JOIN "Invoice" inv ON inv."id" = p."invoiceId" AND inv."shopId" = p."shopId"
+        JOIN "ServiceOrder" so ON so."id" = inv."serviceOrderId" AND so."shopId" = inv."shopId"
+        WHERE p."shopId" = ${shopId}::uuid AND so."vehicleId" = ${vehicleId}::uuid AND so."deletedAt" IS NULL
+          AND p."deletedAt" IS NULL AND inv."deletedAt" IS NULL AND inv."status" <> 'VOID'::"InvoiceStatus"
+        UNION ALL
+        SELECT ('refund:' || r."id"::text) AS "id", inv."serviceOrderId", r."invoiceId", (-r."amount")::double precision AS "amount",
+               'استرداد للعميل'::text AS "method", r."sourceName", r."reference", r."notes" AS "note", r."refundedAt" AS "paidAt"
+        FROM "InvoiceCreditRefund" r
+        JOIN "Invoice" inv ON inv."id"=r."invoiceId" AND inv."shopId"=r."shopId"
+        JOIN "ServiceOrder" so ON so."id"=inv."serviceOrderId" AND so."shopId"=inv."shopId"
+        WHERE r."shopId"=${shopId}::uuid AND so."vehicleId"=${vehicleId}::uuid AND so."deletedAt" IS NULL
+          AND inv."deletedAt" IS NULL AND inv."status" <> 'VOID'::"InvoiceStatus"
+      ) history
+      ORDER BY history."serviceOrderId", history."paidAt" DESC
     `,
   ]);
 
