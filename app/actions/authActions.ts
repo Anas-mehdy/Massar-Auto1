@@ -5,7 +5,7 @@ import { COUNTRY_DIAL_CODES, PHONE_DIAL_CODES, validatePhoneForCountry } from "@
 import { CURRENCY_OPTIONS } from "@/lib/format";
 import { shouldEnterOnboarding } from "@/lib/onboarding/navigation";
 import { onboardingService } from "@/lib/services/onboardingService";
-import { getRequestFingerprint } from "@/lib/auth/requestFingerprint";
+import { getRequestFingerprint, getRequestNetworkFingerprint } from "@/lib/auth/requestFingerprint";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
@@ -77,7 +77,7 @@ export async function registerAction(formData: FormData) {
       address,
     };
 
-    await authService.registerShop(input, await getRequestFingerprint());
+    await authService.registerShop(input, await getRequestNetworkFingerprint());
   } catch (error) {
     return {
       success: false,
