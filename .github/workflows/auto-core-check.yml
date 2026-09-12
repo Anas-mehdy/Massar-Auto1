@@ -17,29 +17,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Apply warranty staged fixes
-        run: |
-          python scripts/link-warranty-service-order.py
-          python scripts/fix-warranty-types.py
-
-      - name: Verify warranty workflow
-        run: |
-          grep -F 'ضمان / عودة للصيانة' 'app/service-orders/[id]/page.tsx'
-          grep -F 'function optionalNumber(value?: string)' 'app/service-orders/warranty-actions.ts'
-          grep -F 'ServiceWarrantyClaim' 'prisma/migrations/20260912121000_add_service_warranty_claims/migration.sql'
-          grep -F 'createWarrantyFollowUpOrder' 'lib/services/serviceWarrantyClaimService.ts'
-          grep -F 'WarrantyClaimsPage' 'app/service-orders/[id]/warranty/page.tsx'
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -60,15 +43,3 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      - name: Commit warranty workflow
-        if: github.event_name == 'push'
-        run: |
-          if git diff --quiet -- 'app/service-orders/[id]/page.tsx' 'app/service-orders/warranty-actions.ts' 'lib/services/serviceWarrantyClaimService.ts'; then
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add 'app/service-orders/[id]/page.tsx' 'app/service-orders/warranty-actions.ts' 'lib/services/serviceWarrantyClaimService.ts'
-          git commit -m 'feat(auto): finalize warranty and comeback workflow'
-          git push origin HEAD:feature/auto-core-v1
