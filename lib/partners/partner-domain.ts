@@ -1,3 +1,4 @@
+export const PARTNER_CODE_MIN_LENGTH = 6;
 export const PARTNER_CODE_MAX_LENGTH = 32;
 export const PARTNER_DISCOUNT_MIN = 0;
 export const PARTNER_DISCOUNT_MAX = 100;
@@ -34,8 +35,8 @@ export function normalizePartnerCountryCode(value?: string | null): string | nul
 export function validatePartnerCode(value: string): string {
   const code = normalizePartnerCode(value);
 
-  if (code.length < 2 || code.length > PARTNER_CODE_MAX_LENGTH) {
-    throw new Error(`كود الوكيل يجب أن يكون بين حرفين و${PARTNER_CODE_MAX_LENGTH} حرفاً.`);
+  if (code.length < PARTNER_CODE_MIN_LENGTH || code.length > PARTNER_CODE_MAX_LENGTH) {
+    throw new Error(`كود الوكيل يجب أن يكون بين ${PARTNER_CODE_MIN_LENGTH} و${PARTNER_CODE_MAX_LENGTH} حرفاً.`);
   }
 
   if (!/^[A-Z0-9_-]+$/.test(code)) {
