@@ -1,4 +1,8 @@
-import { getCurrentShopContext } from "@/lib/current-shop";
+import {
+  AuthenticationError,
+  AuthorizationError,
+  requirePermission,
+} from "@/lib/auth/context";
 import { supplierInvoiceAttachmentService } from "@/lib/services/supplierInvoiceAttachmentService";
 
 export const dynamic = "force-dynamic";
@@ -7,11 +11,17 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const context = await getCurrentShopContext({ allowRedirect: false });
-  if (!context.shopId) return new Response("Unauthorized", { status: 401 });
+  let auth;
+  try {
+    auth = await requirePermission("inventory:read", { allowRedirect: false });
+  } catch (error) {
+    if (error instanceof AuthenticationError) return new Response("Unauthorized", { status: 401 });
+    if (error instanceof AuthorizationError) return new Response("Forbidden", { status: 403 });
+    throw error;
+  }
 
   const { id } = await params;
-  const attachment = await supplierInvoiceAttachmentService.getAttachmentFile(context.shopId, id);
+  const attachment = await supplierInvoiceAttachmentService.getAttachmentFile(auth.shop.id, id);
   if (!attachment) return new Response("Not found", { status: 404 });
 
   const encodedName = encodeURIComponent(attachment.fileName).replace(/'/g, "%27");
