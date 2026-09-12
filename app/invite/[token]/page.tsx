@@ -2,6 +2,7 @@ import { Metadata } from "next";
 import Link from "next/link";
 import { UserCheck, AlertTriangle, ArrowRight } from "lucide-react";
 import { teamService } from "@/lib/services/teamService";
+import { prisma } from "@/lib/prisma";
 import { Button } from "@/components/ui/button";
 import { AcceptInvitationForm } from "./_accept-form";
 
@@ -11,8 +12,11 @@ export const metadata: Metadata = {
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: "مدير فرع",
+  RECEPTIONIST: "موظف استقبال",
   TECHNICIAN: "فني صيانة",
-  VIEWER: "مشاهد تقارير",
+  WAREHOUSE: "مسؤول مستودع",
+  FINANCE: "محاسب / مالية",
+  VIEWER: "مشاهد",
 };
 
 export default async function InviteAcceptancePage(props: {
@@ -47,11 +51,14 @@ export default async function InviteAcceptancePage(props: {
 
   const invitation = check.invitation;
   const roleLabel = ROLE_LABELS[invitation.role] || invitation.role;
+  const existingAccount = Boolean(await prisma.user.findUnique({
+    where: { email: invitation.email.toLowerCase() },
+    select: { id: true },
+  }));
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center px-4 py-12 text-slate-100">
       <div className="w-full max-w-md space-y-6 bg-slate-900/95 p-8 rounded-3xl border border-slate-800 shadow-2xl">
-        {/* Header Badge */}
         <div className="text-center space-y-3">
           <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-500/10 text-teal-400 border border-teal-500/20 shadow-inner">
             <UserCheck className="h-6 w-6" />
@@ -69,11 +76,11 @@ export default async function InviteAcceptancePage(props: {
           </div>
         </div>
 
-        {/* Client Acceptance Form */}
         <AcceptInvitationForm
           token={token}
           email={invitation.email}
           defaultName={invitation.name || ""}
+          existingAccount={existingAccount}
         />
 
         <div className="text-center pt-2 border-t border-slate-800/80">
