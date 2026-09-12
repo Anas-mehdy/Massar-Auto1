@@ -36,7 +36,7 @@ function refreshCashViews() {
 export async function setOpeningBalanceAction(formData: FormData) {
   const amount = moneySchema.safeParse(readString(formData, "amount"));
   if (!amount.success) redirect(`/cash-drawer?error=${encodeURIComponent(errorMessage(amount.error))}`);
-  const auth = await requirePermission("sales:create");
+  const auth = await requirePermission("finance:vouchers");
   try {
     await cashDrawerService.setOpeningBalance(auth.shop.id, auth.user.id, amount.data, readString(formData, "notes"));
   } catch (error) {
@@ -49,7 +49,7 @@ export async function setOpeningBalanceAction(formData: FormData) {
 export async function updateOpeningBalanceAction(formData: FormData) {
   const amount = moneySchema.safeParse(readString(formData, "amount"));
   if (!amount.success) redirect(`/cash-drawer?error=${encodeURIComponent(errorMessage(amount.error))}`);
-  const auth = await requirePermission("sales:create");
+  const auth = await requirePermission("finance:vouchers");
   try {
     await openingBalanceAdjustmentService.updateOpeningBalance(
       auth.shop.id,
@@ -77,7 +77,7 @@ export async function addCashMovementAction(formData: FormData) {
     reference: readString(formData, "reference") || undefined,
   });
   if (!parsed.success) redirect(`/cash-drawer?error=${encodeURIComponent(errorMessage(parsed.error))}`);
-  const auth = await requirePermission("sales:create");
+  const auth = await requirePermission("finance:vouchers");
   try {
     await cashDrawerService.addManualMovement(auth.shop.id, auth.user.id, parsed.data);
   } catch (error) {
@@ -104,7 +104,7 @@ export async function transferCashWalletAction(formData: FormData) {
   if (!parsed.success) redirect(`/cash-drawer?error=${encodeURIComponent(errorMessage(parsed.error))}`);
 
   const isBankTransfer = parsed.data.direction === "DRAWER_TO_BANK" || parsed.data.direction === "BANK_TO_DRAWER";
-  const auth = await requirePermission(isBankTransfer ? "expenses:manage" : "sales:create");
+  const auth = await requirePermission(isBankTransfer ? "expenses:manage" : "finance:vouchers");
 
   try {
     if (parsed.data.direction === "DRAWER_TO_BANK" || parsed.data.direction === "BANK_TO_DRAWER") {
