@@ -5,6 +5,7 @@ import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
 import { captureServerEvent } from "@/lib/analytics/server";
 import { CURRENT_ONBOARDING_FLOW_VERSION } from "@/lib/onboarding/jobs";
 import { loginRateLimitService } from "@/lib/services/loginRateLimitService";
+import { registrationRateLimitService } from "@/lib/services/registrationRateLimitService";
 import { z } from "zod";
 
 const TRIAL_DURATION_MS = 10 * 24 * 60 * 60 * 1000;
@@ -34,12 +35,15 @@ export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 
 export const authService = {
-  async registerShop(input: RegisterInput) {
+  async registerShop(input: RegisterInput, requestFingerprint: string) {
     const validated = registerSchema.parse(input);
+    const normalizedEmail = validated.email.toLowerCase().trim();
+
+    await registrationRateLimitService.consumeAttempt(normalizedEmail, requestFingerprint);
 
     const existingUser = await prisma.user.findUnique({
       where: {
-        email: validated.email.toLowerCase().trim(),
+        email: normalizedEmail,
       },
     });
 
@@ -79,7 +83,7 @@ export const authService = {
       const user = await tx.user.create({
         data: {
           shopId: shop.id,
-          email: validated.email.toLowerCase().trim(),
+          email: normalizedEmail,
           name: validated.name.trim(),
           passwordHash,
           role: "OWNER",
