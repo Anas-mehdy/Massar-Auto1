@@ -17,38 +17,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: feature/auto-core-v1
-          fetch-depth: 0
-
-      - name: Apply quotation line reconciliation
-        run: python scripts/reconcile-quotation-line-prisma.py
-
-      - name: Preserve database-supported approval channels
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          service = Path('lib/services/quotationService.ts')
-          text = service.read_text().replace(
-              'export type ApprovalChannel = "IN_PERSON" | "PHONE" | "WHATSAPP" | "EMAIL" | "OTHER";',
-              'export type ApprovalChannel = "IN_PERSON" | "PHONE" | "WHATSAPP" | "WEB" | "OTHER";',
-          )
-          service.write_text(text)
-          actions = Path('app/service-orders/actions.ts')
-          text = actions.read_text().replace(
-              'z.enum(["IN_PERSON", "PHONE", "WHATSAPP", "EMAIL", "OTHER"])',
-              'z.enum(["IN_PERSON", "PHONE", "WHATSAPP", "WEB", "OTHER"])',
-          )
-          actions.write_text(text)
-          PY
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -69,16 +43,3 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      - name: Commit quotation line reconciliation
-        if: github.event_name == 'push'
-        run: |
-          if git diff --quiet -- prisma/schema.prisma lib/services/quotationService.ts app/service-orders/actions.ts; then
-            echo "No reconciliation changes to commit"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add prisma/schema.prisma lib/services/quotationService.ts app/service-orders/actions.ts
-          git commit -m "chore(auto): reconcile quotation line model"
-          git push origin HEAD:feature/auto-core-v1
