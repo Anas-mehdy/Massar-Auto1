@@ -40,6 +40,8 @@ export default async function CustomerDetailsPage({ params }: CustomerDetailsPag
   let currency = "SAR";
   let canSeeDebt = false;
   let canSeeInstallments = false;
+  let canSeeVehicles = false;
+  let canSeeServiceOrders = false;
   let canManage = false;
   let canDeleteCustomer = false;
   let debt: Awaited<ReturnType<typeof getCustomerDebtOverview>> | null = null;
@@ -50,6 +52,8 @@ export default async function CustomerDetailsPage({ params }: CustomerDetailsPag
     currency = auth.shop.currency;
     canSeeDebt = auth.permissions.includes("debts:manage");
     canSeeInstallments = auth.permissions.includes("invoices:read");
+    canSeeVehicles = auth.permissions.includes("vehicles:read");
+    canSeeServiceOrders = auth.permissions.includes("service_orders:read");
     canManage = auth.permissions.includes("customers:manage");
     canDeleteCustomer = auth.permissions.includes("customers:delete");
 
@@ -74,7 +78,13 @@ export default async function CustomerDetailsPage({ params }: CustomerDetailsPag
   const invoiceCount = customer._count.invoices;
   const installmentCount = installments?.plans.length ?? 0;
   const debtRecordCount = debt?.entryCount ?? 0;
-  const linkedRecords = vehicleCount + serviceOrderCount + legacyRepairCount + salesCount + invoiceCount + installmentCount + debtRecordCount;
+  const linkedRecords =
+    (canSeeVehicles ? vehicleCount : 0) +
+    (canSeeServiceOrders ? serviceOrderCount : 0) +
+    salesCount +
+    invoiceCount +
+    installmentCount +
+    debtRecordCount;
 
   const salesTotal = customer.sales.reduce((sum, sale) => sum + Number(sale.total), 0);
   const invoiceTotal = customer.invoices.reduce((sum, invoice) => sum + Number(invoice.total), 0);
@@ -91,7 +101,7 @@ export default async function CustomerDetailsPage({ params }: CustomerDetailsPag
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">ملف العميل الشامل</span>
-                <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-black text-indigo-700">{linkedRecords} سجلات مرتبطة</span>
+                <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-black text-indigo-700">{linkedRecords} سجلات متاحة</span>
               </div>
               <h1 className="mt-1 text-2xl font-black text-slate-900">{customer.name}</h1>
               <p className="mt-1 text-xs font-semibold text-slate-500">{customer.phone || "بدون رقم هاتف"}{customer.email ? ` · ${customer.email}` : ""}</p>
@@ -104,8 +114,8 @@ export default async function CustomerDetailsPage({ params }: CustomerDetailsPag
       </div>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <SummaryCard label="المركبات" value={String(vehicleCount)} hint="المركبات المسجلة للعميل" tone="sky" />
-        <SummaryCard label="أوامر الصيانة" value={String(serviceOrderCount)} hint="سجل صيانة مركبات العميل" tone="teal" />
+        {canSeeVehicles && <SummaryCard label="المركبات" value={String(vehicleCount)} hint="المركبات المسجلة للعميل" tone="sky" />}
+        {canSeeServiceOrders && <SummaryCard label="أوامر الصيانة" value={String(serviceOrderCount)} hint="سجل صيانة مركبات العميل" tone="teal" />}
         <SummaryCard label="إجمالي المبيعات" value={formatCurrency(salesTotal, currency)} hint={`${salesCount} عملية بيع / POS`} tone="amber" />
         <SummaryCard label="رصيد الفواتير" value={formatCurrency(invoiceBalance, currency)} hint={`${invoiceCount} فاتورة · إجمالي ${formatCurrency(invoiceTotal, currency)}`} tone="violet" />
         {canSeeDebt ? (
@@ -142,13 +152,17 @@ export default async function CustomerDetailsPage({ params }: CustomerDetailsPag
           </div>
 
           <div className="grid gap-6 xl:grid-cols-2 2xl:grid-cols-4">
-            <RelatedCard title={`المركبات (${vehicleCount})`} empty="لا توجد مركبات مسجلة." icon={<Car className="h-4 w-4 text-sky-600" />}>
-              {customer.vehicles.map((vehicle) => <RelatedLink key={vehicle.id} href={`/vehicles/${vehicle.id}`} title={`${vehicle.make} ${vehicle.model}`} description={[vehicle.plateNumber, vehicle.year ? String(vehicle.year) : null].filter(Boolean).join(" · ") || "بدون لوحة أو سنة مسجلة"} meta={formatDateTime(vehicle.updatedAt)} />)}
-            </RelatedCard>
+            {canSeeVehicles && (
+              <RelatedCard title={`المركبات (${vehicleCount})`} empty="لا توجد مركبات مسجلة." icon={<Car className="h-4 w-4 text-sky-600" />}>
+                {customer.vehicles.map((vehicle) => <RelatedLink key={vehicle.id} href={`/vehicles/${vehicle.id}`} title={`${vehicle.make} ${vehicle.model}`} description={[vehicle.plateNumber, vehicle.year ? String(vehicle.year) : null].filter(Boolean).join(" · ") || "بدون لوحة أو سنة مسجلة"} meta={formatDateTime(vehicle.updatedAt)} />)}
+              </RelatedCard>
+            )}
 
-            <RelatedCard title={`أوامر الصيانة (${serviceOrderCount})`} empty="لا توجد أوامر صيانة." icon={<Wrench className="h-4 w-4 text-primary" />}>
-              {customer.autoServiceOrders.map((order) => <RelatedLink key={order.id} href={`/service-orders/${order.id}`} title={order.orderNumber} description={`${order.vehicle.make} ${order.vehicle.model}${order.vehicle.plateNumber ? ` · ${order.vehicle.plateNumber}` : ""} — ${order.reportedIssue}`} meta={formatDateTime(order.receivedAt)} />)}
-            </RelatedCard>
+            {canSeeServiceOrders && (
+              <RelatedCard title={`أوامر الصيانة (${serviceOrderCount})`} empty="لا توجد أوامر صيانة." icon={<Wrench className="h-4 w-4 text-primary" />}>
+                {customer.autoServiceOrders.map((order) => <RelatedLink key={order.id} href={`/service-orders/${order.id}`} title={order.orderNumber} description={`${order.vehicle.make} ${order.vehicle.model}${order.vehicle.plateNumber ? ` · ${order.vehicle.plateNumber}` : ""} — ${order.reportedIssue}`} meta={formatDateTime(order.receivedAt)} />)}
+              </RelatedCard>
+            )}
 
             <RelatedCard title={`المبيعات والـ POS (${salesCount})`} empty="لا توجد عمليات بيع." icon={<Receipt className="h-4 w-4 text-amber-500" />}>
               {customer.sales.map((sale) => <RelatedLink key={sale.id} href={`/sales/${sale.id}`} title={sale.receiptNumber ?? "عملية بيع"} description={formatCurrency(Number(sale.total), currency)} meta={formatDateTime(sale.soldAt)} />)}
