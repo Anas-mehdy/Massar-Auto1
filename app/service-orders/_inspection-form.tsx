@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ClipboardCheck, Plus, Trash2 } from "lucide-react";
+import { ClipboardCheck, LockKeyhole, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createServiceInspectionAction } from "./actions";
 
@@ -26,9 +26,9 @@ function newRow(): Row {
   };
 }
 
-const inputClass = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
+const inputClass = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400";
 
-export function InspectionForm({ serviceOrderId }: { serviceOrderId: string }) {
+export function InspectionForm({ serviceOrderId, disabled = false, lockedReason }: { serviceOrderId: string; disabled?: boolean; lockedReason?: string }) {
   const [rows, setRows] = useState<Row[]>([newRow()]);
 
   const serialized = useMemo(() => JSON.stringify(rows
@@ -47,6 +47,10 @@ export function InspectionForm({ serviceOrderId }: { serviceOrderId: string }) {
 
   function removeRow(key: string) {
     setRows((current) => current.length === 1 ? [newRow()] : current.filter((row) => row.key !== key));
+  }
+
+  if (disabled) {
+    return <div className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs font-bold leading-6 text-slate-600"><LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" /><span>{lockedReason || "تم قفل إضافة فحوصات جديدة لهذا أمر الصيانة."}</span></div>;
   }
 
   return (
