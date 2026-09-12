@@ -144,6 +144,10 @@ export async function savePurchaseDraftAction(raw: PurchaseDraftInput) {
   try {
     const auth = await requirePermission("inventory:manage");
     const input = draftSchema.parse(raw) as PurchaseDraftInput;
+    const amountPaid = Number(String(input.amountPaid ?? "0").replace(",", "."));
+    if (Number.isFinite(amountPaid) && amountPaid > 0 && !auth.permissions.includes("finance:vouchers")) {
+      throw new Error("لا تملك صلاحية تسجيل مبلغ مدفوع على فاتورة الشراء. احفظها كفاتورة آجلة ليُسجل قسم المالية الدفعة.");
+    }
     const saved = await purchaseReceivingService.saveDraft(auth.shop.id, auth.user.id, auth.shop.currency, input);
     const duplicate = await purchaseReceivingService.findDuplicateSupplierInvoice(
       auth.shop.id,
@@ -207,6 +211,13 @@ export async function postPurchaseInvoiceAction(input: {
       receiptMode: z.enum(["FULL", "PARTIAL"]).optional(),
       initialReceipt: z.array(z.object({ sortOrder: z.number().int().nonnegative(), quantity: z.number().int().nonnegative() })).max(250).optional(),
     }).parse(input);
+    if (!auth.permissions.includes("finance:vouchers")) {
+      const purchase = await purchaseReceivingService.getPurchaseInvoice(auth.shop.id, parsed.purchaseId);
+      if (!purchase) throw new Error("فاتورة الشراء غير موجودة.");
+      if (purchase.amountPaid.gt(0)) {
+        throw new Error("هذه الفاتورة تتضمن دفعة مالية. اطلب من مستخدم لديه صلاحية مالية اعتمادها، أو اجعل المبلغ المدفوع صفراً لاعتمادها كشراء آجل.");
+      }
+    }
     const result = await purchaseReceivingService.postPurchaseInvoice(
       auth.shop.id,
       auth.user.id,
@@ -291,7 +302,7 @@ export async function recordPurchasePaymentAction(input: {
   bankAccountId?: string | null;
 }) {
   try {
-    const auth = await requirePermission("inventory:manage");
+    const auth = await requirePermission("finance:vouchers");
     const parsed = z.object({
       purchaseId: uuid,
       requestKey: z.string().trim().min(12).max(120),
@@ -339,12 +350,12 @@ export async function recordSupplierReturnAction(input: {
       settlementAdjustmentReason: z.string().trim().max(1000).nullable().optional(),
     }).parse(input);
     const hasFinancialAdjustment = Number(parsed.shippingRefundAmount ?? 0) !== 0 || Number(parsed.settlementAdjustmentAmount ?? 0) !== 0;
-    if (hasFinancialAdjustment && !auth.permissions.includes("expenses:manage")) throw new Error("لا تملك صلاحية تعديل القيمة المالية المعتمدة للمرتجع.");
+    if (hasFinancialAdjustment && !auth.permissions.includes("finance:vouchers")) throw new Error("لا تملك صلاحية تعديل القيمة المالية المعتمدة للمرتجع.");
     const result = await purchaseWarehouseOperationsService.recordWarehouseSupplierReturn(
       auth.shop.id,
       auth.user.id,
       parsed.purchaseId,
-      { ...parsed, allowFinancialAdjustment: hasFinancialAdjustment && auth.permissions.includes("expenses:manage") },
+      { ...parsed, allowFinancialAdjustment: hasFinancialAdjustment && auth.permissions.includes("finance:vouchers") },
     );
     revalidatePurchasePaths(parsed.purchaseId);
     return {
@@ -375,7 +386,7 @@ export async function settleSupplierReturnAction(input: {
   note?: string | null;
 }) {
   try {
-    const auth = await requirePermission("inventory:manage");
+    const auth = await requirePermission("finance:vouchers");
     const parsed = z.object({
       purchaseId: uuid,
       supplierReturnId: uuid,
