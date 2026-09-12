@@ -4,6 +4,7 @@ import { COUNTRY_DIAL_CODES } from "@/lib/countries";
 import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
 import { captureServerEvent } from "@/lib/analytics/server";
 import { CURRENT_ONBOARDING_FLOW_VERSION } from "@/lib/onboarding/jobs";
+import { loginRateLimitService } from "@/lib/services/loginRateLimitService";
 import { z } from "zod";
 
 const TRIAL_DURATION_MS = 10 * 24 * 60 * 60 * 1000;
@@ -12,7 +13,7 @@ const supportedCountryCodes = new Set(COUNTRY_DIAL_CODES.map((country) => countr
 export const registerSchema = z.object({
   name: z.string().min(2, "الاسم الكامل مطلوب ويجب ألا يقل عن حرفين"),
   email: z.string().email("البريد الإلكتروني غير صحيح ومطلوب"),
-  password: z.string().min(6, "كلمة المرور مطلوبة ويجب ألا تقل عن 6 أحرف"),
+  password: z.string().min(8, "كلمة المرور مطلوبة ويجب ألا تقل عن 8 أحرف").max(128, "كلمة المرور طويلة جداً"),
   shopName: z.string().min(2, "اسم المتجر مطلوب ويجب ألا يقل عن حرفين"),
   phone: z.string().min(6, "رقم هاتف المتجر مطلوب لإنشاء الحساب"),
   countryCode: z
@@ -26,7 +27,7 @@ export const registerSchema = z.object({
 
 export const loginSchema = z.object({
   email: z.string().email("البريد الإلكتروني غير صحيح"),
-  password: z.string().min(1, "يرجى إدخال كلمة المرور"),
+  password: z.string().min(1, "يرجى إدخال كلمة المرور").max(128, "كلمة المرور طويلة جداً"),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
@@ -119,12 +120,15 @@ export const authService = {
     return result;
   },
 
-  async loginUser(input: LoginInput) {
+  async loginUser(input: LoginInput, requestFingerprint: string) {
     const validated = loginSchema.parse(input);
+    const normalizedEmail = validated.email.toLowerCase().trim();
+
+    await loginRateLimitService.assertAllowed(normalizedEmail, requestFingerprint);
 
     const user = await prisma.user.findUnique({
       where: {
-        email: validated.email.toLowerCase().trim(),
+        email: normalizedEmail,
         deletedAt: null,
       },
       include: {
@@ -133,17 +137,22 @@ export const authService = {
     });
 
     if (!user || !user.shop || user.shop.deletedAt !== null) {
+      await loginRateLimitService.recordFailure(normalizedEmail, requestFingerprint);
       throw new Error("البريد الإلكتروني أو كلمة المرور غير صحيحة");
     }
 
     if (!user.passwordHash) {
+      await loginRateLimitService.recordFailure(normalizedEmail, requestFingerprint);
       throw new Error("الحساب بحاجة لتعيين كلمة مرور جديدة");
     }
 
     const isValid = await verifyPassword(validated.password, user.passwordHash);
     if (!isValid) {
+      await loginRateLimitService.recordFailure(normalizedEmail, requestFingerprint);
       throw new Error("البريد الإلكتروني أو كلمة المرور غير صحيحة");
     }
+
+    await loginRateLimitService.clearFailures(normalizedEmail, requestFingerprint);
 
     await prisma.$executeRaw`
       UPDATE "User"

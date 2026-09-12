@@ -1,25 +1,16 @@
 "use server";
 
-import { createHmac } from "node:crypto";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { clearSessionCookie } from "@/lib/auth";
 import { getAuthContext } from "@/lib/auth/context";
+import { getRequestFingerprint } from "@/lib/auth/requestFingerprint";
 import { passwordResetService } from "@/lib/services/passwordResetService";
 
 export type PasswordActionState = { success?: string; error?: string };
 
 const emailSchema = z.string().trim().email("يرجى إدخال بريد إلكتروني صحيح.");
 const passwordSchema = z.string().min(8, "كلمة المرور يجب ألا تقل عن 8 أحرف.").max(128, "كلمة المرور طويلة جداً.");
-
-async function getRequestFingerprint() {
-  const requestHeaders = await headers();
-  const ip = requestHeaders.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  const userAgent = requestHeaders.get("user-agent") || "unknown";
-  const secret = process.env.AUTH_SECRET || "massar-password-rate-limit";
-  return createHmac("sha256", secret).update(`${ip}|${userAgent}`).digest("hex");
-}
 
 export async function requestPasswordResetAction(
   _previousState: PasswordActionState,
