@@ -39,6 +39,8 @@ export default async function CustomerDetailsPage({ params }: CustomerDetailsPag
   let currency = "SAR";
   let canSeeDebt = false;
   let canSeeInstallments = false;
+  let canManage = false;
+  let canDeleteCustomer = false;
   let debt: Awaited<ReturnType<typeof getCustomerDebtOverview>> | null = null;
   let installments: Awaited<ReturnType<typeof getCustomerInstallmentOverview>> | null = null;
 
@@ -47,6 +49,8 @@ export default async function CustomerDetailsPage({ params }: CustomerDetailsPag
     currency = auth.shop.currency;
     canSeeDebt = auth.permissions.includes("debts:manage");
     canSeeInstallments = auth.permissions.includes("invoices:read");
+    canManage = auth.permissions.includes("customers:manage");
+    canDeleteCustomer = auth.permissions.includes("customers:delete");
 
     customer = await customerService.getCustomerById(auth.shop.id, id);
     if (customer) {
@@ -73,7 +77,7 @@ export default async function CustomerDetailsPage({ params }: CustomerDetailsPag
   const invoiceTotal = customer.invoices.reduce((sum, invoice) => sum + Number(invoice.total), 0);
   const invoiceBalance = customer.invoices.reduce((sum, invoice) => sum + Number(invoice.balanceDue), 0);
   const hasFinancialLinks = Boolean(debt?.accountExists || installmentCount > 0);
-  const canDelete = repairCount + salesCount + invoiceCount === 0 && !hasFinancialLinks;
+  const canDelete = canDeleteCustomer && repairCount + salesCount + invoiceCount === 0 && !hasFinancialLinks;
 
   return (
     <div className="space-y-6">
@@ -120,7 +124,7 @@ export default async function CustomerDetailsPage({ params }: CustomerDetailsPag
         </section>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+      <div className={canManage ? "grid gap-6 lg:grid-cols-[1fr_340px]" : "grid gap-6"}>
         <div className="space-y-6">
           <div className="erp-section">
             <div className="mb-4 border-b border-slate-100 pb-3"><h2 className="text-sm font-black text-slate-800">بيانات العميل</h2></div>
@@ -182,29 +186,33 @@ export default async function CustomerDetailsPage({ params }: CustomerDetailsPag
             </div>
           ) : null}
 
-          <div className="erp-section border-rose-200 bg-rose-50/10">
-            <div className="mb-4 border-b border-rose-100 pb-3"><h3 className="text-sm font-bold text-rose-800">منطقة الخطر | حذف العميل</h3></div>
-            <p className="text-xs font-medium leading-relaxed text-slate-500">لا يمكن حذف عميل لديه أي سجل مرتبط، بما في ذلك الصيانة والمبيعات والفواتير والأقساط ودفتر الديون.</p>
-            <form action={softDeleteCustomerAction} className="mt-5">
-              <input type="hidden" name="customerId" value={customer.id} />
-              <ConfirmSubmitButton type="submit" variant="destructive" disabled={!canDelete} className="h-11 rounded-xl px-6 text-xs font-bold" message="هل تريد حذف هذا العميل؟ لا يمكن التراجع عن هذه العملية من الواجهة."><Ban className="ml-1.5 h-4 w-4" />حذف العميل نهائياً</ConfirmSubmitButton>
-            </form>
-          </div>
+          {canDeleteCustomer && (
+            <div className="erp-section border-rose-200 bg-rose-50/10">
+              <div className="mb-4 border-b border-rose-100 pb-3"><h3 className="text-sm font-bold text-rose-800">منطقة الخطر | حذف العميل</h3></div>
+              <p className="text-xs font-medium leading-relaxed text-slate-500">لا يمكن حذف عميل لديه أي سجل مرتبط، بما في ذلك الصيانة والمبيعات والفواتير والأقساط ودفتر الديون.</p>
+              <form action={softDeleteCustomerAction} className="mt-5">
+                <input type="hidden" name="customerId" value={customer.id} />
+                <ConfirmSubmitButton type="submit" variant="destructive" disabled={!canDelete} className="h-11 rounded-xl px-6 text-xs font-bold" message="هل تريد حذف هذا العميل؟ لا يمكن التراجع عن هذه العملية من الواجهة."><Ban className="ml-1.5 h-4 w-4" />حذف العميل نهائياً</ConfirmSubmitButton>
+              </form>
+            </div>
+          )}
         </div>
 
-        <div className="space-y-6">
-          <form id="edit-customer" action={updateCustomerAction} className="erp-section scroll-mt-6">
-            <input type="hidden" name="customerId" value={customer.id} />
-            <div className="mb-4 border-b border-slate-100 pb-3"><h3 className="text-sm font-bold text-slate-800">تعديل بيانات العميل</h3></div>
-            <div className="grid gap-4">
-              <Field label="اسم العميل"><input className={inputClassName} name="name" required defaultValue={customer.name} /></Field>
-              <Field label="الهاتف"><input className={`${inputClassName} font-numeric`} name="phone" defaultValue={customer.phone ?? ""} /></Field>
-              <Field label="البريد الإلكتروني"><input className={inputClassName} name="email" type="email" defaultValue={customer.email ?? ""} /></Field>
-              <Field label="ملاحظات"><textarea className={textareaClassName} name="notes" defaultValue={customer.notes ?? ""} /></Field>
-              <Button type="submit" className="h-11 w-full rounded-xl font-bold"><Save className="ml-1.5 h-4 w-4" />حفظ التعديلات</Button>
-            </div>
-          </form>
-        </div>
+        {canManage && (
+          <div className="space-y-6">
+            <form id="edit-customer" action={updateCustomerAction} className="erp-section scroll-mt-6">
+              <input type="hidden" name="customerId" value={customer.id} />
+              <div className="mb-4 border-b border-slate-100 pb-3"><h3 className="text-sm font-bold text-slate-800">تعديل بيانات العميل</h3></div>
+              <div className="grid gap-4">
+                <Field label="اسم العميل"><input className={inputClassName} name="name" required defaultValue={customer.name} /></Field>
+                <Field label="الهاتف"><input className={`${inputClassName} font-numeric`} name="phone" defaultValue={customer.phone ?? ""} /></Field>
+                <Field label="البريد الإلكتروني"><input className={inputClassName} name="email" type="email" defaultValue={customer.email ?? ""} /></Field>
+                <Field label="ملاحظات"><textarea className={textareaClassName} name="notes" defaultValue={customer.notes ?? ""} /></Field>
+                <Button type="submit" className="h-11 w-full rounded-xl font-bold"><Save className="ml-1.5 h-4 w-4" />حفظ التعديلات</Button>
+              </div>
+            </form>
+          </div>
+        )}
       </div>
     </div>
   );
