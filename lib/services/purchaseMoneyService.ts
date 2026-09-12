@@ -1,4 +1,5 @@
-import { Prisma } from "@prisma/client";
+import { MembershipStatus, Prisma } from "@prisma/client";
+import { hasRolePermission } from "@/lib/auth/permissions";
 import { assertBusinessDateOpenTx } from "@/lib/services/businessDateLockService";
 import { moneyAccountService } from "@/lib/services/moneyAccountService";
 
@@ -6,6 +7,26 @@ export type PurchaseMoneyAccountType = "DRAWER" | "WALLET" | "BANK" | "OTHER";
 
 export async function preparePurchaseMoneyAccount(shopId: string, accountType: PurchaseMoneyAccountType) {
   await moneyAccountService.prepareMoneyAccounts(shopId, accountType);
+}
+
+export async function assertPurchaseFinancePermissionTx(
+  tx: Prisma.TransactionClient,
+  shopId: string,
+  userId: string | null,
+) {
+  if (!userId) throw new Error("تعذر التحقق من صلاحية المستخدم المالية.");
+  const membership = await tx.membership.findFirst({
+    where: {
+      shopId,
+      userId,
+      status: MembershipStatus.ACTIVE,
+      deletedAt: null,
+    },
+    select: { role: true },
+  });
+  if (!membership || !hasRolePermission(membership.role, "finance:vouchers")) {
+    throw new Error("لا تملك صلاحية تنفيذ حركة مالية على المشتريات.");
+  }
 }
 
 export async function applyPurchasePaymentTx(
@@ -24,6 +45,7 @@ export async function applyPurchasePaymentTx(
   },
 ) {
   const occurredAt = input.occurredAt ?? new Date();
+  await assertPurchaseFinancePermissionTx(tx, input.shopId, input.userId);
   await assertBusinessDateOpenTx(tx, input.shopId, occurredAt);
   if (input.accountType === "OTHER") return null;
 
@@ -62,6 +84,7 @@ export async function applySupplierRefundTx(
   },
 ) {
   const occurredAt = input.occurredAt ?? new Date();
+  await assertPurchaseFinancePermissionTx(tx, input.shopId, input.userId);
   await assertBusinessDateOpenTx(tx, input.shopId, occurredAt);
   if (input.accountType === "OTHER") return null;
 
@@ -85,6 +108,7 @@ export async function applySupplierRefundTx(
 
 export const purchaseMoneyService = {
   preparePurchaseMoneyAccount,
+  assertPurchaseFinancePermissionTx,
   applyPurchasePaymentTx,
   applySupplierRefundTx,
 };
