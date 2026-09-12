@@ -213,7 +213,6 @@ export async function decideWarrantyClaim(
 ) {
   const assessment = clean(input.assessment);
   if (!assessment) throw new Error("اكتب نتيجة تقييم المطالبة.");
-  if (input.coverageDecision === "PENDING") throw new Error("يجب تحديد قرار التغطية.");
   const customerCharge = input.customerCharge ?? 0;
   if (!Number.isFinite(customerCharge) || customerCharge < 0) throw new Error("مبلغ العميل غير صالح.");
   const note = clean(input.note);

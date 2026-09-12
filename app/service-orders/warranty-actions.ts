@@ -16,8 +16,8 @@ function readString(formData: FormData, key: string) {
   return typeof value === "string" ? value : "";
 }
 
-function optionalNumber(value: string) {
-  if (!value.trim()) return null;
+function optionalNumber(value?: string) {
+  if (!value?.trim()) return null;
   const number = Number(value);
   if (!Number.isFinite(number)) throw new Error("القيمة الرقمية غير صالحة.");
   return number;

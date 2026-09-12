@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, ClipboardCheck, FileText, Gauge, LockKeyhole, PackagePlus, Plus, RotateCcw, Truck, UserRound, Wrench } from "lucide-react";
+import { ArrowRight, ClipboardCheck, FileText, Gauge, LockKeyhole, PackagePlus, Plus, RotateCcw, ShieldCheck, Truck, UserRound, Wrench } from "lucide-react";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -267,9 +267,14 @@ export default async function ServiceOrderPage({ params }: PageProps) {
           <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="flex items-center gap-2 font-black text-slate-950"><PackagePlus className="h-4 w-4 text-amber-700" />قطع الغيار</h2>
             {["DELIVERED", "CLOSED"].includes(order.status) ? (
-              <Button asChild size="sm" variant="outline" className="font-black">
-                <Link href={`/service-orders/${order.id}/corrections`}><RotateCcw className="ml-1.5 h-4 w-4" />تصحيحات بعد التسليم</Link>
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild size="sm" variant="outline" className="font-black">
+                  <Link href={`/service-orders/${order.id}/warranty`}><ShieldCheck className="ml-1.5 h-4 w-4" />ضمان / عودة للصيانة</Link>
+                </Button>
+                <Button asChild size="sm" variant="outline" className="font-black">
+                  <Link href={`/service-orders/${order.id}/corrections`}><RotateCcw className="ml-1.5 h-4 w-4" />تصحيحات بعد التسليم</Link>
+                </Button>
+              </div>
             ) : null}
           </div>
           <div className="space-y-3 p-4">
