@@ -17,20 +17,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: feature/auto-core-v1
-          fetch-depth: 0
-
-      - name: Apply quotation reconciliation
-        run: python scripts/reconcile-quotation-prisma.py
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -51,16 +43,3 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      - name: Commit quotation reconciliation
-        if: github.event_name == 'push'
-        run: |
-          if git diff --quiet -- prisma/schema.prisma lib/services/autoServiceOrderService.ts; then
-            echo "No reconciliation changes to commit"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add prisma/schema.prisma lib/services/autoServiceOrderService.ts
-          git commit -m "chore(auto): reconcile quotation and approval models"
-          git push origin HEAD:feature/auto-core-v1
