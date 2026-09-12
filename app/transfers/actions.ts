@@ -162,7 +162,8 @@ export async function createTransferAction(formData: FormData) {
       customerPhone: readString(formData, "customerPhone"),
       notes: readString(formData, "notes"),
     });
-    const auth = await requirePermission("sales:create");
+    const isCustomerOperation = input.operationType === "CUSTOMER_DEPOSIT" || input.operationType === "CUSTOMER_WITHDRAWAL";
+    const auth = await requirePermission(isCustomerOperation ? "sales:create" : "finance:vouchers");
     const transfer = await financialTransferService.createTransfer(auth.shop.id, auth.user.id, {
       ...input,
       settlementWalletId: input.settlementWalletId || undefined,
