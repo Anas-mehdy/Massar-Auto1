@@ -40,7 +40,7 @@ export async function createWalletAction(formData: FormData) {
       defaultDepositCommission: readString(formData, "defaultDepositCommission"),
       defaultWithdrawalCommission: readString(formData, "defaultWithdrawalCommission"),
     });
-    const auth = await requirePermission("sales:create");
+    const auth = await requirePermission("finance:vouchers");
     await financialTransferService.createWallet(auth.shop.id, input);
     await captureServerEvent({
       event: ANALYTICS_EVENTS.WALLET_CREATED,
@@ -95,7 +95,7 @@ export async function updateWalletAction(formData: FormData) {
     const depositCommission = parseNumber(input.defaultDepositCommission ?? "", "عمولة الإيداع") ?? 0;
     const withdrawalCommission = parseNumber(input.defaultWithdrawalCommission ?? "", "عمولة السحب") ?? 0;
 
-    const auth = await requirePermission("sales:create");
+    const auth = await requirePermission("finance:vouchers");
     const duplicate = await prisma.$queryRaw<Array<{ id: string }>>`
       SELECT "id" FROM "FinancialWallet"
       WHERE "shopId" = ${auth.shop.id}::uuid
@@ -207,7 +207,7 @@ export async function voidTransferAction(formData: FormData) {
   const id = readString(formData, "id");
   let redirectTo = "/transfers";
   try {
-    const auth = await requirePermission("sales:create");
+    const auth = await requirePermission("finance:vouchers");
     await financialTransferService.voidTransfer(auth.shop.id, id, auth.user.id);
     revalidatePath("/transfers");
     revalidatePath("/cash-drawer");
