@@ -24,10 +24,16 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
   const search = params.search ?? "";
   let customers: Awaited<ReturnType<typeof customerService.listCustomers>>;
   let canManage = false;
+  let canSeeVehicles = false;
+  let canSeeServiceOrders = false;
+  let canCreateServiceOrder = false;
 
   try {
     const auth = await getAuthContext();
     canManage = auth.permissions.includes("customers:manage");
+    canSeeVehicles = auth.permissions.includes("vehicles:read");
+    canSeeServiceOrders = auth.permissions.includes("service_orders:read");
+    canCreateServiceOrder = auth.permissions.includes("service_orders:create");
     customers = await customerService.listCustomers(auth.shop.id, { search });
   } catch (error) {
     if (isDatabaseConnectionError(error)) return <DatabaseUnavailable />;
@@ -38,7 +44,7 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
     <div className="space-y-6">
       <PageHeader
         title="العملاء"
-        description="ملف سريع لكل عميل مع مركباته وأوامر الصيانة والمبيعات والفواتير المرتبطة"
+        description="ملف سريع لكل عميل مع السجلات التي تسمح بها صلاحيات حسابك"
         actions={canManage ? (
           <Button asChild className="rounded-xl font-black shadow-sm">
             <Link href="/customers/new">
@@ -98,20 +104,22 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
                   <Link href="/customers/new"><Plus className="ml-1 h-3.5 w-3.5" />إضافة عميل جديد</Link>
                 </Button>
               )}
-              <Button asChild variant="outline" className="font-bold shadow-xs border-slate-300 rounded-xl px-5" size="sm">
-                <Link href="/service-orders/new">أمر صيانة جديد</Link>
-              </Button>
+              {canCreateServiceOrder && (
+                <Button asChild variant="outline" className="font-bold shadow-xs border-slate-300 rounded-xl px-5" size="sm">
+                  <Link href="/service-orders/new">أمر صيانة جديد</Link>
+                </Button>
+              )}
             </div>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="erp-table min-w-[920px]">
+            <table className="erp-table min-w-[820px]">
               <thead>
                 <tr>
                   <th className="text-slate-800">الاسم الكامل</th>
                   <th className="text-slate-800">الهاتف</th>
-                  <th className="text-center text-slate-800">المركبات</th>
-                  <th className="text-center text-slate-800">أوامر الصيانة</th>
+                  {canSeeVehicles && <th className="text-center text-slate-800">المركبات</th>}
+                  {canSeeServiceOrders && <th className="text-center text-slate-800">أوامر الصيانة</th>}
                   <th className="text-center text-slate-800">المبيعات</th>
                   <th className="text-center text-slate-800">الفواتير</th>
                   <th className="text-slate-800">آخر تحديث</th>
@@ -123,8 +131,8 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
                   <tr key={customer.id} className="align-middle">
                     <td className="font-black text-slate-900">{customer.name}</td>
                     <td className="font-numeric text-slate-700 font-medium">{customer.phone ?? "-"}</td>
-                    <td className="text-center font-black font-numeric text-sky-700">{customer._count.vehicles}</td>
-                    <td className="text-center font-black font-numeric text-teal-700">{customer._count.autoServiceOrders}</td>
+                    {canSeeVehicles && <td className="text-center font-black font-numeric text-sky-700">{customer._count.vehicles}</td>}
+                    {canSeeServiceOrders && <td className="text-center font-black font-numeric text-teal-700">{customer._count.autoServiceOrders}</td>}
                     <td className="text-center font-black font-numeric text-amber-700">{customer._count.sales}</td>
                     <td className="text-center font-black font-numeric text-slate-800">{customer._count.invoices}</td>
                     <td className="font-numeric text-slate-600 font-medium">{formatDateTime(customer.updatedAt)}</td>
