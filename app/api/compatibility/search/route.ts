@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   AuthenticationError,
   AuthorizationError,
-  getAuthContext,
+  requirePermission,
 } from "@/lib/auth/context";
 import { compatibilitySearchService } from "@/lib/services/compatibility/compatibility-search.service";
 import { entitlementService } from "@/lib/services/subscriptionEntitlementService";
@@ -25,7 +25,7 @@ function subscriptionExpiredResponse(message: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = await getAuthContext({ allowRedirect: false });
+    const auth = await requirePermission("inventory:read", { allowRedirect: false });
 
     const { searchParams } = new URL(request.url);
     const query = (searchParams.get("q") || searchParams.get("query") || "").trim();
@@ -49,10 +49,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (query) {
-      const entitlement = await entitlementService.checkCanPerformCompatibilitySearch(
-        auth.shop.id,
-      );
-
+      const entitlement = await entitlementService.checkCanPerformCompatibilitySearch(auth.shop.id);
       if (!entitlement.allowed) {
         return subscriptionExpiredResponse(entitlement.message);
       }
@@ -74,30 +71,19 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     if (error instanceof AuthenticationError) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "يرجى تسجيل الدخول أولاً لاستخدام دليل التوافقات.",
-        },
+        { success: false, error: "يرجى تسجيل الدخول أولاً لاستخدام دليل التوافقات." },
         { status: 401 },
       );
     }
-
     if (error instanceof AuthorizationError) {
       return NextResponse.json(
-        {
-          success: false,
-          error: error.message,
-        },
+        { success: false, error: "لا تملك صلاحية قراءة المخزون." },
         { status: 403 },
       );
     }
-
     console.error("Compatibility search API error:", error);
     return NextResponse.json(
-      {
-        success: false,
-        error: "حدث خطأ غير متوقع أثناء البحث في دليل التوافقات.",
-      },
+      { success: false, error: "حدث خطأ غير متوقع أثناء البحث في دليل التوافقات." },
       { status: 500 },
     );
   }

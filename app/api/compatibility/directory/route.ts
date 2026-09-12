@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getSession } from "@/lib/auth";
+import {
+  AuthenticationError,
+  AuthorizationError,
+  requirePermission,
+} from "@/lib/auth/context";
 import { searchCompatibilityDirectory } from "@/lib/services/compatibility/compatibility-directory.service";
 import { isCompatibilityDatasetKey } from "@/lib/services/compatibility/compatibility-datasets";
 import { entitlementService } from "@/lib/services/subscriptionEntitlementService";
@@ -23,13 +27,7 @@ function subscriptionExpiredResponse(message: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json(
-        { success: false, error: "يجب تسجيل الدخول لاستخدام دليل التوافقات." },
-        { status: 401 }
-      );
-    }
+    const auth = await requirePermission("inventory:read", { allowRedirect: false });
 
     const { searchParams } = new URL(request.url);
     const query = (searchParams.get("q") || "").trim();
@@ -42,22 +40,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, query, results: [] });
     }
 
-    const entitlement = await entitlementService.checkCanPerformCompatibilitySearch(session.shopId);
+    const entitlement = await entitlementService.checkCanPerformCompatibilitySearch(auth.shop.id);
     if (!entitlement.allowed) {
       return subscriptionExpiredResponse(entitlement.message);
     }
 
     const results = await searchCompatibilityDirectory(query, {
-      shopId: session.shopId,
+      shopId: auth.shop.id,
       dataset,
       limit,
     });
     return NextResponse.json({ success: true, query, results });
   } catch (error) {
+    if (error instanceof AuthenticationError) {
+      return NextResponse.json({ success: false, error: "يجب تسجيل الدخول لاستخدام دليل التوافقات." }, { status: 401 });
+    }
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ success: false, error: "لا تملك صلاحية قراءة المخزون." }, { status: 403 });
+    }
     console.error("Compatibility directory API error:", error);
     return NextResponse.json(
       { success: false, error: "تعذر البحث في دليل التوافقات حالياً." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

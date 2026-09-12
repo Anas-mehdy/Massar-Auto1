@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import "./compatibility-ui.css";
+import { requirePermission } from "@/lib/auth/context";
 
-export default function CompatibilityLayout({ children }: { children: ReactNode }) {
-  return <div className="masar-compatibility">{children}</div>;
+export default async function CompatibilityLayout({ children }: { children: ReactNode }) {
+  await requirePermission("inventory:read");
+  return children;
 }

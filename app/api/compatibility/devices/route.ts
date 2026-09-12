@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import {
+  AuthenticationError,
+  AuthorizationError,
+  requirePermission,
+} from "@/lib/auth/context";
 import { compatibilitySearchService } from "@/lib/services/compatibility/compatibility-search.service";
 import { entitlementService } from "@/lib/services/subscriptionEntitlementService";
 
@@ -21,13 +25,7 @@ function subscriptionExpiredResponse(message: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json(
-        { success: false, error: "يجب تسجيل الدخول للبحث في دليل التوافقات." },
-        { status: 401 }
-      );
-    }
+    const auth = await requirePermission("inventory:read", { allowRedirect: false });
 
     const { searchParams } = new URL(request.url);
     const query = (searchParams.get("q") || searchParams.get("query") || "").trim();
@@ -38,7 +36,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, query, results: [] });
     }
 
-    const entitlement = await entitlementService.checkCanPerformCompatibilitySearch(session.shopId);
+    const entitlement = await entitlementService.checkCanPerformCompatibilitySearch(auth.shop.id);
     if (!entitlement.allowed) {
       return subscriptionExpiredResponse(entitlement.message);
     }
@@ -46,10 +44,16 @@ export async function GET(request: NextRequest) {
     const results = await compatibilitySearchService.searchDevices(query, { limit });
     return NextResponse.json({ success: true, query, results });
   } catch (error) {
+    if (error instanceof AuthenticationError) {
+      return NextResponse.json({ success: false, error: "يجب تسجيل الدخول للبحث في دليل التوافقات." }, { status: 401 });
+    }
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ success: false, error: "لا تملك صلاحية قراءة المخزون." }, { status: 403 });
+    }
     console.error("Compatibility device search API error:", error);
     return NextResponse.json(
       { success: false, error: "تعذر البحث عن الأجهزة حالياً." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
