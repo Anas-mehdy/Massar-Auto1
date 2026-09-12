@@ -100,6 +100,13 @@ export async function updateServiceOrderStatusAction(formData: FormData) {
   const note = readString(formData, "note");
   const auth = await requirePermission("service_orders:update_status");
 
+  if (!["READY_FOR_DELIVERY", "DELIVERED", "CLOSED"].includes(status)) {
+    const activeInvoice = await autoInvoiceService.getServiceOrderInvoice(auth.shop.id, serviceOrderId);
+    if (activeInvoice) {
+      throw new Error("لا يمكن إعادة أمر الصيانة إلى مرحلة سابقة مع وجود فاتورة فعالة. ألغِ الفاتورة أولاً ثم أعد فتح العمل.");
+    }
+  }
+
   await autoServiceOrderService.updateServiceOrderStatus(auth.shop.id, serviceOrderId, status, auth.user.id, note);
   revalidatePath("/service-orders");
   revalidatePath(`/service-orders/${serviceOrderId}`);
