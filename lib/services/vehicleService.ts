@@ -189,43 +189,52 @@ export async function listVehicles(shopId: string, search?: string): Promise<Veh
 }
 
 export async function getVehicleById(shopId: string, vehicleId: string) {
-  const vehicles = await prisma.$queryRaw<Array<VehicleRecord & { customerName: string; customerPhone: string | null; customerEmail: string | null }>>`
-    SELECT v.*, c."name" AS "customerName", c."phone" AS "customerPhone", c."email" AS "customerEmail"
-    FROM "Vehicle" v
-    JOIN "Customer" c ON c."id" = v."customerId" AND c."shopId" = v."shopId"
-    WHERE v."id" = ${vehicleId}::uuid
-      AND v."shopId" = ${shopId}::uuid
-      AND v."deletedAt" IS NULL
-    LIMIT 1
-  `;
+  const vehicle = await prisma.vehicle.findFirst({
+    where: {
+      id: vehicleId,
+      shopId,
+      deletedAt: null,
+      customer: { shopId },
+    },
+    include: {
+      customer: {
+        select: { name: true, phone: true, email: true },
+      },
+      serviceOrders: {
+        where: { shopId, deletedAt: null },
+        orderBy: { receivedAt: "desc" },
+        take: 100,
+        select: {
+          id: true,
+          orderNumber: true,
+          status: true,
+          reportedIssue: true,
+          diagnosis: true,
+          odometerAtIntake: true,
+          estimatedTotal: true,
+          finalTotal: true,
+          receivedAt: true,
+          deliveredAt: true,
+          closedAt: true,
+        },
+      },
+    },
+  });
 
-  const vehicle = vehicles[0];
   if (!vehicle) return null;
 
-  const serviceOrders = await prisma.$queryRaw<Array<{
-    id: string;
-    orderNumber: string;
-    status: string;
-    reportedIssue: string;
-    diagnosis: string | null;
-    odometerAtIntake: number | null;
-    estimatedTotal: string | number | null;
-    finalTotal: string | number | null;
-    receivedAt: Date;
-    deliveredAt: Date | null;
-    closedAt: Date | null;
-  }>>`
-    SELECT "id", "orderNumber", "status", "reportedIssue", "diagnosis", "odometerAtIntake",
-           "estimatedTotal", "finalTotal", "receivedAt", "deliveredAt", "closedAt"
-    FROM "ServiceOrder"
-    WHERE "shopId" = ${shopId}::uuid
-      AND "vehicleId" = ${vehicleId}::uuid
-      AND "deletedAt" IS NULL
-    ORDER BY "receivedAt" DESC
-    LIMIT 100
-  `;
-
-  return { ...vehicle, serviceOrders };
+  const { customer, serviceOrders, ...record } = vehicle;
+  return {
+    ...record,
+    customerName: customer.name,
+    customerPhone: customer.phone,
+    customerEmail: customer.email,
+    serviceOrders: serviceOrders.map((order) => ({
+      ...order,
+      estimatedTotal: order.estimatedTotal == null ? null : Number(order.estimatedTotal),
+      finalTotal: order.finalTotal == null ? null : Number(order.finalTotal),
+    })),
+  };
 }
 
 export async function updateVehicle(shopId: string, vehicleId: string, input: UpdateVehicleInput): Promise<VehicleRecord> {
