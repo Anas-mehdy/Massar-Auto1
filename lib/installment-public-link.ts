@@ -1,8 +1,14 @@
 import { SignJWT, jwtVerify } from "jose";
+import { getAuthSecuritySecret } from "@/lib/auth/security";
 
 function secret() {
-  const value = process.env.INSTALLMENT_LINK_SECRET || process.env.AUTH_SECRET;
-  if (!value) throw new Error("INSTALLMENT_LINK_SECRET أو AUTH_SECRET غير مضبوط.");
+  const configuredLinkSecret = process.env.INSTALLMENT_LINK_SECRET?.trim();
+  const value = configuredLinkSecret || getAuthSecuritySecret();
+
+  if (value.length < 32) {
+    throw new Error("INSTALLMENT_LINK_SECRET must be at least 32 characters long.");
+  }
+
   return new TextEncoder().encode(value);
 }
 
