@@ -11,7 +11,8 @@ import {
   MembershipInactiveError,
 } from "@/lib/auth/context";
 import { teamService } from "@/lib/services/teamService";
-import { setSessionCookie } from "@/lib/auth";
+import { setSessionCookie, verifyPassword } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 const inviteSchema = z.object({
   name: z.string().trim().min(2, "اسم الموظف مطلوب (حرفان على الأقل)"),
@@ -43,13 +44,9 @@ const revokeInvitationSchema = z.object({
 
 const acceptInvitationSchema = z.object({
   name: z.string().optional(),
-  password: z.string().min(6, "كلمة المرور يجب ألا تقل عن 6 أحرف"),
+  password: z.string().min(1, "كلمة المرور مطلوبة").max(128, "كلمة المرور طويلة جداً"),
 });
 
-/**
- * Server Action: Invite a new team member.
- * Protected by requirePermission("team:invite").
- */
 export async function inviteTeamMemberAction(formData: FormData) {
   try {
     const auth = await requirePermission("team:invite");
@@ -98,10 +95,6 @@ export async function inviteTeamMemberAction(formData: FormData) {
   }
 }
 
-/**
- * Server Action: Update team member role.
- * Protected by requirePermission("team:manage").
- */
 export async function updateMemberRoleAction(formData: FormData) {
   try {
     const auth = await requirePermission("team:manage");
@@ -144,10 +137,6 @@ export async function updateMemberRoleAction(formData: FormData) {
   }
 }
 
-/**
- * Server Action: Toggle member status (ACTIVE ↔ SUSPENDED).
- * Protected by requirePermission("team:manage").
- */
 export async function toggleMemberStatusAction(formData: FormData) {
   try {
     const auth = await requirePermission("team:manage");
@@ -190,10 +179,6 @@ export async function toggleMemberStatusAction(formData: FormData) {
   }
 }
 
-/**
- * Server Action: Remove member from shop (Soft-delete membership).
- * Protected by requirePermission("team:manage").
- */
 export async function removeMemberAction(formData: FormData) {
   try {
     const auth = await requirePermission("team:manage");
@@ -234,10 +219,6 @@ export async function removeMemberAction(formData: FormData) {
   }
 }
 
-/**
- * Server Action: Revoke a pending invitation.
- * Protected by requirePermission("team:manage").
- */
 export async function revokeInvitationAction(formData: FormData) {
   try {
     const auth = await requirePermission("team:manage");
@@ -273,9 +254,6 @@ export async function revokeInvitationAction(formData: FormData) {
   }
 }
 
-/**
- * Public Server Action: Accept an invitation and establish active membership.
- */
 export async function acceptInvitationAction(rawToken: string, formData: FormData) {
   const parsed = acceptInvitationSchema.safeParse({
     name: formData.get("name"),
@@ -290,9 +268,30 @@ export async function acceptInvitationAction(rawToken: string, formData: FormDat
   }
 
   try {
+    const invitationCheck = await teamService.getInvitationByToken(rawToken);
+    if (!invitationCheck.valid || !invitationCheck.invitation) {
+      return { success: false, error: invitationCheck.error || "رابط الدعوة غير صالح." };
+    }
+
+    const normalizedEmail = invitationCheck.invitation.email.toLowerCase();
+    const existingUser = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: { passwordHash: true },
+    });
+
+    if (existingUser) {
+      if (!existingUser.passwordHash || !(await verifyPassword(parsed.data.password, existingUser.passwordHash))) {
+        return {
+          success: false,
+          error: "هذا البريد مرتبط بحساب موجود. أدخل كلمة مرور الحساب الحالية لقبول الدعوة.",
+        };
+      }
+    } else if (parsed.data.password.length < 8) {
+      return { success: false, error: "كلمة المرور للحساب الجديد يجب ألا تقل عن 8 أحرف." };
+    }
+
     const result = await teamService.acceptInvitation(rawToken, parsed.data);
 
-    // Establish immediate login session for the newly joined member
     await setSessionCookie({
       userId: result.user.id,
       shopId: result.shop.id,
