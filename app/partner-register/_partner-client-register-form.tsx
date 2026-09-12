@@ -63,7 +63,8 @@ export function PartnerClientRegisterForm({
           </div>
 
           <label className="block text-xs font-black text-slate-300">كلمة المرور
-            <input name="password" type="password" required minLength={6} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm" />
+            <input name="password" type="password" required minLength={8} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm" />
+            <span className="mt-1.5 block text-[10px] font-semibold text-slate-500">استخدم 8 أحرف على الأقل.</span>
           </label>
 
           <div className="border-t border-slate-800 pt-5">
