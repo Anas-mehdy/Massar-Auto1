@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { getCurrentShopContext } from "@/lib/current-shop";
+import {
+  AuthenticationError,
+  AuthorizationError,
+  requirePermission,
+} from "@/lib/auth/context";
 import { prisma } from "@/lib/prisma";
 import { cashDrawerService } from "@/lib/services/cashDrawerService";
 import { financialTransferService } from "@/lib/services/financialTransferService";
@@ -9,22 +13,25 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-    const context = await getCurrentShopContext();
+    const auth = await requirePermission("reports:read", { allowRedirect: false });
     const startRaw = request.nextUrl.searchParams.get("start");
     const endRaw = request.nextUrl.searchParams.get("end");
     const start = startRaw ? new Date(startRaw) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     const end = endRaw ? new Date(endRaw) : new Date();
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) return NextResponse.json({ error: "الفترة غير صحيحة." }, { status: 400 });
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
+      return NextResponse.json({ error: "الفترة غير صحيحة." }, { status: 400 });
+    }
 
-    const wallets = await financialTransferService.listWallets(context.shopId);
+    const shopId = auth.shop.id;
+    const wallets = await financialTransferService.listWallets(shopId);
     const [drawer, walletPeriod] = await Promise.all([
-      cashDrawerService.getReportSnapshot(context.shopId, start, end),
+      cashDrawerService.getReportSnapshot(shopId, start, end),
       prisma.$queryRaw<Array<{ inflow: Prisma.Decimal; outflow: Prisma.Decimal }>>`
         SELECT
           COALESCE(SUM("walletAmount") FILTER (WHERE "status" = 'ACTIVE' AND "operationType" IN ('CUSTOMER_WITHDRAWAL','WALLET_TOPUP')), 0) AS "inflow",
           COALESCE(SUM("walletAmount") FILTER (WHERE "status" = 'ACTIVE' AND "operationType" IN ('CUSTOMER_DEPOSIT','WALLET_WITHDRAWAL')), 0) AS "outflow"
         FROM "FinancialTransfer"
-        WHERE "shopId" = ${context.shopId}::uuid AND "deletedAt" IS NULL
+        WHERE "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL
           AND "createdAt" >= ${start} AND "createdAt" < ${end}
       `,
     ]);
@@ -41,6 +48,12 @@ export async function GET(request: NextRequest) {
       walletNetMovement: walletInflow - walletOutflow,
     });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "تعذر تحميل تقرير السيولة." }, { status: 500 });
+    if (error instanceof AuthenticationError) {
+      return NextResponse.json({ error: "يجب تسجيل الدخول أولاً." }, { status: 401 });
+    }
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: "لا تملك صلاحية عرض التقارير المالية." }, { status: 403 });
+    }
+    return NextResponse.json({ error: "تعذر تحميل تقرير السيولة." }, { status: 500 });
   }
 }
