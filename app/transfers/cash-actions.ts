@@ -30,7 +30,7 @@ export async function setCashDrawerOpeningBalanceAction(formData: FormData) {
       amount: readString(formData, "amount"),
       notes: readString(formData, "notes"),
     });
-    const auth = await requirePermission("sales:create");
+    const auth = await requirePermission("finance:vouchers");
     await cashDrawerService.setOpeningBalance(auth.shop.id, auth.user.id, input.amount, input.notes);
     refreshFinancialPages();
     redirectTo = "/transfers?drawerSaved=1";
@@ -54,7 +54,7 @@ export async function addCashDrawerMovementAction(formData: FormData) {
       description: readString(formData, "description"),
       reference: readString(formData, "reference"),
     });
-    const auth = await requirePermission("sales:create");
+    const auth = await requirePermission("finance:vouchers");
     await cashDrawerService.addManualMovement(auth.shop.id, auth.user.id, input);
     refreshFinancialPages();
     redirectTo = "/transfers?drawerMovement=1";
@@ -78,7 +78,7 @@ export async function transferCashDrawerWalletAction(formData: FormData) {
       amount: readString(formData, "amount"),
       notes: readString(formData, "notes"),
     });
-    const auth = await requirePermission("sales:create");
+    const auth = await requirePermission("finance:vouchers");
     await cashDrawerService.transferWithWallet(auth.shop.id, auth.user.id, input);
     refreshFinancialPages();
     redirectTo = "/transfers?drawerTransfer=1";
