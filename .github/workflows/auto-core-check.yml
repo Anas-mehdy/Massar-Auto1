@@ -9,6 +9,9 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: massar-auto-core-${{ github.ref }}
   cancel-in-progress: true
@@ -23,6 +26,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Expire open quotes on cancellation
+        run: python scripts/expire-open-quotes-on-cancel.py
+
+      - name: Verify cancellation cleanup
+        run: |
+          grep -F 'status: { in: ["DRAFT", "SENT"] }' lib/services/autoServiceOrderService.ts
+          grep -F 'data: { status: "EXPIRED", updatedAt: new Date() }' lib/services/autoServiceOrderService.ts
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -43,3 +54,16 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Commit cancellation cleanup
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feature/auto-core-v1'
+        run: |
+          if git diff --quiet -- lib/services/autoServiceOrderService.ts; then
+            echo "No cancellation cleanup changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/services/autoServiceOrderService.ts
+          git commit -m "fix(auto): expire open quotes on cancellation"
+          git push origin HEAD:feature/auto-core-v1
