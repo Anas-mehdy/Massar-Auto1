@@ -102,7 +102,7 @@ export type PartnerClientRegistrationInput = { ownerName: string; email: string;
 function validateRegistration(input: PartnerClientRegistrationInput) {
   const ownerName = normalizeName(input.ownerName);
   const email = normalizeEmail(input.email);
-  if (input.password.length < 6 || input.password.length > 128) throw new Error("كلمة المرور يجب أن تكون بين 6 و128 حرفاً.");
+  if (input.password.length < 8 || input.password.length > 128) throw new Error("كلمة المرور يجب أن تكون بين 8 و128 حرفاً.");
   const shopName = normalizeName(input.shopName);
   const countryCode = input.countryCode.trim().toUpperCase();
   const country = COUNTRY_DIAL_CODES.find((c) => c.code === countryCode);
