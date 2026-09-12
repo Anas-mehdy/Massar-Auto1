@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { InvitationStatus, MembershipRole, MembershipStatus } from "@prisma/client";
-import { hashPassword } from "@/lib/auth";
+import { hashPassword, verifyPassword } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { entitlementService } from "@/lib/services/subscriptionEntitlementService";
 
@@ -464,7 +464,6 @@ export async function acceptInvitation(
   }
 
   const invitation = check.invitation;
-
   const name = (input.name?.trim() || invitation.name?.trim()) || "عضو فريق العمل";
   const password = input.password;
 
@@ -472,11 +471,14 @@ export async function acceptInvitation(
     throw new Error("الاسم مطلوب.");
   }
 
-  if (!password || password.length < 6) {
-    throw new Error("كلمة المرور يجب ألا تقل عن 6 أحرف.");
+  if (!password || password.length > 128) {
+    throw new Error("كلمة المرور مطلوبة ويجب ألا تتجاوز 128 حرفاً.");
   }
 
-  const passwordHash = await hashPassword(password);
+  // Pre-compute a candidate hash only when it could be used for a brand-new
+  // account. Existing accounts are authenticated against their current hash
+  // and their password is never replaced by accepting a shop invitation.
+  const newUserPasswordHash = password.length >= 8 ? await hashPassword(password) : null;
 
   const guarded = await entitlementService.withSeatLimitGuard(
     invitation.shopId,
@@ -502,21 +504,32 @@ export async function acceptInvitation(
       });
 
       if (user) {
-        user = await tx.user.update({
-          where: { id: user.id },
-          data: {
-            name,
-            passwordHash,
-            version: { increment: 1 },
-            deletedAt: null,
-          },
-        });
+        if (!user.passwordHash || !(await verifyPassword(password, user.passwordHash))) {
+          throw new Error("هذا البريد مرتبط بحساب موجود. أدخل كلمة مرور الحساب الحالية لقبول الدعوة.");
+        }
+
+        // Accepting a new shop invitation must never mutate an existing
+        // account's password or profile. A previously soft-deleted account may
+        // be reactivated after proving possession of its current password.
+        if (user.deletedAt) {
+          user = await tx.user.update({
+            where: { id: user.id },
+            data: {
+              deletedAt: null,
+              version: { increment: 1 },
+            },
+          });
+        }
       } else {
+        if (!newUserPasswordHash) {
+          throw new Error("كلمة المرور للحساب الجديد يجب ألا تقل عن 8 أحرف.");
+        }
+
         user = await tx.user.create({
           data: {
             email: invitation.email.toLowerCase(),
             name,
-            passwordHash,
+            passwordHash: newUserPasswordHash,
             shopId: invitation.shopId,
             role: "STAFF",
           },
