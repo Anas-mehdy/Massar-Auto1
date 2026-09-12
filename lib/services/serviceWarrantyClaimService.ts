@@ -213,8 +213,22 @@ export async function decideWarrantyClaim(
 ) {
   const assessment = clean(input.assessment);
   if (!assessment) throw new Error("اكتب نتيجة تقييم المطالبة.");
-  const customerCharge = input.customerCharge ?? 0;
+  let customerCharge = input.customerCharge ?? 0;
   if (!Number.isFinite(customerCharge) || customerCharge < 0) throw new Error("مبلغ العميل غير صالح.");
+  let coverageDecision: Exclude<WarrantyCoverageDecision, "PENDING"> = input.coverageDecision;
+  if (input.decision === "REJECTED") {
+    // A rejected warranty/comeback claim is not billable through the claim itself.
+    // Any later paid repair must be a normal ServiceOrder, not a rejected warranty follow-up.
+    coverageDecision = "NOT_APPLICABLE";
+    customerCharge = 0;
+  } else {
+    if (!["COVERED", "PARTIAL", "CUSTOMER_PAY"].includes(coverageDecision)) {
+      throw new Error("المطالبة المعتمدة تتطلب تحديد تغطية كاملة أو جزئية أو على حساب العميل.");
+    }
+    if (coverageDecision === "COVERED" && customerCharge !== 0) {
+      throw new Error("المطالبة المغطاة بالكامل لا يمكن أن تحمل مبلغاً على العميل.");
+    }
+  }
   const note = clean(input.note);
 
   return prisma.$transaction(async (tx) => {
@@ -229,15 +243,15 @@ export async function decideWarrantyClaim(
 
     await tx.$executeRaw`
       UPDATE "ServiceWarrantyClaim"
-      SET "status"=${input.decision}, "coverageDecision"=${input.coverageDecision}, "assessment"=${assessment},
+      SET "status"=${input.decision}, "coverageDecision"=${coverageDecision}, "assessment"=${assessment},
           "customerCharge"=${customerCharge}, "decidedByUserId"=${decidedByUserId}::uuid, "decidedAt"=now(), "updatedAt"=now()
       WHERE "shopId"=${shopId}::uuid AND "id"=${claimId}::uuid
     `;
     await tx.$executeRaw`
       INSERT INTO "ServiceWarrantyClaimHistory" ("shopId", "claimId", "fromStatus", "toStatus", "coverageDecision", "note", "createdByUserId")
-      VALUES (${shopId}::uuid, ${claimId}::uuid, 'OPEN', ${input.decision}, ${input.coverageDecision}, ${note ?? assessment}, ${decidedByUserId}::uuid)
+      VALUES (${shopId}::uuid, ${claimId}::uuid, 'OPEN', ${input.decision}, ${coverageDecision}, ${note ?? assessment}, ${decidedByUserId}::uuid)
     `;
-    return { id: claimId, status: input.decision, coverageDecision: input.coverageDecision };
+    return { id: claimId, status: input.decision, coverageDecision };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
 }
 
