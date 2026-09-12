@@ -101,6 +101,17 @@ export async function createInvoiceFromServiceOrder(
     const existing = await findActiveInvoiceTx(tx, shopId, serviceOrderId);
     if (existing) return existing;
 
+    const warrantyLinks = await tx.$queryRaw<Array<{ claimNumber: string; coverageDecision: string }>>`
+      SELECT "claimNumber", "coverageDecision"::text AS "coverageDecision"
+      FROM "ServiceWarrantyClaim"
+      WHERE "shopId" = ${shopId}::uuid
+        AND "followUpServiceOrderId" = ${serviceOrderId}::uuid
+      LIMIT 1
+      FOR SHARE
+    `;
+    const warrantyClaim = warrantyLinks[0] ?? null;
+    const fullyCoveredWarranty = warrantyClaim?.coverageDecision === "COVERED";
+
     await assertBusinessDateOpenTx(tx, shopId, new Date());
 
     const totals = await tx.$queryRaw<Array<{ subtotal: number }>>`
@@ -120,7 +131,10 @@ export async function createInvoiceFromServiceOrder(
       ) x
     `;
     const subtotal = roundMoney(Number(totals[0]?.subtotal ?? 0));
-    if (subtotal <= 0) throw new Error("لا يمكن إصدار فاتورة صيانة بدون أجور عمل أو قطع بقيمة أكبر من صفر.");
+    if (subtotal < 0) throw new Error("قيمة أعمال وقطع أمر الصيانة غير صالحة للفوترة.");
+    if (subtotal === 0 && !fullyCoveredWarranty) {
+      throw new Error("لا يمكن إصدار فاتورة صيانة بدون أجور عمل أو قطع بقيمة أكبر من صفر.");
+    }
 
     const quotes = await tx.$queryRaw<Array<{
       id: string;
@@ -158,20 +172,30 @@ export async function createInvoiceFromServiceOrder(
       discountTotal = roundMoney(Number(quote.discountTotal || 0) * ratio);
       taxTotal = roundMoney(Number(quote.taxTotal || 0) * ratio);
     }
-    discountTotal = Math.min(discountTotal, subtotal);
+    if (fullyCoveredWarranty) {
+      // Preserve the commercial value of the work/parts in subtotal while keeping customer revenue/receivable at zero.
+      discountTotal = subtotal;
+      taxTotal = 0;
+    } else {
+      discountTotal = Math.min(discountTotal, subtotal);
+    }
     const total = roundMoney(Math.max(0, subtotal - discountTotal + taxTotal));
-    if (total <= 0) throw new Error("إجمالي فاتورة الصيانة يجب أن يكون أكبر من صفر.");
+    if (total < 0 || (!fullyCoveredWarranty && total <= 0)) {
+      throw new Error("إجمالي فاتورة الصيانة يجب أن يكون أكبر من صفر.");
+    }
 
     const invoiceNumber = generateAutoInvoiceNumber();
     const invoiceRows = await tx.$queryRaw<AutoServiceInvoiceSummary[]>`
       INSERT INTO "Invoice" (
         "id", "shopId", "customerId", "serviceOrderId", "createdByUserId",
         "invoiceNumber", "type", "status", "subtotal", "discountTotal", "taxTotal",
-        "total", "amountPaid", "balanceDue", "issuedAt", "createdAt", "updatedAt", "version"
+        "total", "amountPaid", "balanceDue", "paidAt", "issuedAt", "createdAt", "updatedAt", "version"
       ) VALUES (
         gen_random_uuid(), ${shopId}::uuid, ${order.customerId}::uuid, ${serviceOrderId}::uuid, ${createdByUserId}::uuid,
-        ${invoiceNumber}, 'REPAIR'::"InvoiceType", 'UNPAID'::"InvoiceStatus", ${subtotal}, ${discountTotal}, ${taxTotal},
-        ${total}, 0, ${total}, now(), now(), now(), 1
+        ${invoiceNumber}, 'REPAIR'::"InvoiceType",
+        CASE WHEN ${fullyCoveredWarranty} THEN 'PAID'::"InvoiceStatus" ELSE 'UNPAID'::"InvoiceStatus" END,
+        ${subtotal}, ${discountTotal}, ${taxTotal},
+        ${total}, 0, ${total}, CASE WHEN ${fullyCoveredWarranty} THEN now() ELSE NULL END, now(), now(), now(), 1
       )
       RETURNING "id", "invoiceNumber", "status"::text AS "status",
                 "subtotal"::double precision AS "subtotal",

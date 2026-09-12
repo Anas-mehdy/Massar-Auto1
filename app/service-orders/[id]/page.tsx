@@ -113,6 +113,7 @@ export default async function ServiceOrderPage({ params }: PageProps) {
     && ["RECEIVED", "INSPECTING", "WAITING_CUSTOMER_APPROVAL"].includes(order.status)
     && Boolean(laborLines.length || partLines.length);
   const canReturnParts = canUpdateOrder && canUseInventory;
+  const fullyCoveredWarranty = warrantyFollowUpLink?.coverageDecision === "COVERED";
 
   return (
     <div className="space-y-6">
@@ -156,7 +157,7 @@ export default async function ServiceOrderPage({ params }: PageProps) {
         <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="flex items-center gap-2 font-black text-slate-950"><FileText className="h-4 w-4 text-emerald-700" />الفاتورة والدفع</h2>
-            <p className="mt-1 text-xs font-semibold text-slate-500">بعد اكتمال الصيانة تُصدر فاتورة مرتبطة مباشرة بأمر الصيانة. يمكن تحصيلها الآن أو إبقاء الرصيد على الذمة.</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500">{fullyCoveredWarranty ? "أمر المتابعة مغطى بالكامل: ستُحفظ قيمة الأعمال والقطع مع خصم ضمان 100% وإجمالي مطلوب من العميل يساوي صفراً." : "بعد اكتمال الصيانة تُصدر فاتورة مرتبطة مباشرة بأمر الصيانة. يمكن تحصيلها الآن أو إبقاء الرصيد على الذمة."}</p>
           </div>
           {invoice ? <Button asChild className="font-black"><Link href={`/invoices/${invoice.id}`}>فتح الفاتورة</Link></Button> : null}
         </div>
@@ -167,11 +168,12 @@ export default async function ServiceOrderPage({ params }: PageProps) {
               <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">الحالة</div><div className="mt-1 font-black text-slate-900">{invoice.status}</div></div>
               <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">الإجمالي الأصلي</div><div className="mt-1 font-black text-slate-900">{formatAutoMoney(invoice.total, auth.shop.currency)}</div></div>
               <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">المتبقي / الذمة</div><div className="mt-1 font-black text-amber-700">{formatAutoMoney(invoice.balanceDue, auth.shop.currency)}</div></div>
+            <>{fullyCoveredWarranty ? <div className="mt-3 rounded-xl border border-cyan-100 bg-cyan-50/50 p-3 text-xs font-bold leading-6 text-cyan-900">فاتورة ضمان: قيمة الأعمال والقطع {formatAutoMoney(invoice.subtotal, auth.shop.currency)} • خصم الضمان {formatAutoMoney(invoice.discountTotal, auth.shop.currency)} • المطلوب من العميل {formatAutoMoney(invoice.total, auth.shop.currency)}.</div> : null}</>
             </div>
           ) : canIssueInvoice ? (
             <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div><div className="font-black text-emerald-950">الصيانة جاهزة للفوترة</div><div className="mt-1 text-xs font-semibold text-emerald-800">سيتم احتساب أجور العمل والقطع الفعلية مع خصم وضريبة عرض السعر الموافق عليه.</div></div>
-              <form action={createServiceOrderInvoiceAction}><input type="hidden" name="serviceOrderId" value={order.id} /><Button type="submit" className="font-black">إصدار فاتورة الصيانة</Button></form>
+              <div><div className="font-black text-emerald-950">{fullyCoveredWarranty ? "جاهزة لفاتورة ضمان مغطاة بالكامل" : "الصيانة جاهزة للفوترة"}</div><div className="mt-1 text-xs font-semibold text-emerald-800">{fullyCoveredWarranty ? "سيحفظ النظام القيمة الفعلية للأعمال والقطع كقيمة قبل الخصم، ثم يطبق خصم ضمان 100% بدون إنشاء دفعة وهمية أو ذمة على العميل." : "سيتم احتساب أجور العمل والقطع الفعلية مع خصم وضريبة عرض السعر الموافق عليه."}</div></div>
+              <form action={createServiceOrderInvoiceAction}><input type="hidden" name="serviceOrderId" value={order.id} /><Button type="submit" className="font-black">{fullyCoveredWarranty ? "إصدار فاتورة ضمان (0)" : "إصدار فاتورة الصيانة"}</Button></form>
             </div>
           ) : (
             <div className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-500">{["READY_FOR_DELIVERY", "DELIVERED", "CLOSED"].includes(order.status) && !canManageQuotes ? "الفاتورة غير موجودة، وحسابك لا يملك صلاحية إصدارها." : "ستتاح الفوترة عندما يصل أمر الصيانة إلى حالة «جاهزة للتسليم»."}</div>
