@@ -17,26 +17,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Harden warranty claim service
-        run: python scripts/harden-warranty-claim-service.py
-
-      - name: Verify warranty hardening
-        run: |
-          grep -F 'coverageDecision = "NOT_APPLICABLE"' lib/services/serviceWarrantyClaimService.ts
-          grep -F 'المطالبة المغطاة بالكامل لا يمكن أن تحمل مبلغاً على العميل' lib/services/serviceWarrantyClaimService.ts
-          grep -F 'مرجعي فقط — لا يصدر فاتورة تلقائياً' 'app/service-orders/[id]/warranty/page.tsx'
-          test -f prisma/migrations/20260912124500_harden_warranty_claim_consistency/migration.sql
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -57,15 +43,3 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      - name: Commit warranty hardening
-        if: github.event_name == 'push'
-        run: |
-          if git diff --quiet -- lib/services/serviceWarrantyClaimService.ts 'app/service-orders/[id]/warranty/page.tsx'; then
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add lib/services/serviceWarrantyClaimService.ts 'app/service-orders/[id]/warranty/page.tsx'
-          git commit -m 'feat(auto): enforce warranty coverage consistency'
-          git push origin HEAD:feature/auto-core-v1
