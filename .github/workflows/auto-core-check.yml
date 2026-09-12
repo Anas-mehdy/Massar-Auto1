@@ -32,6 +32,24 @@ jobs:
       - name: Apply quotation line reconciliation
         run: python scripts/reconcile-quotation-line-prisma.py
 
+      - name: Preserve database-supported approval channels
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          service = Path('lib/services/quotationService.ts')
+          text = service.read_text().replace(
+              'export type ApprovalChannel = "IN_PERSON" | "PHONE" | "WHATSAPP" | "EMAIL" | "OTHER";',
+              'export type ApprovalChannel = "IN_PERSON" | "PHONE" | "WHATSAPP" | "WEB" | "OTHER";',
+          )
+          service.write_text(text)
+          actions = Path('app/service-orders/actions.ts')
+          text = actions.read_text().replace(
+              'z.enum(["IN_PERSON", "PHONE", "WHATSAPP", "EMAIL", "OTHER"])',
+              'z.enum(["IN_PERSON", "PHONE", "WHATSAPP", "WEB", "OTHER"])',
+          )
+          actions.write_text(text)
+          PY
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
