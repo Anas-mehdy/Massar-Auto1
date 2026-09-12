@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { getRequestFingerprint } from "@/lib/auth/requestFingerprint";
 import {
   registerFromPartnerInvitation,
   registerFromPartnerPublicLink,
@@ -22,10 +23,11 @@ export async function partnerClientRegisterAction(formData: FormData) {
   };
 
   try {
+    const requestFingerprint = await getRequestFingerprint();
     if (mode === "invite") {
-      await registerFromPartnerInvitation(key, input);
+      await registerFromPartnerInvitation(key, input, requestFingerprint);
     } else if (mode === "public") {
-      await registerFromPartnerPublicLink(key, input);
+      await registerFromPartnerPublicLink(key, input, requestFingerprint);
     } else {
       return { success: false, error: "مسار التسجيل غير صالح." };
     }
