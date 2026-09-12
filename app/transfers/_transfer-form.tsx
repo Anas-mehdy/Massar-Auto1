@@ -29,7 +29,7 @@ const operationOptions = [
   { value: "WALLET_WITHDRAWAL" as const, label: "سحب من المحفظة", helper: "حركة داخلية من الرصيد", icon: Landmark, active: "border-slate-300 bg-slate-50 text-slate-800", iconClass: "bg-slate-100 text-slate-600" },
 ];
 
-export function TransferForm({ wallets, customers, currency, returnTo }: { wallets: WalletOption[]; customers: CustomerOption[]; currency: string; returnTo?: string }) {
+export function TransferForm({ wallets, customers, currency, returnTo, canManageFinance = false }: { wallets: WalletOption[]; customers: CustomerOption[]; currency: string; returnTo?: string; canManageFinance?: boolean }) {
   const [operationType, setOperationType] = useState<OperationType>("CUSTOMER_DEPOSIT");
   const [walletId, setWalletId] = useState(wallets[0]?.id ?? "");
   const [amount, setAmount] = useState("");
@@ -42,6 +42,9 @@ export function TransferForm({ wallets, customers, currency, returnTo }: { walle
   const [customerSearch, setCustomerSearch] = useState("");
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
 
+  const visibleOperationOptions = canManageFinance
+    ? operationOptions
+    : operationOptions.filter((option) => option.value === "CUSTOMER_DEPOSIT" || option.value === "CUSTOMER_WITHDRAWAL");
   const wallet = wallets.find((item) => item.id === walletId);
   const settlementWallet = wallets.find((item) => item.id === settlementWalletId);
   const isCustomerOperation = operationType === "CUSTOMER_DEPOSIT" || operationType === "CUSTOMER_WITHDRAWAL";
@@ -118,7 +121,7 @@ export function TransferForm({ wallets, customers, currency, returnTo }: { walle
       <Label>نوع العملية</Label>
       <input type="hidden" name="operationType" value={operationType} />
       <div className="grid grid-cols-2 gap-2">
-        {operationOptions.map((option) => {
+        {visibleOperationOptions.map((option) => {
           const Icon = option.icon;
           const selected = operationType === option.value;
           return <button key={option.value} type="button" onClick={() => selectOperation(option.value)} className={`relative rounded-xl border p-3 text-right transition ${selected ? option.active : "border-slate-200 bg-white text-slate-600 hover:border-teal-200 hover:bg-teal-50/30"}`}>
