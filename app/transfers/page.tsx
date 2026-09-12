@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { Button } from "@/components/ui/button";
 import { SmartEmptyState } from "@/components/onboarding/smart-empty-state";
+import { can, requirePermission } from "@/lib/auth/context";
 import { getCurrentShopContext } from "@/lib/current-shop";
 import {
   transferCanVoid,
@@ -31,29 +32,25 @@ const commissionLabels = { ADDED: "مضافة", DEDUCTED: "مخصومة", NONE: 
 
 export default async function TransfersPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const query = await searchParams;
-  const context = await getCurrentShopContext();
-  const type = Object.prototype.hasOwnProperty.call(transferLabels, query.type ?? "") ? (query.type as FinancialTransferType) : undefined;
-  const from = query.from ? dateInputStartUtcForTimeZone(query.from, context.timeZone) : undefined;
-  const to = query.to ? dateInputEndUtcForTimeZone(query.to, context.timeZone) : undefined;
-  const [wallets, dailyData, transfers, customers] = await Promise.all([
+  const [auth, context] = await Promise.all([
+    requirePermission("sales:create"),
+    getCurrentShopContext(),
+  ]);
+  const canManageFinance = can(auth, "finance:vouchers");
+  const [wallets, customers] = await Promise.all([
     financialTransferService.listWallets(context.shopId),
-    getTransferDailyData(context.shopId),
-    financialTransferService.listTransfers(context.shopId, { walletId: query.wallet || undefined, operationType: type, q: query.q, from, to }),
     prisma.customer.findMany({ where: { shopId: context.shopId, deletedAt: null }, select: { id: true, name: true, phone: true }, orderBy: { name: "asc" }, take: 500 }),
   ]);
 
   const currency = context.currency || "SAR";
-  const statsWallets = wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, balance: Number(wallet.currentBalance), monthlyLimit: wallet.monthlyLimit == null ? null : Number(wallet.monthlyLimit), monthlyUsed: Number(wallet.monthlyUsed) }));
-  const statsOperations = dailyData.operations.map((row) => ({ id: row.id, walletName: row.walletName, userName: row.userName, customerName: row.customerName, operationType: row.operationType, amount: row.amount, commission: row.commission, createdAt: row.createdAt.toISOString() }));
   const formWallets = wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, balance: Number(wallet.currentBalance), depositCommission: Number(wallet.defaultDepositCommission), withdrawalCommission: Number(wallet.defaultWithdrawalCommission) }));
-  const walletPanelItems = wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, balance: Number(wallet.currentBalance), monthlyLimit: wallet.monthlyLimit == null ? null : Number(wallet.monthlyLimit), monthlyUsed: Number(wallet.monthlyUsed), depositCommission: Number(wallet.defaultDepositCommission), withdrawalCommission: Number(wallet.defaultWithdrawalCommission) }));
 
   if (query.onboarding === "1") {
     return (
       <div className="pb-8 pt-1">
         {query.error ? <div className="mx-auto mb-4 max-w-3xl rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-[11px] font-bold leading-5 text-rose-700 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-200">{query.error}</div> : null}
         {wallets.length === 0 ? (
-          <OnboardingWalletSetup currency={currency} />
+          canManageFinance ? <OnboardingWalletSetup currency={currency} /> : <div className="mx-auto max-w-3xl rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-xs font-bold leading-6 text-amber-800">لا توجد محفظة مالية مهيأة بعد. اطلب من المدير أو المحاسب إضافة المحفظة أولاً، ثم يمكنك تنفيذ عمليات العملاء.</div>
         ) : (
           <OnboardingTransferForm
             currency={currency}
@@ -63,6 +60,39 @@ export default async function TransfersPage({ searchParams }: { searchParams: Pr
       </div>
     );
   }
+
+  if (!canManageFinance) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-5 pb-8">
+        <section className="relative overflow-hidden rounded-[26px] border border-teal-100/80 bg-gradient-to-br from-teal-50 via-white to-cyan-50/70 px-5 py-5 shadow-[0_20px_70px_-46px_rgba(13,148,136,0.5)] sm:px-6 sm:py-6">
+          <div className="relative flex items-start gap-4">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-600 to-cyan-600 text-white shadow-lg shadow-teal-600/20"><ArrowLeftRight className="h-6 w-6" /></span>
+            <div>
+              <span className="rounded-full border border-teal-200 bg-white/80 px-2.5 py-1 text-[9px] font-black text-teal-700">خدمة العملاء</span>
+              <h1 className="mt-2 text-2xl font-black tracking-tight text-slate-950 sm:text-[28px]">تنفيذ تحويل للعميل</h1>
+              <p className="mt-1.5 text-xs font-semibold leading-6 text-slate-500">يمكنك تنفيذ عمليات الإيداع والسحب للعملاء. إدارة الأرصدة، الحركات الداخلية والسجل المالي متاحة للمخولين ماليًا فقط.</p>
+            </div>
+          </div>
+        </section>
+        <Feedback query={query} />
+        <section className="overflow-hidden rounded-[22px] border border-teal-100 bg-white shadow-[0_20px_60px_-38px_rgba(13,148,136,0.38)]">
+          <div className="border-b border-teal-100 bg-gradient-to-l from-teal-50 via-white to-cyan-50 px-5 py-4"><div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-teal-600 to-cyan-600 text-white"><ArrowLeftRight className="h-4 w-4" /></span><div><h2 className="text-sm font-black text-slate-900">عملية عميل جديدة</h2><p className="mt-0.5 text-[10px] font-semibold text-slate-500">اختر نوع الخدمة والمبلغ وطريقة التسوية.</p></div></div></div>
+          <div className="p-4 sm:p-5">{wallets.length === 0 ? <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4 text-[10px] font-bold leading-5 text-amber-800">لا توجد محفظة مهيأة. راجع المدير أو المحاسب لإضافة محفظة قبل تنفيذ العمليات.</div> : <TransferForm wallets={formWallets} customers={customers} currency={currency} canManageFinance={false} />}</div>
+        </section>
+      </div>
+    );
+  }
+
+  const type = Object.prototype.hasOwnProperty.call(transferLabels, query.type ?? "") ? (query.type as FinancialTransferType) : undefined;
+  const from = query.from ? dateInputStartUtcForTimeZone(query.from, context.timeZone) : undefined;
+  const to = query.to ? dateInputEndUtcForTimeZone(query.to, context.timeZone) : undefined;
+  const [dailyData, transfers] = await Promise.all([
+    getTransferDailyData(context.shopId),
+    financialTransferService.listTransfers(context.shopId, { walletId: query.wallet || undefined, operationType: type, q: query.q, from, to }),
+  ]);
+  const statsWallets = wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, balance: Number(wallet.currentBalance), monthlyLimit: wallet.monthlyLimit == null ? null : Number(wallet.monthlyLimit), monthlyUsed: Number(wallet.monthlyUsed) }));
+  const statsOperations = dailyData.operations.map((row) => ({ id: row.id, walletName: row.walletName, userName: row.userName, customerName: row.customerName, operationType: row.operationType, amount: row.amount, commission: row.commission, createdAt: row.createdAt.toISOString() }));
+  const walletPanelItems = wallets.map((wallet) => ({ id: wallet.id, name: wallet.name, balance: Number(wallet.currentBalance), monthlyLimit: wallet.monthlyLimit == null ? null : Number(wallet.monthlyLimit), monthlyUsed: Number(wallet.monthlyUsed), depositCommission: Number(wallet.defaultDepositCommission), withdrawalCommission: Number(wallet.defaultWithdrawalCommission) }));
 
   return <div className="space-y-6 pb-8">
     <section className="relative overflow-hidden rounded-[26px] border border-teal-100/80 bg-gradient-to-br from-teal-50 via-white to-cyan-50/70 px-5 py-5 shadow-[0_20px_70px_-46px_rgba(13,148,136,0.5)] sm:px-6 sm:py-6">
@@ -125,7 +155,7 @@ export default async function TransfersPage({ searchParams }: { searchParams: Pr
 
       <aside className="h-fit overflow-hidden rounded-[22px] border border-teal-100 bg-white shadow-[0_20px_60px_-38px_rgba(13,148,136,0.38)] xl:sticky xl:top-24">
         <div className="border-b border-teal-100 bg-gradient-to-l from-teal-50 via-white to-cyan-50 px-5 py-4"><div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-teal-600 to-cyan-600 text-white shadow-md shadow-teal-600/15"><ArrowLeftRight className="h-4 w-4" /></span><div><h2 className="text-sm font-black text-slate-900">عملية جديدة</h2><p className="mt-0.5 text-[10px] font-semibold text-slate-500">سجّل الحركة وحدد العمولة وطريقة التحصيل.</p></div></div></div>
-        <div className="p-4 sm:p-5">{wallets.length === 0 ? <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4 text-[10px] font-bold leading-5 text-amber-800">أضف محفظة أولاً قبل تسجيل العمليات.</div> : <TransferForm wallets={formWallets} customers={customers} currency={currency} />}</div>
+        <div className="p-4 sm:p-5">{wallets.length === 0 ? <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4 text-[10px] font-bold leading-5 text-amber-800">أضف محفظة أولاً قبل تسجيل العمليات.</div> : <TransferForm wallets={formWallets} customers={customers} currency={currency} canManageFinance />}</div>
       </aside>
     </section>
   </div>;
