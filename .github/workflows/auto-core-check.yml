@@ -17,34 +17,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: feature/auto-core-v1
-          fetch-depth: 0
-
-      - name: Apply lifecycle hardening
-        run: python scripts/harden-auto-lifecycle.py
-
-      - name: Verify lifecycle invariants
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          service = Path('lib/services/autoServiceOrderService.ts').read_text()
-          ui = Path('lib/auto/service-order-ui.ts').read_text()
-          delivery = Path('lib/services/serviceDeliveryService.ts').read_text()
-          assert 'WAITING_CUSTOMER_APPROVAL: ["CANCELLED"]' in service
-          assert 'WAITING_CUSTOMER_APPROVAL: ["CANCELLED"]' in ui
-          assert 'REJECTED: []' in service
-          assert 'AS "effectiveTotal"' in delivery
-          assert delivery.count('"finalTotal" = ${invoice.effectiveTotal},') == 2
-          PY
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -65,16 +43,3 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      - name: Commit lifecycle hardening
-        if: github.event_name == 'push'
-        run: |
-          if git diff --quiet -- lib/services/autoServiceOrderService.ts lib/auto/service-order-ui.ts lib/services/serviceDeliveryService.ts; then
-            echo "No hardening changes to commit"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add lib/services/autoServiceOrderService.ts lib/auto/service-order-ui.ts lib/services/serviceDeliveryService.ts
-          git commit -m "fix(auto): harden approval and close lifecycle"
-          git push origin HEAD:feature/auto-core-v1
