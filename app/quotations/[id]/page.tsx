@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, FileText, Send, Truck, XCircle } from "lucide-react";
+import { ArrowRight, CheckCircle2, FileText, LockKeyhole, Send, Truck, XCircle } from "lucide-react";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { requirePermission } from "@/lib/auth/context";
 import { formatAutoDate, formatAutoMoney } from "@/lib/auto/service-order-ui";
+import { autoServiceOrderService } from "@/lib/services/autoServiceOrderService";
 import { quotationService } from "@/lib/services/quotationService";
 import { markQuotationSentAction, recordCustomerApprovalAction } from "@/app/service-orders/actions";
 
@@ -62,8 +63,14 @@ export default async function QuotationPage({ params }: PageProps) {
   const raw = await quotationService.getQuotation(auth.shop.id, id);
   if (!raw) notFound();
   const quote = raw as unknown as QuoteView;
+  const order = await autoServiceOrderService.getServiceOrderById(auth.shop.id, quote.serviceOrderId);
 
-  const canDecide = quote.status === "DRAFT" || quote.status === "SENT";
+  const canManage = auth.permissions.includes("quotes:manage");
+  const quoteOpen = quote.status === "DRAFT" || quote.status === "SENT";
+  const orderAcceptsDecision = Boolean(order && ["RECEIVED", "INSPECTING", "WAITING_CUSTOMER_APPROVAL"].includes(order.status));
+  const canDecide = canManage && quoteOpen && orderAcceptsDecision;
+  const canSend = canManage && quote.status === "DRAFT" && orderAcceptsDecision;
+  const staleQuote = quoteOpen && !orderAcceptsDecision;
 
   return (
     <div className="space-y-6">
@@ -72,6 +79,8 @@ export default async function QuotationPage({ params }: PageProps) {
         description={`نسخة ${quote.revision} • ${statusLabel[quote.status] ?? quote.status}`}
         actions={<Button asChild variant="outline" className="font-bold"><Link href={`/service-orders/${quote.serviceOrderId}`}><ArrowRight className="ml-1.5 h-4 w-4" />أمر الصيانة {quote.orderNumber}</Link></Button>}
       />
+
+      {staleQuote ? <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold leading-6 text-amber-900"><LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" /><span>هذا العرض بقي مفتوحاً لكن أمر الصيانة تجاوز مرحلة انتظار موافقة العميل، لذلك تم قفل الإرسال والموافقة والرفض عليه. ارجع لأمر الصيانة لمعالجة الحالة الحالية بدل اعتماد عرض قديم.</span></div> : null}
 
       <div className="grid gap-4 md:grid-cols-3">
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:col-span-2">
@@ -102,7 +111,7 @@ export default async function QuotationPage({ params }: PageProps) {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div><h2 className="font-black text-slate-950">اعتماد العميل</h2><p className="mt-1 text-xs font-semibold text-slate-500">نسجل طريقة الموافقة ووقتها حتى تبقى موثقة في ملف أمر الصيانة.</p></div>
           <div className="flex flex-wrap gap-2">
-            {quote.status === "DRAFT" ? (
+            {canSend ? (
               <form action={markQuotationSentAction}>
                 <input type="hidden" name="quotationId" value={quote.id} /><input type="hidden" name="serviceOrderId" value={quote.serviceOrderId} />
                 <Button type="submit" variant="outline" className="font-black"><Send className="ml-1.5 h-4 w-4" />تسجيل إرسال العرض</Button>
@@ -120,6 +129,7 @@ export default async function QuotationPage({ params }: PageProps) {
                 <Button type="submit" variant="destructive" className="font-black"><XCircle className="ml-1.5 h-4 w-4" />رفض العرض</Button>
               </form>
             ) : null}
+            {!canManage && quoteOpen && orderAcceptsDecision ? <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">عرض فقط — حسابك لا يملك صلاحية إدارة عروض الأسعار.</div> : null}
           </div>
         </div>
         <div className="mt-4 grid gap-2 text-xs font-bold text-slate-500 sm:grid-cols-3"><div>الحالة: {statusLabel[quote.status] ?? quote.status}</div><div>أنشئ: {formatAutoDate(quote.createdAt)}</div><div>أرسل: {formatAutoDate(quote.sentAt)}</div></div>
