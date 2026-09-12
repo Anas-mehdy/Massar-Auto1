@@ -2,6 +2,7 @@ import {
   ArrowRight,
   Ban,
   Banknote,
+  Car,
   FileText,
   Receipt,
   Save,
@@ -66,18 +67,20 @@ export default async function CustomerDetailsPage({ params }: CustomerDetailsPag
 
   if (!customer) notFound();
 
-  const repairCount = customer._count.repairOrders;
+  const vehicleCount = customer._count.vehicles;
+  const serviceOrderCount = customer._count.autoServiceOrders;
+  const legacyRepairCount = customer._count.repairOrders;
   const salesCount = customer._count.sales;
   const invoiceCount = customer._count.invoices;
   const installmentCount = installments?.plans.length ?? 0;
   const debtRecordCount = debt?.entryCount ?? 0;
-  const linkedRecords = repairCount + salesCount + invoiceCount + installmentCount + debtRecordCount;
+  const linkedRecords = vehicleCount + serviceOrderCount + legacyRepairCount + salesCount + invoiceCount + installmentCount + debtRecordCount;
 
   const salesTotal = customer.sales.reduce((sum, sale) => sum + Number(sale.total), 0);
   const invoiceTotal = customer.invoices.reduce((sum, invoice) => sum + Number(invoice.total), 0);
   const invoiceBalance = customer.invoices.reduce((sum, invoice) => sum + Number(invoice.balanceDue), 0);
   const hasFinancialLinks = Boolean(debt?.accountExists || installmentCount > 0);
-  const canDelete = canDeleteCustomer && repairCount + salesCount + invoiceCount === 0 && !hasFinancialLinks;
+  const canDelete = canDeleteCustomer && vehicleCount + serviceOrderCount + legacyRepairCount + salesCount + invoiceCount === 0 && !hasFinancialLinks;
 
   return (
     <div className="space-y-6">
@@ -100,8 +103,9 @@ export default async function CustomerDetailsPage({ params }: CustomerDetailsPag
         </div>
       </div>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="طلبات الصيانة" value={String(repairCount)} hint="كل طلبات هذا العميل" tone="sky" />
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <SummaryCard label="المركبات" value={String(vehicleCount)} hint="المركبات المسجلة للعميل" tone="sky" />
+        <SummaryCard label="أوامر الصيانة" value={String(serviceOrderCount)} hint="سجل صيانة مركبات العميل" tone="teal" />
         <SummaryCard label="إجمالي المبيعات" value={formatCurrency(salesTotal, currency)} hint={`${salesCount} عملية بيع / POS`} tone="amber" />
         <SummaryCard label="رصيد الفواتير" value={formatCurrency(invoiceBalance, currency)} hint={`${invoiceCount} فاتورة · إجمالي ${formatCurrency(invoiceTotal, currency)}`} tone="violet" />
         {canSeeDebt ? (
@@ -137,9 +141,13 @@ export default async function CustomerDetailsPage({ params }: CustomerDetailsPag
             </div>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-3">
-            <RelatedCard title={`طلبات الصيانة (${repairCount})`} empty="لا توجد طلبات صيانة." icon={<Wrench className="h-4 w-4 text-primary" />}>
-              {customer.repairOrders.map((order) => <RelatedLink key={order.id} href={`/repair-orders/${order.id}`} title={order.ticketNumber} description={`${order.deviceBrand ?? ""} ${order.deviceModel ?? ""}`.trim() || order.reportedIssue} meta={formatDateTime(order.createdAt)} />)}
+          <div className="grid gap-6 xl:grid-cols-2 2xl:grid-cols-4">
+            <RelatedCard title={`المركبات (${vehicleCount})`} empty="لا توجد مركبات مسجلة." icon={<Car className="h-4 w-4 text-sky-600" />}>
+              {customer.vehicles.map((vehicle) => <RelatedLink key={vehicle.id} href={`/vehicles/${vehicle.id}`} title={`${vehicle.make} ${vehicle.model}`} description={[vehicle.plateNumber, vehicle.year ? String(vehicle.year) : null].filter(Boolean).join(" · ") || "بدون لوحة أو سنة مسجلة"} meta={formatDateTime(vehicle.updatedAt)} />)}
+            </RelatedCard>
+
+            <RelatedCard title={`أوامر الصيانة (${serviceOrderCount})`} empty="لا توجد أوامر صيانة." icon={<Wrench className="h-4 w-4 text-primary" />}>
+              {customer.autoServiceOrders.map((order) => <RelatedLink key={order.id} href={`/service-orders/${order.id}`} title={order.orderNumber} description={`${order.vehicle.make} ${order.vehicle.model}${order.vehicle.plateNumber ? ` · ${order.vehicle.plateNumber}` : ""} — ${order.reportedIssue}`} meta={formatDateTime(order.receivedAt)} />)}
             </RelatedCard>
 
             <RelatedCard title={`المبيعات والـ POS (${salesCount})`} empty="لا توجد عمليات بيع." icon={<Receipt className="h-4 w-4 text-amber-500" />}>
@@ -189,7 +197,7 @@ export default async function CustomerDetailsPage({ params }: CustomerDetailsPag
           {canDeleteCustomer && (
             <div className="erp-section border-rose-200 bg-rose-50/10">
               <div className="mb-4 border-b border-rose-100 pb-3"><h3 className="text-sm font-bold text-rose-800">منطقة الخطر | حذف العميل</h3></div>
-              <p className="text-xs font-medium leading-relaxed text-slate-500">لا يمكن حذف عميل لديه أي سجل مرتبط، بما في ذلك الصيانة والمبيعات والفواتير والأقساط ودفتر الديون.</p>
+              <p className="text-xs font-medium leading-relaxed text-slate-500">لا يمكن حذف عميل لديه أي مركبة أو أمر صيانة أو مبيعات أو فواتير أو أقساط أو دفتر ديون مرتبط.</p>
               <form action={softDeleteCustomerAction} className="mt-5">
                 <input type="hidden" name="customerId" value={customer.id} />
                 <ConfirmSubmitButton type="submit" variant="destructive" disabled={!canDelete} className="h-11 rounded-xl px-6 text-xs font-bold" message="هل تريد حذف هذا العميل؟ لا يمكن التراجع عن هذه العملية من الواجهة."><Ban className="ml-1.5 h-4 w-4" />حذف العميل نهائياً</ConfirmSubmitButton>
