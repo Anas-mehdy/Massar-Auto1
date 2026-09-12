@@ -44,7 +44,7 @@ export default async function InstallmentsPage({ searchParams }: { searchParams:
   return <div className="space-y-6">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <PageHeader title="الدفعات والأقساط" description="تابع الخطط المستقلة والفواتير المقسّطة ومواعيد التحصيل" />
-      <Button asChild className="h-11 rounded-xl font-black"><Link href="/installments/new"><Plus className="ml-2 h-4 w-4" />خطة تقسيط جديدة</Link></Button>
+      {canEdit && <Button asChild className="h-11 rounded-xl font-black"><Link href="/installments/new"><Plus className="ml-2 h-4 w-4" />خطة تقسيط جديدة</Link></Button>}
     </div>
 
     {query.deleted && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700">تم حذف خطة الأقساط بنجاح.</div>}
