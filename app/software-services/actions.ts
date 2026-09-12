@@ -154,7 +154,7 @@ export async function cancelSoftwareServiceSaleAction(formData: FormData) {
   if (!id) redirect("/software-services?cancelError=" + encodeURIComponent("معرّف الخدمة غير موجود."));
   let redirectTo = `/software-services/${id}`;
   try {
-    const auth = await requirePermission("sales:create");
+    const auth = await requirePermission("sales:cancel");
     await softwareServiceCancellationService.cancelSoftwareServiceSale(auth.shop.id, id, auth.user.id);
     revalidatePath("/software-services");
     revalidatePath(`/software-services/${id}`);
