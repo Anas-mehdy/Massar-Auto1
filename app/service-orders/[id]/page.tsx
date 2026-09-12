@@ -85,21 +85,32 @@ export default async function ServiceOrderPage({ params }: PageProps) {
   const partLines = order.partLines as PartRow[];
   const quotations = order.quotations as QuoteRow[];
   const transitions = SERVICE_ORDER_ALLOWED_TRANSITIONS[order.status] ?? [];
+  const canUpdateOrder = auth.permissions.includes("service_orders:update");
+  const canChangeStatus = auth.permissions.includes("service_orders:update_status");
+  const canAssignOrder = auth.permissions.includes("service_orders:assign");
+  const canManageQuotes = auth.permissions.includes("quotes:manage");
+  const canUseInventory = auth.permissions.includes("inventory:use_parts");
   const invoiceLocked = Boolean(invoice);
-  const visibleTransitions = invoiceLocked
-    ? transitions.filter((status) => ["READY_FOR_DELIVERY", "DELIVERED", "CLOSED"].includes(status))
-    : transitions;
+  const visibleTransitions = canChangeStatus
+    ? (invoiceLocked ? transitions.filter((status) => ["READY_FOR_DELIVERY", "DELIVERED", "CLOSED"].includes(status)) : transitions)
+    : [];
   const partsTotal = partLines.filter((line) => !["CANCELLED", "RETURNED"].includes(line.status)).reduce((sum, line) => sum + Number(line.lineTotal || 0), 0);
   const laborTotal = laborLines.filter((line) => line.status !== "CANCELLED").reduce((sum, line) => sum + Number(line.lineTotal || 0), 0);
   const assignedTechnician = technicians.find((technician) => technician.userId === order.assignedToUserId) ?? null;
   const workflowLocked = ["DELIVERED", "CLOSED", "CANCELLED", "REJECTED"].includes(order.status);
-  const serviceLinesLocked = workflowLocked || invoiceLocked;
-  const canIssueInvoice = !invoiceLocked && ["READY_FOR_DELIVERY", "DELIVERED", "CLOSED"].includes(order.status);
-  const canCreateQuotation = !workflowLocked
+  const serviceLinesLocked = workflowLocked || invoiceLocked || !canUpdateOrder;
+  const editorLockMessage = !canUpdateOrder
+    ? "حسابك يملك صلاحية العرض فقط ولا يملك صلاحية تعديل بنود أمر الصيانة."
+    : invoiceLocked
+      ? "تم إصدار فاتورة لهذا الأمر، لذلك تم قفل إضافة وتعديل أجور العمل وقطع الغيار. قبل التسليم يمكن إلغاء الفاتورة وإعادة فتح العمل، وبعد التسليم استخدم الإشعار الدائن/التسوية المالية للتصحيح."
+      : "أمر الصيانة بحالة نهائية؛ بنود العمل والقطع متاحة للعرض فقط.";
+  const canIssueInvoice = canManageQuotes && !invoiceLocked && ["READY_FOR_DELIVERY", "DELIVERED", "CLOSED"].includes(order.status);
+  const canCreateQuotation = canManageQuotes
+    && !workflowLocked
     && !invoiceLocked
     && ["RECEIVED", "INSPECTING", "WAITING_CUSTOMER_APPROVAL"].includes(order.status)
     && Boolean(laborLines.length || partLines.length);
-  const canReturnParts = auth.permissions.includes("service_orders:update") && auth.permissions.includes("inventory:use_parts");
+  const canReturnParts = canUpdateOrder && canUseInventory;
 
   return (
     <div className="space-y-6">
@@ -159,7 +170,7 @@ export default async function ServiceOrderPage({ params }: PageProps) {
               <form action={createServiceOrderInvoiceAction}><input type="hidden" name="serviceOrderId" value={order.id} /><Button type="submit" className="font-black">إصدار فاتورة الصيانة</Button></form>
             </div>
           ) : (
-            <div className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-500">ستتاح الفوترة عندما يصل أمر الصيانة إلى حالة «جاهزة للتسليم».</div>
+            <div className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-500">{["READY_FOR_DELIVERY", "DELIVERED", "CLOSED"].includes(order.status) && !canManageQuotes ? "الفاتورة غير موجودة، وحسابك لا يملك صلاحية إصدارها." : "ستتاح الفوترة عندما يصل أمر الصيانة إلى حالة «جاهزة للتسليم»."}</div>
           )}
         </div>
       </section>
@@ -174,8 +185,9 @@ export default async function ServiceOrderPage({ params }: PageProps) {
           </div>
           <form action={updateServiceOrderDiagnosisAction} className="space-y-3 p-4 sm:p-5">
             <input type="hidden" name="serviceOrderId" value={order.id} />
-            <textarea name="diagnosis" defaultValue={order.diagnosis ?? ""} maxLength={6000} disabled={workflowLocked} className={textareaClass} placeholder="مثال: تلف في طرمبة الماء مع تهريب من الخرطوم العلوي..." />
-            <Button type="submit" disabled={workflowLocked} className="font-black">حفظ التشخيص</Button>
+            <textarea name="diagnosis" defaultValue={order.diagnosis ?? ""} maxLength={6000} disabled={workflowLocked || !canUpdateOrder} className={textareaClass} placeholder="مثال: تلف في طرمبة الماء مع تهريب من الخرطوم العلوي..." />
+            <Button type="submit" disabled={workflowLocked || !canUpdateOrder} className="font-black">حفظ التشخيص</Button>
+            {!canUpdateOrder ? <p className="text-xs font-bold text-amber-700">حسابك يملك صلاحية العرض فقط.</p> : null}
           </form>
         </section>
 
@@ -186,14 +198,14 @@ export default async function ServiceOrderPage({ params }: PageProps) {
           </div>
           <form action={assignServiceOrderTechnicianAction} className="space-y-3 p-4 sm:p-5">
             <input type="hidden" name="serviceOrderId" value={order.id} />
-            <select name="technicianUserId" defaultValue={order.assignedToUserId ?? ""} disabled={workflowLocked} className={inputClass}>
+            <select name="technicianUserId" defaultValue={order.assignedToUserId ?? ""} disabled={workflowLocked || !canAssignOrder} className={inputClass}>
               <option value="">بدون فني محدد</option>
               {technicians.map((technician) => <option key={technician.userId} value={technician.userId}>{technician.name}</option>)}
             </select>
             <div className="text-xs font-semibold text-slate-500">
-              {assignedTechnician ? `المسؤول حاليًا: ${assignedTechnician.name}` : technicians.length ? "لم يتم تحديد فني مسؤول بعد." : "لا يوجد فني نشط. أضف موظفًا بدور فني صيانة من إعدادات الفريق."}
+              {!canAssignOrder ? "حسابك لا يملك صلاحية إسناد الفنيين." : assignedTechnician ? `المسؤول حاليًا: ${assignedTechnician.name}` : technicians.length ? "لم يتم تحديد فني مسؤول بعد." : "لا يوجد فني نشط. أضف موظفًا بدور فني صيانة من إعدادات الفريق."}
             </div>
-            <Button type="submit" disabled={workflowLocked || !technicians.length} className="font-black">حفظ الفني المسؤول</Button>
+            <Button type="submit" disabled={workflowLocked || !canAssignOrder || !technicians.length} className="font-black">حفظ الفني المسؤول</Button>
           </form>
         </section>
       </div>
@@ -203,7 +215,7 @@ export default async function ServiceOrderPage({ params }: PageProps) {
           <h2 className="flex items-center gap-2 font-black text-slate-950"><ClipboardCheck className="h-4 w-4 text-emerald-700" />الفحص الفني</h2>
           <p className="mt-1 text-xs font-semibold text-slate-500">سجّل الفحص الأولي أو النهائي ببنود واضحة تبقى محفوظة ضمن تاريخ أمر الصيانة.</p>
         </div>
-        <div className="p-4 sm:p-5"><InspectionForm serviceOrderId={order.id} disabled={workflowLocked} lockedReason="أمر الصيانة بحالة نهائية؛ يمكنك مراجعة الفحوصات السابقة لكن لا يمكن إضافة فحص جديد." /></div>
+        <div className="p-4 sm:p-5"><InspectionForm serviceOrderId={order.id} disabled={workflowLocked || !canUpdateOrder} lockedReason={!canUpdateOrder ? "حسابك يملك صلاحية العرض فقط ولا يمكنه إضافة فحص جديد." : "أمر الصيانة بحالة نهائية؛ يمكنك مراجعة الفحوصات السابقة لكن لا يمكن إضافة فحص جديد."} /></div>
         {inspections.length ? (
           <div className="border-t border-slate-100 p-4 sm:p-5">
             <h3 className="mb-4 text-sm font-black text-slate-800">الفحوصات السابقة</h3>
@@ -240,7 +252,7 @@ export default async function ServiceOrderPage({ params }: PageProps) {
           <div className="space-y-3 p-4">
             {laborLines.length ? laborLines.map((line) => <div key={line.id} className="rounded-xl border border-slate-100 p-3"><div className="flex items-start justify-between gap-3"><div className="font-bold text-slate-800">{line.description}</div><div className="shrink-0 font-black text-slate-950">{formatAutoMoney(line.lineTotal, auth.shop.currency)}</div></div><div className="mt-1 text-xs text-slate-500">{Number(line.quantity)} × {formatAutoMoney(line.unitPrice, auth.shop.currency)} • {line.status}</div></div>) : <div className="py-5 text-center text-sm font-bold text-slate-400">لا توجد أجور عمل بعد</div>}
           </div>
-          {serviceLinesLocked ? <LockedEditorNotice invoiced={invoiceLocked} /> : <form action={addServiceLaborLineAction} className="grid gap-3 border-t border-slate-100 bg-slate-50/60 p-4 sm:grid-cols-2">
+          {serviceLinesLocked ? <LockedEditorNotice message={editorLockMessage} /> : <form action={addServiceLaborLineAction} className="grid gap-3 border-t border-slate-100 bg-slate-50/60 p-4 sm:grid-cols-2">
             <input type="hidden" name="serviceOrderId" value={order.id} />
             <input name="description" required className={`${inputClass} sm:col-span-2`} placeholder="وصف العمل: تغيير زيت، فحص فرامل..." />
             <input name="quantity" type="number" min="0.01" step="0.01" defaultValue="1" className={inputClass} placeholder="الكمية" />
@@ -263,16 +275,17 @@ export default async function ServiceOrderPage({ params }: PageProps) {
               </div>;
             }) : <div className="py-5 text-center text-sm font-bold text-slate-400">لا توجد قطع مضافة بعد</div>}
           </div>
-          {serviceLinesLocked ? <LockedEditorNotice invoiced={invoiceLocked} /> : <form action={addServicePartLineAction} className="grid gap-3 border-t border-slate-100 bg-slate-50/60 p-4 sm:grid-cols-2">
+          {serviceLinesLocked ? <LockedEditorNotice message={editorLockMessage} /> : <form action={addServicePartLineAction} className="grid gap-3 border-t border-slate-100 bg-slate-50/60 p-4 sm:grid-cols-2">
             <input type="hidden" name="serviceOrderId" value={order.id} />
             <select name="inventorySelection" defaultValue="" className={`${inputClass} sm:col-span-2`}>
               <option value="">قطعة يدوية / غير مرتبطة بالمخزون</option>
-              {inventoryChoices.map((choice) => (
+              {canUseInventory ? inventoryChoices.map((choice) => (
                 <option key={`${choice.inventoryItemId}-${choice.warehouseId}`} value={`${choice.inventoryItemId}|${choice.warehouseId}`}>
                   {choice.itemName} — {choice.warehouseName} — متاح {choice.availableQuantity}
                 </option>
-              ))}
+              )) : null}
             </select>
+            {!canUseInventory ? <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-800 sm:col-span-2">يمكنك إضافة قطعة يدوية فقط؛ حسابك لا يملك صلاحية استخدام مخزون المستودعات.</div> : null}
             <input name="partName" className={`${inputClass} sm:col-span-2`} placeholder="اسم قطعة يدوية، أو اتركه فارغاً عند اختيار قطعة من المخزون" />
             <input name="quantity" type="number" min="1" step="1" defaultValue="1" className={inputClass} />
             <input name="unitPrice" type="number" min="0" step="0.01" className={inputClass} placeholder="سعر البيع (يؤخذ من المخزون إذا ترك فارغاً)" />
@@ -296,6 +309,6 @@ export default async function ServiceOrderPage({ params }: PageProps) {
   );
 }
 
-function LockedEditorNotice({ invoiced }: { invoiced: boolean }) {
-  return <div className="flex items-start gap-3 border-t border-slate-100 bg-slate-50/70 p-4 text-xs font-bold leading-6 text-slate-600"><LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" /><span>{invoiced ? "تم إصدار فاتورة لهذا الأمر، لذلك تم قفل إضافة وتعديل أجور العمل وقطع الغيار. قبل التسليم يمكن إلغاء الفاتورة وإعادة فتح العمل، وبعد التسليم استخدم الإشعار الدائن/التسوية المالية للتصحيح." : "أمر الصيانة بحالة نهائية؛ بنود العمل والقطع متاحة للعرض فقط."}</span></div>;
+function LockedEditorNotice({ message }: { message: string }) {
+  return <div className="flex items-start gap-3 border-t border-slate-100 bg-slate-50/70 p-4 text-xs font-bold leading-6 text-slate-600"><LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" /><span>{message}</span></div>;
 }
