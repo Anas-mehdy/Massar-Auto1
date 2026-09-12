@@ -70,6 +70,14 @@ const partStatusLabels: Record<string, string> = {
   CANCELLED: "ملغي",
 };
 
+const warrantyCoverageLabels: Record<string, string> = {
+  PENDING: "بانتظار قرار التغطية",
+  COVERED: "مغطاة بالكامل",
+  PARTIAL: "تغطية جزئية",
+  CUSTOMER_PAY: "على حساب العميل",
+  NOT_APPLICABLE: "غير منطبقة",
+};
+
 export default async function ServiceOrderPage({ params }: PageProps) {
   const auth = await requirePermission("service_orders:read");
   const { id } = await params;
@@ -114,6 +122,44 @@ export default async function ServiceOrderPage({ params }: PageProps) {
     && Boolean(laborLines.length || partLines.length);
   const canReturnParts = canUpdateOrder && canUseInventory;
   const fullyCoveredWarranty = warrantyFollowUpLink?.coverageDecision === "COVERED";
+  const partialWarranty = warrantyFollowUpLink?.coverageDecision === "PARTIAL";
+  const customerPayWarranty = warrantyFollowUpLink?.coverageDecision === "CUSTOMER_PAY";
+  const warrantyCoverageLabel = warrantyFollowUpLink
+    ? warrantyCoverageLabels[warrantyFollowUpLink.coverageDecision] ?? warrantyFollowUpLink.coverageDecision
+    : null;
+  const warrantyCustomerCharge = Number(warrantyFollowUpLink?.customerCharge ?? 0);
+
+  const invoiceSectionDescription = fullyCoveredWarranty
+    ? "أمر المتابعة مغطى بالكامل: ستُحفظ قيمة الأعمال والقطع مع خصم ضمان 100% وإجمالي مطلوب من العميل يساوي صفراً."
+    : partialWarranty
+      ? `تغطية جزئية: المبلغ النهائي على العميل ${formatAutoMoney(warrantyCustomerCharge, auth.shop.currency)} شامل الضريبة، ويظهر الجزء المغطى كخصم ضمان داخل الفاتورة.`
+      : customerPayWarranty
+        ? "قرار الضمان على حساب العميل: تصدر الفاتورة كاملة بشكل طبيعي بدون خصم تغطية ضمان."
+        : "بعد اكتمال الصيانة تُصدر فاتورة مرتبطة مباشرة بأمر الصيانة. يمكن تحصيلها الآن أو إبقاء الرصيد على الذمة.";
+
+  const invoiceReadyTitle = fullyCoveredWarranty
+    ? "جاهزة لفاتورة ضمان مغطاة بالكامل"
+    : partialWarranty
+      ? "جاهزة لفاتورة ضمان بتغطية جزئية"
+      : customerPayWarranty
+        ? "جاهزة لفوترة كاملة على العميل"
+        : "الصيانة جاهزة للفوترة";
+
+  const invoiceReadyDescription = fullyCoveredWarranty
+    ? "سيحفظ النظام القيمة الفعلية للأعمال والقطع كقيمة قبل الخصم، ثم يطبق خصم ضمان 100% بدون إنشاء دفعة وهمية أو ذمة على العميل."
+    : partialWarranty
+      ? `سيصدر النظام الفاتورة بإجمالي نهائي على العميل قدره ${formatAutoMoney(warrantyCustomerCharge, auth.shop.currency)} شامل الضريبة، ويُسجّل الجزء المغطى كخصم ضمان بدون إنشاء أي دفعة وهمية.`
+      : customerPayWarranty
+        ? "قرار المطالبة أن التكلفة على العميل؛ ستصدر فاتورة كاملة طبيعية بالقيمة التجارية المعتمدة بدون خصم ضمان."
+        : "سيتم احتساب أجور العمل والقطع الفعلية مع خصم وضريبة عرض السعر الموافق عليه.";
+
+  const invoiceButtonLabel = fullyCoveredWarranty
+    ? "إصدار فاتورة ضمان (0)"
+    : partialWarranty
+      ? `إصدار فاتورة الضمان — العميل ${formatAutoMoney(warrantyCustomerCharge, auth.shop.currency)}`
+      : customerPayWarranty
+        ? "إصدار فاتورة على العميل"
+        : "إصدار فاتورة الصيانة";
 
   return (
     <div className="space-y-6">
@@ -123,7 +169,7 @@ export default async function ServiceOrderPage({ params }: PageProps) {
         actions={<div className="flex flex-wrap gap-2"><Button asChild variant="outline" className="font-bold"><Link href="/service-orders"><ArrowRight className="ml-1.5 h-4 w-4" />الأوامر</Link></Button><Button asChild variant="outline" className="font-bold"><Link href={`/vehicles/${order.vehicleId}`}><Truck className="ml-1.5 h-4 w-4" />ملف المركبة</Link></Button></div>}
       />
 
-      {warrantyFollowUpLink ? <section className="rounded-2xl border border-cyan-200 bg-cyan-50/70 p-4 shadow-sm"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-cyan-700" /><div><div className="font-black text-cyan-950">أمر متابعة ضمان / عودة للصيانة</div><div className="mt-1 text-xs font-bold leading-6 text-cyan-800">هذا الأمر مرتبط بالمطالبة {warrantyFollowUpLink.claimNumber} وبالأمر الأصلي {warrantyFollowUpLink.originalOrderNumber}. التغطية: {warrantyFollowUpLink.coverageDecision}.</div></div></div><div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline" className="border-cyan-300 font-black text-cyan-800"><Link href={`/service-orders/${warrantyFollowUpLink.originalServiceOrderId}/warranty`}><ShieldCheck className="ml-1.5 h-4 w-4" />المطالبة</Link></Button><Button asChild size="sm" variant="outline" className="font-black"><Link href={`/service-orders/${warrantyFollowUpLink.originalServiceOrderId}`}>الأمر الأصلي</Link></Button></div></div></section> : null}
+      {warrantyFollowUpLink ? <section className="rounded-2xl border border-cyan-200 bg-cyan-50/70 p-4 shadow-sm"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-cyan-700" /><div><div className="font-black text-cyan-950">أمر متابعة ضمان / عودة للصيانة</div><div className="mt-1 text-xs font-bold leading-6 text-cyan-800">هذا الأمر مرتبط بالمطالبة {warrantyFollowUpLink.claimNumber} وبالأمر الأصلي {warrantyFollowUpLink.originalOrderNumber}. التغطية: {warrantyCoverageLabel}.{partialWarranty ? <> • النهائي على العميل: <span className="font-black">{formatAutoMoney(warrantyCustomerCharge, auth.shop.currency)}</span> شامل الضريبة.</> : null}{customerPayWarranty ? <> • الفوترة كاملة على العميل.</> : null}</div></div></div><div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline" className="border-cyan-300 font-black text-cyan-800"><Link href={`/service-orders/${warrantyFollowUpLink.originalServiceOrderId}/warranty`}><ShieldCheck className="ml-1.5 h-4 w-4" />المطالبة</Link></Button><Button asChild size="sm" variant="outline" className="font-black"><Link href={`/service-orders/${warrantyFollowUpLink.originalServiceOrderId}`}>الأمر الأصلي</Link></Button></div></div></section> : null}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -157,7 +203,7 @@ export default async function ServiceOrderPage({ params }: PageProps) {
         <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="flex items-center gap-2 font-black text-slate-950"><FileText className="h-4 w-4 text-emerald-700" />الفاتورة والدفع</h2>
-            <p className="mt-1 text-xs font-semibold text-slate-500">{fullyCoveredWarranty ? "أمر المتابعة مغطى بالكامل: ستُحفظ قيمة الأعمال والقطع مع خصم ضمان 100% وإجمالي مطلوب من العميل يساوي صفراً." : "بعد اكتمال الصيانة تُصدر فاتورة مرتبطة مباشرة بأمر الصيانة. يمكن تحصيلها الآن أو إبقاء الرصيد على الذمة."}</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500">{invoiceSectionDescription}</p>
           </div>
           {invoice ? <Button asChild className="font-black"><Link href={`/invoices/${invoice.id}`}>فتح الفاتورة</Link></Button> : null}
         </div>
@@ -166,14 +212,16 @@ export default async function ServiceOrderPage({ params }: PageProps) {
             <div className="grid gap-3 md:grid-cols-4">
               <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">رقم الفاتورة</div><div className="mt-1 font-black text-slate-900">{invoice.invoiceNumber}</div></div>
               <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">الحالة</div><div className="mt-1 font-black text-slate-900">{invoice.status}</div></div>
-              <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">الإجمالي الأصلي</div><div className="mt-1 font-black text-slate-900">{formatAutoMoney(invoice.total, auth.shop.currency)}</div></div>
+              <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">الإجمالي النهائي</div><div className="mt-1 font-black text-slate-900">{formatAutoMoney(invoice.total, auth.shop.currency)}</div></div>
               <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">المتبقي / الذمة</div><div className="mt-1 font-black text-amber-700">{formatAutoMoney(invoice.balanceDue, auth.shop.currency)}</div></div>
-            <>{fullyCoveredWarranty ? <div className="mt-3 rounded-xl border border-cyan-100 bg-cyan-50/50 p-3 text-xs font-bold leading-6 text-cyan-900">فاتورة ضمان: قيمة الأعمال والقطع {formatAutoMoney(invoice.subtotal, auth.shop.currency)} • خصم الضمان {formatAutoMoney(invoice.discountTotal, auth.shop.currency)} • المطلوب من العميل {formatAutoMoney(invoice.total, auth.shop.currency)}.</div> : null}</>
+              {fullyCoveredWarranty ? <div className="rounded-xl border border-cyan-100 bg-cyan-50/50 p-3 text-xs font-bold leading-6 text-cyan-900 md:col-span-4">فاتورة ضمان: قيمة الأعمال والقطع {formatAutoMoney(invoice.subtotal, auth.shop.currency)} • خصم الضمان {formatAutoMoney(invoice.discountTotal, auth.shop.currency)} • المطلوب من العميل {formatAutoMoney(invoice.total, auth.shop.currency)}.</div> : null}
+              {partialWarranty ? <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-xs font-bold leading-6 text-amber-900 md:col-span-4">فاتورة ضمان جزئي: القيمة التجارية قبل خصم الضمان {formatAutoMoney(invoice.subtotal, auth.shop.currency)} • خصم الضمان {formatAutoMoney(invoice.discountTotal, auth.shop.currency)} • الضريبة {formatAutoMoney(invoice.taxTotal, auth.shop.currency)} • النهائي على العميل {formatAutoMoney(invoice.total, auth.shop.currency)} شامل الضريبة.</div> : null}
+              {customerPayWarranty ? <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-bold leading-6 text-slate-700 md:col-span-4">مطالبة ضمان على حساب العميل: هذه فاتورة كاملة طبيعية ولا يوجد خصم تغطية ضمان.</div> : null}
             </div>
           ) : canIssueInvoice ? (
             <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div><div className="font-black text-emerald-950">{fullyCoveredWarranty ? "جاهزة لفاتورة ضمان مغطاة بالكامل" : "الصيانة جاهزة للفوترة"}</div><div className="mt-1 text-xs font-semibold text-emerald-800">{fullyCoveredWarranty ? "سيحفظ النظام القيمة الفعلية للأعمال والقطع كقيمة قبل الخصم، ثم يطبق خصم ضمان 100% بدون إنشاء دفعة وهمية أو ذمة على العميل." : "سيتم احتساب أجور العمل والقطع الفعلية مع خصم وضريبة عرض السعر الموافق عليه."}</div></div>
-              <form action={createServiceOrderInvoiceAction}><input type="hidden" name="serviceOrderId" value={order.id} /><Button type="submit" className="font-black">{fullyCoveredWarranty ? "إصدار فاتورة ضمان (0)" : "إصدار فاتورة الصيانة"}</Button></form>
+              <div><div className="font-black text-emerald-950">{invoiceReadyTitle}</div><div className="mt-1 text-xs font-semibold text-emerald-800">{invoiceReadyDescription}</div></div>
+              <form action={createServiceOrderInvoiceAction}><input type="hidden" name="serviceOrderId" value={order.id} /><Button type="submit" className="font-black">{invoiceButtonLabel}</Button></form>
             </div>
           ) : (
             <div className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-500">{["READY_FOR_DELIVERY", "DELIVERED", "CLOSED"].includes(order.status) && !canManageQuotes ? "الفاتورة غير موجودة، وحسابك لا يملك صلاحية إصدارها." : "ستتاح الفوترة عندما يصل أمر الصيانة إلى حالة «جاهزة للتسليم»."}</div>
