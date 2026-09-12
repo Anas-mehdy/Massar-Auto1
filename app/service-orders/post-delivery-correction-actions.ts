@@ -73,6 +73,7 @@ export async function createPostDeliveryPartCorrectionAction(formData: FormData)
     );
 
     revalidatePath(`/service-orders/${input.serviceOrderId}`);
+    revalidatePath(`/service-orders/${input.serviceOrderId}/corrections`);
     revalidatePath("/service-orders");
     revalidatePath("/vehicles");
     revalidatePath("/inventory");
@@ -81,10 +82,10 @@ export async function createPostDeliveryPartCorrectionAction(formData: FormData)
     revalidatePath("/invoices");
   } catch (error) {
     if (serviceOrderId && z.string().uuid().safeParse(serviceOrderId).success) {
-      redirect(`/service-orders/${serviceOrderId}?partCorrectionError=${encodeURIComponent(errorMessage(error))}`);
+      redirect(`/service-orders/${serviceOrderId}/corrections?partCorrectionError=${encodeURIComponent(errorMessage(error))}`);
     }
     throw error;
   }
 
-  redirect(`/service-orders/${serviceOrderId}?partCorrectionSuccess=1`);
+  redirect(`/service-orders/${serviceOrderId}/corrections?partCorrectionSuccess=1`);
 }
