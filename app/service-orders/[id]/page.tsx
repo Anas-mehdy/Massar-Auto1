@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, ClipboardCheck, FileText, Gauge, PackagePlus, Plus, RotateCcw, Truck, UserRound, Wrench } from "lucide-react";
+import { ArrowRight, ClipboardCheck, FileText, Gauge, LockKeyhole, PackagePlus, Plus, RotateCcw, Truck, UserRound, Wrench } from "lucide-react";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -85,11 +85,20 @@ export default async function ServiceOrderPage({ params }: PageProps) {
   const partLines = order.partLines as PartRow[];
   const quotations = order.quotations as QuoteRow[];
   const transitions = SERVICE_ORDER_ALLOWED_TRANSITIONS[order.status] ?? [];
+  const invoiceLocked = Boolean(invoice);
+  const visibleTransitions = invoiceLocked
+    ? transitions.filter((status) => ["READY_FOR_DELIVERY", "DELIVERED", "CLOSED"].includes(status))
+    : transitions;
   const partsTotal = partLines.filter((line) => !["CANCELLED", "RETURNED"].includes(line.status)).reduce((sum, line) => sum + Number(line.lineTotal || 0), 0);
   const laborTotal = laborLines.filter((line) => line.status !== "CANCELLED").reduce((sum, line) => sum + Number(line.lineTotal || 0), 0);
   const assignedTechnician = technicians.find((technician) => technician.userId === order.assignedToUserId) ?? null;
   const workflowLocked = ["DELIVERED", "CLOSED", "CANCELLED", "REJECTED"].includes(order.status);
-  const canIssueInvoice = ["READY_FOR_DELIVERY", "DELIVERED", "CLOSED"].includes(order.status);
+  const serviceLinesLocked = workflowLocked || invoiceLocked;
+  const canIssueInvoice = !invoiceLocked && ["READY_FOR_DELIVERY", "DELIVERED", "CLOSED"].includes(order.status);
+  const canCreateQuotation = !workflowLocked
+    && !invoiceLocked
+    && ["RECEIVED", "INSPECTING", "WAITING_CUSTOMER_APPROVAL"].includes(order.status)
+    && Boolean(laborLines.length || partLines.length);
   const canReturnParts = auth.permissions.includes("service_orders:update") && auth.permissions.includes("inventory:use_parts");
 
   return (
@@ -105,13 +114,14 @@ export default async function ServiceOrderPage({ params }: PageProps) {
           <div className="min-w-0 space-y-3">
             <div className="flex flex-wrap items-center gap-2"><span className={`rounded-full border px-3 py-1.5 text-xs font-black ${SERVICE_ORDER_STATUS_CLASSES[order.status]}`}>{SERVICE_ORDER_STATUS_LABELS[order.status]}</span><span className="text-xs font-bold text-slate-400">استلام: {formatAutoDate(order.receivedAt)}</span></div>
             <div className="text-sm font-semibold leading-7 text-slate-700">{order.reportedIssue}</div>
+            {invoiceLocked ? <div className="flex w-fit items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-[11px] font-black text-violet-800"><LockKeyhole className="h-3.5 w-3.5" />تم قفل البنود المالية بعد إصدار الفاتورة</div> : null}
           </div>
-          {transitions.length ? (
+          {visibleTransitions.length ? (
             <form action={updateServiceOrderStatusAction} className="flex w-full shrink-0 flex-col gap-2 rounded-xl bg-slate-50 p-3 sm:w-auto sm:min-w-[290px]">
               <input type="hidden" name="serviceOrderId" value={order.id} />
               <select name="status" required className={inputClass} defaultValue="">
                 <option value="" disabled>نقل إلى حالة...</option>
-                {transitions.map((status) => <option key={status} value={status}>{SERVICE_ORDER_STATUS_LABELS[status]}</option>)}
+                {visibleTransitions.map((status) => <option key={status} value={status}>{SERVICE_ORDER_STATUS_LABELS[status]}</option>)}
               </select>
               <input name="note" className={inputClass} placeholder="ملاحظة على تغيير الحالة (اختياري)" />
               <Button type="submit" className="h-10 font-black">تحديث الحالة</Button>
@@ -140,7 +150,7 @@ export default async function ServiceOrderPage({ params }: PageProps) {
             <div className="grid gap-3 md:grid-cols-4">
               <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">رقم الفاتورة</div><div className="mt-1 font-black text-slate-900">{invoice.invoiceNumber}</div></div>
               <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">الحالة</div><div className="mt-1 font-black text-slate-900">{invoice.status}</div></div>
-              <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">الإجمالي</div><div className="mt-1 font-black text-slate-900">{formatAutoMoney(invoice.total, auth.shop.currency)}</div></div>
+              <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">الإجمالي الأصلي</div><div className="mt-1 font-black text-slate-900">{formatAutoMoney(invoice.total, auth.shop.currency)}</div></div>
               <div className="rounded-xl bg-slate-50 p-3"><div className="text-[11px] font-black text-slate-400">المتبقي / الذمة</div><div className="mt-1 font-black text-amber-700">{formatAutoMoney(invoice.balanceDue, auth.shop.currency)}</div></div>
             </div>
           ) : canIssueInvoice ? (
@@ -193,7 +203,7 @@ export default async function ServiceOrderPage({ params }: PageProps) {
           <h2 className="flex items-center gap-2 font-black text-slate-950"><ClipboardCheck className="h-4 w-4 text-emerald-700" />الفحص الفني</h2>
           <p className="mt-1 text-xs font-semibold text-slate-500">سجّل الفحص الأولي أو النهائي ببنود واضحة تبقى محفوظة ضمن تاريخ أمر الصيانة.</p>
         </div>
-        <div className="p-4 sm:p-5"><InspectionForm serviceOrderId={order.id} /></div>
+        <div className="p-4 sm:p-5"><InspectionForm serviceOrderId={order.id} disabled={workflowLocked} lockedReason="أمر الصيانة بحالة نهائية؛ يمكنك مراجعة الفحوصات السابقة لكن لا يمكن إضافة فحص جديد." /></div>
         {inspections.length ? (
           <div className="border-t border-slate-100 p-4 sm:p-5">
             <h3 className="mb-4 text-sm font-black text-slate-800">الفحوصات السابقة</h3>
@@ -230,7 +240,7 @@ export default async function ServiceOrderPage({ params }: PageProps) {
           <div className="space-y-3 p-4">
             {laborLines.length ? laborLines.map((line) => <div key={line.id} className="rounded-xl border border-slate-100 p-3"><div className="flex items-start justify-between gap-3"><div className="font-bold text-slate-800">{line.description}</div><div className="shrink-0 font-black text-slate-950">{formatAutoMoney(line.lineTotal, auth.shop.currency)}</div></div><div className="mt-1 text-xs text-slate-500">{Number(line.quantity)} × {formatAutoMoney(line.unitPrice, auth.shop.currency)} • {line.status}</div></div>) : <div className="py-5 text-center text-sm font-bold text-slate-400">لا توجد أجور عمل بعد</div>}
           </div>
-          <form action={addServiceLaborLineAction} className="grid gap-3 border-t border-slate-100 bg-slate-50/60 p-4 sm:grid-cols-2">
+          {serviceLinesLocked ? <LockedEditorNotice invoiced={invoiceLocked} /> : <form action={addServiceLaborLineAction} className="grid gap-3 border-t border-slate-100 bg-slate-50/60 p-4 sm:grid-cols-2">
             <input type="hidden" name="serviceOrderId" value={order.id} />
             <input name="description" required className={`${inputClass} sm:col-span-2`} placeholder="وصف العمل: تغيير زيت، فحص فرامل..." />
             <input name="quantity" type="number" min="0.01" step="0.01" defaultValue="1" className={inputClass} placeholder="الكمية" />
@@ -238,14 +248,14 @@ export default async function ServiceOrderPage({ params }: PageProps) {
             <input name="hours" type="number" min="0" step="0.25" className={inputClass} placeholder="الساعات (اختياري)" />
             <input name="costAmount" type="number" min="0" step="0.01" className={inputClass} placeholder="تكلفة العمل (اختياري)" />
             <Button type="submit" className="font-black sm:col-span-2"><Plus className="ml-1 h-4 w-4" />إضافة أجرة عمل</Button>
-          </form>
+          </form>}
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 p-5"><h2 className="flex items-center gap-2 font-black text-slate-950"><PackagePlus className="h-4 w-4 text-amber-700" />قطع الغيار</h2></div>
           <div className="space-y-3 p-4">
             {partLines.length ? partLines.map((line) => {
-              const canReturnThisLine = canReturnParts && !workflowLocked && !invoice && line.status === "USED" && Boolean(line.inventoryItemId && line.warehouseId);
+              const canReturnThisLine = canReturnParts && !serviceLinesLocked && line.status === "USED" && Boolean(line.inventoryItemId && line.warehouseId);
               return <div key={line.id} className={`rounded-xl border p-3 ${line.status === "RETURNED" ? "border-slate-200 bg-slate-50/70" : "border-slate-100"}`}>
                 <div className="flex items-start justify-between gap-3"><div><div className="font-bold text-slate-800">{line.partName}</div>{line.warehouseName ? <div className="mt-1 text-[11px] font-bold text-slate-400">{line.warehouseName}{line.sku ? ` • SKU ${line.sku}` : ""}</div> : null}</div><div className={`shrink-0 font-black ${line.status === "RETURNED" ? "text-slate-400 line-through" : "text-slate-950"}`}>{formatAutoMoney(line.lineTotal, auth.shop.currency)}</div></div>
                 <div className="mt-1 text-xs text-slate-500">{line.quantity} × {formatAutoMoney(line.unitPrice, auth.shop.currency)} • <span className={line.status === "RETURNED" ? "font-black text-emerald-700" : ""}>{partStatusLabels[line.status] ?? line.status}</span></div>
@@ -253,7 +263,7 @@ export default async function ServiceOrderPage({ params }: PageProps) {
               </div>;
             }) : <div className="py-5 text-center text-sm font-bold text-slate-400">لا توجد قطع مضافة بعد</div>}
           </div>
-          <form action={addServicePartLineAction} className="grid gap-3 border-t border-slate-100 bg-slate-50/60 p-4 sm:grid-cols-2">
+          {serviceLinesLocked ? <LockedEditorNotice invoiced={invoiceLocked} /> : <form action={addServicePartLineAction} className="grid gap-3 border-t border-slate-100 bg-slate-50/60 p-4 sm:grid-cols-2">
             <input type="hidden" name="serviceOrderId" value={order.id} />
             <select name="inventorySelection" defaultValue="" className={`${inputClass} sm:col-span-2`}>
               <option value="">قطعة يدوية / غير مرتبطة بالمخزون</option>
@@ -269,12 +279,12 @@ export default async function ServiceOrderPage({ params }: PageProps) {
             <input name="unitCost" type="number" min="0" step="0.000001" className={inputClass} placeholder="التكلفة (تؤخذ من المستودع تلقائياً)" />
             <input name="notes" className={inputClass} placeholder="ملاحظة (اختياري)" />
             <Button type="submit" className="font-black sm:col-span-2"><Plus className="ml-1 h-4 w-4" />إضافة قطعة</Button>
-          </form>
+          </form>}
         </section>
       </div>
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="flex items-center gap-2 font-black text-slate-950"><FileText className="h-4 w-4 text-violet-700" />عروض الأسعار</h2><p className="mt-1 text-xs text-slate-500">كل نسخة من العرض تبقى محفوظة للمراجعة</p></div>{laborLines.length || partLines.length ? <form action={createQuotationAction} className="flex flex-wrap gap-2"><input type="hidden" name="serviceOrderId" value={order.id} /><input name="discountTotal" type="number" min="0" step="0.01" className="h-9 w-28 rounded-lg border border-slate-200 px-2 text-xs" placeholder="خصم" /><Button type="submit" size="sm" className="font-black">إنشاء عرض سعر</Button></form> : null}</div>
+        <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="flex items-center gap-2 font-black text-slate-950"><FileText className="h-4 w-4 text-violet-700" />عروض الأسعار</h2><p className="mt-1 text-xs text-slate-500">كل نسخة من العرض تبقى محفوظة للمراجعة</p></div>{canCreateQuotation ? <form action={createQuotationAction} className="flex flex-wrap gap-2"><input type="hidden" name="serviceOrderId" value={order.id} /><input name="discountTotal" type="number" min="0" step="0.01" className="h-9 w-28 rounded-lg border border-slate-200 px-2 text-xs" placeholder="خصم" /><Button type="submit" size="sm" className="font-black">إنشاء عرض سعر</Button></form> : null}</div>
         {quotations.length ? <div className="divide-y divide-slate-100">{quotations.map((quote) => <Link key={quote.id} href={`/quotations/${quote.id}`} className="flex items-center justify-between gap-3 p-4 transition hover:bg-slate-50 sm:p-5"><div><div className="font-black text-slate-950">{quote.quoteNumber} <span className="text-xs text-slate-400">نسخة {quote.revision}</span></div><div className="mt-1 text-xs font-bold text-slate-500">{quote.status} • {formatAutoDate(quote.createdAt)}</div></div><div className="font-black text-slate-950">{formatAutoMoney(quote.total, auth.shop.currency)}</div></Link>)}</div> : <div className="p-8 text-center text-sm font-bold text-slate-400">لم يتم إنشاء عرض سعر بعد.</div>}
       </section>
 
@@ -284,4 +294,8 @@ export default async function ServiceOrderPage({ params }: PageProps) {
       </section>
     </div>
   );
+}
+
+function LockedEditorNotice({ invoiced }: { invoiced: boolean }) {
+  return <div className="flex items-start gap-3 border-t border-slate-100 bg-slate-50/70 p-4 text-xs font-bold leading-6 text-slate-600"><LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" /><span>{invoiced ? "تم إصدار فاتورة لهذا الأمر، لذلك تم قفل إضافة وتعديل أجور العمل وقطع الغيار. قبل التسليم يمكن إلغاء الفاتورة وإعادة فتح العمل، وبعد التسليم استخدم الإشعار الدائن/التسوية المالية للتصحيح." : "أمر الصيانة بحالة نهائية؛ بنود العمل والقطع متاحة للعرض فقط."}</span></div>;
 }
