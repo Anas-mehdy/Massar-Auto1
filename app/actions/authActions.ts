@@ -5,6 +5,7 @@ import { COUNTRY_DIAL_CODES, PHONE_DIAL_CODES, validatePhoneForCountry } from "@
 import { CURRENCY_OPTIONS } from "@/lib/format";
 import { shouldEnterOnboarding } from "@/lib/onboarding/navigation";
 import { onboardingService } from "@/lib/services/onboardingService";
+import { getRequestFingerprint } from "@/lib/auth/requestFingerprint";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
@@ -27,8 +28,8 @@ export async function registerAction(formData: FormData) {
     return { success: false, error: "البريد الإلكتروني مطلوب وغير صحيح" };
   }
 
-  if (!password || password.length < 6) {
-    return { success: false, error: "كلمة المرور مطلوبة ويجب ألا تقل عن 6 أحرف" };
+  if (!password || password.length < 8) {
+    return { success: false, error: "كلمة المرور مطلوبة ويجب ألا تقل عن 8 أحرف" };
   }
 
   if (!shopName || shopName.length < 2) {
@@ -100,7 +101,7 @@ export async function loginAction(formData: FormData) {
       password,
     };
 
-    loginResult = await authService.loginUser(input);
+    loginResult = await authService.loginUser(input, await getRequestFingerprint());
   } catch (error) {
     return {
       success: false,
