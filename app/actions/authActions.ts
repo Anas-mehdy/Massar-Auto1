@@ -77,7 +77,7 @@ export async function registerAction(formData: FormData) {
       address,
     };
 
-    await authService.registerShop(input);
+    await authService.registerShop(input, await getRequestFingerprint());
   } catch (error) {
     return {
       success: false,
