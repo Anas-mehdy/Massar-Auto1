@@ -38,7 +38,7 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
     <div className="space-y-6">
       <PageHeader
         title="العملاء"
-        description="ملف سريع لكل عميل مع طلبات الصيانة والمبيعات والفواتير المرتبطة"
+        description="ملف سريع لكل عميل مع مركباته وأوامر الصيانة والمبيعات والفواتير المرتبطة"
         actions={canManage ? (
           <Button asChild className="rounded-xl font-black shadow-sm">
             <Link href="/customers/new">
@@ -69,7 +69,7 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
             <input
               className={`${inputClassName} pr-10`}
               name="search"
-              placeholder="ابحث باسم العميل، رقم الهاتف، الهاتف المنسق..."
+              placeholder="ابحث باسم العميل أو رقم الهاتف..."
               defaultValue={search}
             />
           </div>
@@ -90,7 +90,7 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
             </div>
             <p className="mt-4 text-sm font-extrabold text-slate-900">لا يوجد عملاء بعد.</p>
             <p className="mt-2 text-xs text-slate-600 max-w-sm leading-relaxed font-medium">
-              يمكنك إضافة عميل يدوياً الآن، ثم اختياره لاحقاً عند إنشاء طلب صيانة أو عملية بيع.
+              يمكنك إضافة عميل يدوياً الآن، ثم ربط مركباته وأوامر الصيانة به.
             </p>
             <div className="mt-5 flex flex-col justify-center gap-2.5 sm:flex-row">
               {canManage && (
@@ -99,7 +99,7 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
                 </Button>
               )}
               <Button asChild variant="outline" className="font-bold shadow-xs border-slate-300 rounded-xl px-5" size="sm">
-                <Link href="/repair-orders/new">طلب صيانة جديد</Link>
+                <Link href="/service-orders/new">أمر صيانة جديد</Link>
               </Button>
             </div>
           </div>
@@ -110,8 +110,8 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
                 <tr>
                   <th className="text-slate-800">الاسم الكامل</th>
                   <th className="text-slate-800">الهاتف</th>
-                  <th className="text-slate-800">الهاتف المنسق</th>
-                  <th className="text-center text-slate-800">طلبات الصيانة</th>
+                  <th className="text-center text-slate-800">المركبات</th>
+                  <th className="text-center text-slate-800">أوامر الصيانة</th>
                   <th className="text-center text-slate-800">المبيعات</th>
                   <th className="text-center text-slate-800">الفواتير</th>
                   <th className="text-slate-800">آخر تحديث</th>
@@ -123,8 +123,8 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
                   <tr key={customer.id} className="align-middle">
                     <td className="font-black text-slate-900">{customer.name}</td>
                     <td className="font-numeric text-slate-700 font-medium">{customer.phone ?? "-"}</td>
-                    <td className="font-numeric text-slate-700 font-medium">{customer.phoneNormalized ?? "-"}</td>
-                    <td className="text-center font-black font-numeric text-teal-700">{customer._count.repairOrders}</td>
+                    <td className="text-center font-black font-numeric text-sky-700">{customer._count.vehicles}</td>
+                    <td className="text-center font-black font-numeric text-teal-700">{customer._count.autoServiceOrders}</td>
                     <td className="text-center font-black font-numeric text-amber-700">{customer._count.sales}</td>
                     <td className="text-center font-black font-numeric text-slate-800">{customer._count.invoices}</td>
                     <td className="font-numeric text-slate-600 font-medium">{formatDateTime(customer.updatedAt)}</td>
