@@ -487,6 +487,17 @@ export async function updateServiceOrderStatus(
       await releaseServiceOrderReservationsInTx(tx, shopId, serviceOrderId);
     }
 
+    if (toStatus === "CANCELLED") {
+      await tx.quotation.updateMany({
+        where: {
+          shopId,
+          serviceOrderId,
+          status: { in: ["DRAFT", "SENT"] },
+        },
+        data: { status: "EXPIRED", updatedAt: new Date() },
+      });
+    }
+
     const updated = await tx.$queryRaw<Array<{ id: string; status: ServiceOrderStatus }>>`
       UPDATE "ServiceOrder"
       SET "status" = ${effectiveStatus},
