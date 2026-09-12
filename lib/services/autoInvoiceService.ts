@@ -101,8 +101,14 @@ export async function createInvoiceFromServiceOrder(
     const existing = await findActiveInvoiceTx(tx, shopId, serviceOrderId);
     if (existing) return existing;
 
-    const warrantyLinks = await tx.$queryRaw<Array<{ claimNumber: string; coverageDecision: string }>>`
-      SELECT "claimNumber", "coverageDecision"::text AS "coverageDecision"
+    const warrantyLinks = await tx.$queryRaw<Array<{
+      claimNumber: string;
+      coverageDecision: string;
+      customerCharge: number;
+    }>>`
+      SELECT "claimNumber",
+             "coverageDecision"::text AS "coverageDecision",
+             "customerCharge"::double precision AS "customerCharge"
       FROM "ServiceWarrantyClaim"
       WHERE "shopId" = ${shopId}::uuid
         AND "followUpServiceOrderId" = ${serviceOrderId}::uuid
@@ -111,6 +117,7 @@ export async function createInvoiceFromServiceOrder(
     `;
     const warrantyClaim = warrantyLinks[0] ?? null;
     const fullyCoveredWarranty = warrantyClaim?.coverageDecision === "COVERED";
+    const partialWarranty = warrantyClaim?.coverageDecision === "PARTIAL";
 
     await assertBusinessDateOpenTx(tx, shopId, new Date());
 
@@ -172,14 +179,53 @@ export async function createInvoiceFromServiceOrder(
       discountTotal = roundMoney(Number(quote.discountTotal || 0) * ratio);
       taxTotal = roundMoney(Number(quote.taxTotal || 0) * ratio);
     }
+
+    discountTotal = Math.min(discountTotal, subtotal);
+    const commercialDiscountTotal = discountTotal;
+    const commercialTaxTotal = taxTotal;
+    const commercialTotal = roundMoney(Math.max(0, subtotal - commercialDiscountTotal + commercialTaxTotal));
+
     if (fullyCoveredWarranty) {
-      // Preserve the commercial value of the work/parts in subtotal while keeping customer revenue/receivable at zero.
+      // Keep the real commercial value in subtotal, while warranty coverage removes the entire customer receivable.
       discountTotal = subtotal;
       taxTotal = 0;
-    } else {
-      discountTotal = Math.min(discountTotal, subtotal);
+    } else if (partialWarranty) {
+      // customerCharge is the exact final amount payable by the customer, inclusive of tax.
+      // The current quotation model stores an absolute tax amount (not a tax rate), so allocate tax proportionally
+      // from the commercial total and express the workshop-covered portion through the invoice discount bucket.
+      const customerCharge = roundMoney(Number(warrantyClaim?.customerCharge ?? 0));
+      if (customerCharge <= 0) {
+        throw new Error("التغطية الجزئية تتطلب مبلغاً نهائياً أكبر من صفر على العميل.");
+      }
+      if (commercialTotal <= 0) {
+        throw new Error("لا يمكن تطبيق تغطية جزئية على قيمة تجارية صفرية.");
+      }
+      if (customerCharge > commercialTotal) {
+        throw new Error(`مبلغ العميل في المطالبة ${warrantyClaim?.claimNumber ?? ""} يتجاوز القيمة التجارية المستحقة.`);
+      }
+
+      const proportionalTax = commercialTaxTotal > 0
+        ? roundMoney((customerCharge * commercialTaxTotal) / commercialTotal)
+        : 0;
+      const customerNet = roundMoney(customerCharge - proportionalTax);
+      discountTotal = roundMoney(subtotal - customerNet);
+      if (discountTotal < 0 || discountTotal > subtotal) {
+        throw new Error("تعذر توزيع التغطية الجزئية على الفاتورة بشكل محاسبي صحيح.");
+      }
+      // Recalculate the tax remainder from the exact gross customer charge so rounding can never change the agreed total.
+      taxTotal = roundMoney(customerCharge - (subtotal - discountTotal));
+      if (taxTotal < 0) {
+        throw new Error("تعذر حساب ضريبة التغطية الجزئية بشكل صحيح.");
+      }
     }
+
     const total = roundMoney(Math.max(0, subtotal - discountTotal + taxTotal));
+    if (partialWarranty) {
+      const customerCharge = roundMoney(Number(warrantyClaim?.customerCharge ?? 0));
+      if (total !== customerCharge) {
+        throw new Error("إجمالي فاتورة التغطية الجزئية لا يطابق المبلغ النهائي المتفق عليه مع العميل.");
+      }
+    }
     if (total < 0 || (!fullyCoveredWarranty && total <= 0)) {
       throw new Error("إجمالي فاتورة الصيانة يجب أن يكون أكبر من صفر.");
     }
