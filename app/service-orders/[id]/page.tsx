@@ -16,6 +16,7 @@ import { autoServiceOrderService } from "@/lib/services/autoServiceOrderService"
 import { serviceInspectionService } from "@/lib/services/serviceInspectionService";
 import { serviceOrderWorkflowService } from "@/lib/services/serviceOrderWorkflowService";
 import { servicePartInventoryService } from "@/lib/services/servicePartInventoryService";
+import { serviceWarrantyLinkService } from "@/lib/services/serviceWarrantyLinkService";
 import { InspectionForm } from "../_inspection-form";
 import {
   addServiceLaborLineAction,
@@ -72,12 +73,13 @@ const partStatusLabels: Record<string, string> = {
 export default async function ServiceOrderPage({ params }: PageProps) {
   const auth = await requirePermission("service_orders:read");
   const { id } = await params;
-  const [order, inspections, inventoryChoices, technicians, invoice] = await Promise.all([
+  const [order, inspections, inventoryChoices, technicians, invoice, warrantyFollowUpLink] = await Promise.all([
     autoServiceOrderService.getServiceOrderById(auth.shop.id, id),
     serviceInspectionService.listServiceInspections(auth.shop.id, id),
     servicePartInventoryService.listServicePartInventoryChoices(auth.shop.id),
     serviceOrderWorkflowService.listAssignableTechnicians(auth.shop.id),
     autoInvoiceService.getServiceOrderInvoice(auth.shop.id, id),
+    serviceWarrantyLinkService.getWarrantyFollowUpLink(auth.shop.id, id),
   ]);
   if (!order) notFound();
 
@@ -119,6 +121,8 @@ export default async function ServiceOrderPage({ params }: PageProps) {
         description={`${order.vehicleMake} ${order.vehicleModel}${order.vehicleYear ? ` • ${order.vehicleYear}` : ""} — ${order.customerName}`}
         actions={<div className="flex flex-wrap gap-2"><Button asChild variant="outline" className="font-bold"><Link href="/service-orders"><ArrowRight className="ml-1.5 h-4 w-4" />الأوامر</Link></Button><Button asChild variant="outline" className="font-bold"><Link href={`/vehicles/${order.vehicleId}`}><Truck className="ml-1.5 h-4 w-4" />ملف المركبة</Link></Button></div>}
       />
+
+      {warrantyFollowUpLink ? <section className="rounded-2xl border border-cyan-200 bg-cyan-50/70 p-4 shadow-sm"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-cyan-700" /><div><div className="font-black text-cyan-950">أمر متابعة ضمان / عودة للصيانة</div><div className="mt-1 text-xs font-bold leading-6 text-cyan-800">هذا الأمر مرتبط بالمطالبة {warrantyFollowUpLink.claimNumber} وبالأمر الأصلي {warrantyFollowUpLink.originalOrderNumber}. التغطية: {warrantyFollowUpLink.coverageDecision}.</div></div></div><div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline" className="border-cyan-300 font-black text-cyan-800"><Link href={`/service-orders/${warrantyFollowUpLink.originalServiceOrderId}/warranty`}><ShieldCheck className="ml-1.5 h-4 w-4" />المطالبة</Link></Button><Button asChild size="sm" variant="outline" className="font-black"><Link href={`/service-orders/${warrantyFollowUpLink.originalServiceOrderId}`}>الأمر الأصلي</Link></Button></div></div></section> : null}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
