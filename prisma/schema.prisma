@@ -182,6 +182,8 @@ model Shop {
   autoServiceInspections    ServiceInspection[] @relation("AutoServiceInspectionShop")
   autoServiceInspectionItems ServiceInspectionItem[] @relation("AutoServiceInspectionItemShop")
   autoServiceLaborLines ServiceLaborLine[] @relation("AutoServiceLaborShop")
+  autoServicePartLines  ServicePartLine[] @relation("AutoServicePartShop")
+  warehouses            Warehouse[] @relation("AutoWarehouseShop")
   repairOrderItems          RepairOrderItem[]
   repairStatusHistories     RepairStatusHistory[]
   repairAssignmentHistories RepairOrderAssignmentHistory[]
@@ -879,6 +881,7 @@ model ServiceOrder {
   statusHistory  ServiceOrderStatusHistory[] @relation("AutoServiceOrderHistoryOrder")
   inspections    ServiceInspection[] @relation("AutoServiceInspectionOrder")
   laborLines     ServiceLaborLine[] @relation("AutoServiceLaborOrder")
+  partLines      ServicePartLine[] @relation("AutoServicePartOrder")
 
   @@unique([shopId, orderNumber], map: "ServiceOrder_shop_order_number_key")
   @@unique([shopId, id], map: "ServiceOrder_shop_id_key")
@@ -972,6 +975,54 @@ model ServiceLaborLine {
   @@unique([shopId, id], map: "ServiceLaborLine_shop_id_key")
   @@index([shopId, serviceOrderId, sortOrder], map: "ServiceLaborLine_order_idx")
   @@index([shopId, technicianUserId, status], map: "ServiceLaborLine_technician_idx")
+}
+
+
+model Warehouse {
+  id        String    @id @default(uuid()) @db.Uuid
+  shopId    String    @db.Uuid
+  code      String?   @db.VarChar(40)
+  name      String    @db.Text
+  location  String?   @db.Text
+  isDefault Boolean   @default(false)
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @db.Timestamptz(6)
+  deletedAt DateTime? @db.Timestamptz(6)
+
+  shop             Shop              @relation("AutoWarehouseShop", fields: [shopId], references: [id], onDelete: Cascade, map: "Warehouse_shopId_fkey")
+  servicePartLines ServicePartLine[] @relation("AutoServicePartWarehouse")
+
+  @@unique([shopId, id], map: "Warehouse_shop_id_key")
+  @@index([shopId, isActive, createdAt], map: "Warehouse_shop_active_idx")
+}
+
+model ServicePartLine {
+  id              String    @id @default(uuid()) @db.Uuid
+  shopId          String    @db.Uuid
+  serviceOrderId  String    @db.Uuid
+  inventoryItemId String?   @db.Uuid
+  partName        String    @db.Text
+  quantity        Int       @default(1)
+  unitCost        Decimal?  @db.Decimal(18, 6)
+  unitPrice       Decimal   @default(0) @db.Decimal(14, 2)
+  lineTotal       Decimal   @default(0) @db.Decimal(14, 2)
+  status          String    @default("PLANNED") @db.VarChar(16)
+  notes           String?   @db.Text
+  sortOrder       Int       @default(0)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @db.Timestamptz(6)
+  warehouseId     String?   @db.Uuid
+
+  shop          Shop           @relation("AutoServicePartShop", fields: [shopId], references: [id], onDelete: Cascade, map: "ServicePartLine_shopId_fkey")
+  serviceOrder  ServiceOrder   @relation("AutoServicePartOrder", fields: [shopId, serviceOrderId], references: [shopId, id], onDelete: Cascade, map: "ServicePartLine_order_shop_fkey")
+  inventoryItem InventoryItem? @relation("AutoServicePartInventoryItem", fields: [inventoryItemId], references: [id], onDelete: SetNull, map: "ServicePartLine_inventoryItemId_fkey")
+  warehouse     Warehouse?     @relation("AutoServicePartWarehouse", fields: [shopId, warehouseId], references: [shopId, id], onDelete: Restrict, map: "ServicePartLine_warehouse_shop_fkey")
+
+  @@unique([shopId, id], map: "ServicePartLine_shop_id_key")
+  @@index([shopId, serviceOrderId, sortOrder], map: "ServicePartLine_order_idx")
+  @@index([shopId, inventoryItemId], map: "ServicePartLine_inventory_idx")
+  @@index([warehouseId], map: "ServicePartLine_warehouse_idx")
 }
 
 model RepairOrder {
@@ -1131,6 +1182,7 @@ model InventoryItem {
   saleItems               SaleItem[]
   repairOrderItems        RepairOrderItem[]
   compatibilityGroupLinks InventoryCompatibilityGroup[]
+  autoServicePartLines     ServicePartLine[] @relation("AutoServicePartInventoryItem")
 
   @@unique([shopId, clientGeneratedId])
   @@index([shopId, sku])

@@ -358,16 +358,40 @@ export async function getServiceOrderById(shopId: string, serviceOrderId: string
       costAmount: row.costAmount == null ? null : Number(row.costAmount),
       lineTotal: Number(row.lineTotal),
     }))),
-    prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT spl.*, w."name" AS "warehouseName", i."sku", i."barcode"
-      FROM "ServicePartLine" spl
-      LEFT JOIN "Warehouse" w
-        ON w."id" = spl."warehouseId" AND w."shopId" = spl."shopId"
-      LEFT JOIN "InventoryItem" i
-        ON i."id" = spl."inventoryItemId" AND i."shopId" = spl."shopId"
-      WHERE spl."shopId" = ${shopId}::uuid AND spl."serviceOrderId" = ${serviceOrderId}::uuid
-      ORDER BY spl."sortOrder", spl."createdAt"
-    `,
+    prisma.servicePartLine.findMany({
+      where: { shopId, serviceOrderId },
+      select: {
+        id: true,
+        shopId: true,
+        serviceOrderId: true,
+        inventoryItemId: true,
+        partName: true,
+        quantity: true,
+        unitCost: true,
+        unitPrice: true,
+        lineTotal: true,
+        status: true,
+        notes: true,
+        sortOrder: true,
+        createdAt: true,
+        updatedAt: true,
+        warehouseId: true,
+        warehouse: { select: { name: true } },
+        inventoryItem: { select: { shopId: true, sku: true, barcode: true } },
+      },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    }).then((rows) => rows.map(({ warehouse, inventoryItem, ...line }) => {
+      const sameShopInventory = inventoryItem?.shopId === line.shopId ? inventoryItem : null;
+      return {
+        ...line,
+        unitCost: line.unitCost == null ? null : Number(line.unitCost),
+        unitPrice: Number(line.unitPrice),
+        lineTotal: Number(line.lineTotal),
+        warehouseName: warehouse?.name ?? null,
+        sku: sameShopInventory?.sku ?? null,
+        barcode: sameShopInventory?.barcode ?? null,
+      };
+    })),
     prisma.$queryRaw<Array<Record<string, unknown>>>`
       SELECT * FROM "Quotation"
       WHERE "shopId" = ${shopId}::uuid AND "serviceOrderId" = ${serviceOrderId}::uuid
