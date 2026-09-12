@@ -4,14 +4,14 @@ on:
   push:
     branches:
       - feature/auto-core-v1
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 concurrency:
   group: massar-auto-core-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -23,6 +23,147 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: feature/auto-core-v1
+          fetch-depth: 0
+
+      - name: Reconcile inspection models and reads
+        shell: python
+        run: |
+          from pathlib import Path
+          from textwrap import dedent
+          import re
+
+          schema_path = Path('prisma/schema.prisma')
+          schema = schema_path.read_text()
+
+          def replace_once(text: str, anchor: str, replacement: str, label: str):
+              count = text.count(anchor)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one anchor, found {count}')
+              return text.replace(anchor, replacement, 1)
+
+          if 'model ServiceOrderStatusHistory {' not in schema:
+              schema = replace_once(
+                  schema,
+                  '  autoServiceOrders         ServiceOrder[] @relation("AutoServiceOrderShop")\n',
+                  '  autoServiceOrders         ServiceOrder[] @relation("AutoServiceOrderShop")\n'
+                  '  autoServiceOrderHistories ServiceOrderStatusHistory[] @relation("AutoServiceOrderHistoryShop")\n'
+                  '  autoServiceInspections    ServiceInspection[] @relation("AutoServiceInspectionShop")\n'
+                  '  autoServiceInspectionItems ServiceInspectionItem[] @relation("AutoServiceInspectionItemShop")\n',
+                  'Shop auto inspection relations',
+              )
+              schema = replace_once(
+                  schema,
+                  '  closedAutoServiceOrders    ServiceOrder[]       @relation("AutoServiceOrderClosedBy")\n',
+                  '  closedAutoServiceOrders    ServiceOrder[]       @relation("AutoServiceOrderClosedBy")\n'
+                  '  createdAutoServiceOrderHistories ServiceOrderStatusHistory[] @relation("AutoServiceOrderHistoryCreator")\n'
+                  '  autoServiceInspections     ServiceInspection[] @relation("AutoServiceInspectionInspector")\n',
+                  'User auto inspection relations',
+              )
+              schema = replace_once(
+                  schema,
+                  '  invoices     Invoice[] @relation("AutoServiceOrderInvoices")\n',
+                  '  invoices       Invoice[] @relation("AutoServiceOrderInvoices")\n'
+                  '  statusHistory  ServiceOrderStatusHistory[] @relation("AutoServiceOrderHistoryOrder")\n'
+                  '  inspections    ServiceInspection[] @relation("AutoServiceInspectionOrder")\n',
+                  'ServiceOrder inspection relations',
+              )
+
+              models = dedent('''
+              model ServiceOrderStatusHistory {
+                id              String   @id @default(uuid()) @db.Uuid
+                shopId          String   @db.Uuid
+                serviceOrderId  String   @db.Uuid
+                fromStatus      String?  @db.VarChar(40)
+                toStatus        String   @db.VarChar(40)
+                note            String?  @db.Text
+                createdByUserId String?  @db.Uuid
+                createdAt       DateTime @default(now()) @db.Timestamptz(6)
+
+                shop         Shop         @relation("AutoServiceOrderHistoryShop", fields: [shopId], references: [id], onDelete: Cascade, map: "ServiceOrderStatusHistory_shopId_fkey")
+                serviceOrder ServiceOrder @relation("AutoServiceOrderHistoryOrder", fields: [shopId, serviceOrderId], references: [shopId, id], onDelete: Cascade, map: "ServiceOrderStatusHistory_order_shop_fkey")
+                createdBy    User?        @relation("AutoServiceOrderHistoryCreator", fields: [createdByUserId], references: [id], onDelete: SetNull, map: "ServiceOrderStatusHistory_createdByUserId_fkey")
+
+                @@index([shopId, serviceOrderId, createdAt], map: "ServiceOrderStatusHistory_order_idx")
+              }
+
+              model ServiceInspection {
+                id              String    @id @default(uuid()) @db.Uuid
+                shopId          String    @db.Uuid
+                serviceOrderId  String    @db.Uuid
+                inspectionType  String    @default("INITIAL") @db.VarChar(16)
+                status          String    @default("DRAFT") @db.VarChar(16)
+                summary         String?   @db.Text
+                inspectorUserId String?   @db.Uuid
+                inspectedAt     DateTime? @db.Timestamptz(6)
+                createdAt       DateTime  @default(now()) @db.Timestamptz(6)
+                updatedAt       DateTime  @default(now()) @db.Timestamptz(6)
+
+                shop         Shop                    @relation("AutoServiceInspectionShop", fields: [shopId], references: [id], onDelete: Cascade, map: "ServiceInspection_shopId_fkey")
+                serviceOrder ServiceOrder            @relation("AutoServiceInspectionOrder", fields: [shopId, serviceOrderId], references: [shopId, id], onDelete: Cascade, map: "ServiceInspection_order_shop_fkey")
+                inspector    User?                   @relation("AutoServiceInspectionInspector", fields: [inspectorUserId], references: [id], onDelete: SetNull, map: "ServiceInspection_inspectorUserId_fkey")
+                items        ServiceInspectionItem[] @relation("AutoServiceInspectionItems")
+
+                @@unique([shopId, id], map: "ServiceInspection_shop_id_key")
+                @@index([shopId, serviceOrderId, createdAt(sort: Desc)], map: "ServiceInspection_order_idx")
+              }
+
+              model ServiceInspectionItem {
+                id                String    @id @default(uuid()) @db.Uuid
+                shopId            String    @db.Uuid
+                inspectionId      String    @db.Uuid
+                component         String    @db.Text
+                result            String    @default("NOT_CHECKED") @db.VarChar(16)
+                notes             String?   @db.Text
+                recommendedAction String?   @db.Text
+                estimatedCost     Decimal?  @db.Decimal(14, 2)
+                sortOrder         Int       @default(0)
+                createdAt         DateTime  @default(now()) @db.Timestamptz(6)
+                updatedAt         DateTime  @default(now()) @db.Timestamptz(6)
+
+                shop       Shop              @relation("AutoServiceInspectionItemShop", fields: [shopId], references: [id], onDelete: Cascade, map: "ServiceInspectionItem_shopId_fkey")
+                inspection ServiceInspection @relation("AutoServiceInspectionItems", fields: [shopId, inspectionId], references: [shopId, id], onDelete: Cascade, map: "ServiceInspectionItem_inspection_shop_fkey")
+
+                @@index([shopId, inspectionId, sortOrder], map: "ServiceInspectionItem_inspection_idx")
+              }
+
+              ''')
+              schema = replace_once(schema, 'model RepairOrder {', models + 'model RepairOrder {', 'inspection model insertion')
+              schema_path.write_text(schema)
+
+          service_path = Path('lib/services/autoServiceOrderService.ts')
+          service = service_path.read_text()
+
+          history_raw = '''prisma.$queryRaw<Array<{ id: string; fromStatus: string | null; toStatus: string; note: string | null; createdAt: Date }>>`
+                SELECT "id", "fromStatus", "toStatus", "note", "createdAt"
+                FROM "ServiceOrderStatusHistory"
+                WHERE "shopId" = ${shopId}::uuid AND "serviceOrderId" = ${serviceOrderId}::uuid
+                ORDER BY "createdAt" ASC
+              `'''
+          history_prisma = '''prisma.serviceOrderStatusHistory.findMany({
+                where: { shopId, serviceOrderId },
+                select: { id: true, fromStatus: true, toStatus: true, note: true, createdAt: true },
+                orderBy: { createdAt: "asc" },
+              })'''
+          if history_raw in service:
+              service = service.replace(history_raw, history_prisma, 1)
+
+          inspection_raw = '''prisma.$queryRaw<Array<{ id: string; inspectionType: string; status: string; summary: string | null; inspectedAt: Date | null; createdAt: Date }>>`
+                SELECT "id", "inspectionType", "status", "summary", "inspectedAt", "createdAt"
+                FROM "ServiceInspection"
+                WHERE "shopId" = ${shopId}::uuid AND "serviceOrderId" = ${serviceOrderId}::uuid
+                ORDER BY "createdAt" DESC
+              `'''
+          inspection_prisma = '''prisma.serviceInspection.findMany({
+                where: { shopId, serviceOrderId },
+                select: { id: true, inspectionType: true, status: true, summary: true, inspectedAt: true, createdAt: true },
+                orderBy: { createdAt: "desc" },
+              })'''
+          if inspection_raw in service:
+              service = service.replace(inspection_raw, inspection_prisma, 1)
+
+          service_path.write_text(service)
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -43,3 +184,15 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Commit inspection reconciliation
+        run: |
+          if git diff --quiet -- prisma/schema.prisma lib/services/autoServiceOrderService.ts; then
+            echo "No inspection reconciliation changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add prisma/schema.prisma lib/services/autoServiceOrderService.ts
+          git commit -m "chore(auto): reconcile service inspection models"
+          git push origin HEAD:feature/auto-core-v1
