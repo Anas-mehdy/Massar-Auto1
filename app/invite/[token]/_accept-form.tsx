@@ -9,10 +9,12 @@ export function AcceptInvitationForm({
   token,
   email,
   defaultName = "",
+  existingAccount = false,
 }: {
   token: string;
   email: string;
   defaultName?: string;
+  existingAccount?: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -42,7 +44,6 @@ export function AcceptInvitationForm({
         </div>
       ) : null}
 
-      {/* Email (Read-Only) */}
       <div>
         <label className="block text-xs font-bold text-slate-400 mb-1.5">
           البريد الإلكتروني المدعو
@@ -56,46 +57,54 @@ export function AcceptInvitationForm({
         />
       </div>
 
-      {/* Full Name */}
-      <div>
-        <label className="block text-xs font-bold text-slate-300 mb-1.5">
-          الاسم الكامل
-        </label>
-        <div className="relative">
-          <input
-            type="text"
-            name="name"
-            required
-            defaultValue={defaultName}
-            disabled={isPending}
-            placeholder="أدخل اسمك الكريم"
-            className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs font-bold text-white placeholder:text-slate-600 focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
-          />
-          <User className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+      {!existingAccount ? (
+        <div>
+          <label className="block text-xs font-bold text-slate-300 mb-1.5">
+            الاسم الكامل
+          </label>
+          <div className="relative">
+            <input
+              type="text"
+              name="name"
+              required
+              defaultValue={defaultName}
+              disabled={isPending}
+              placeholder="أدخل اسمك الكريم"
+              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs font-bold text-white placeholder:text-slate-600 focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+            />
+            <User className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+          </div>
         </div>
-      </div>
+      ) : (
+        <input type="hidden" name="name" value={defaultName} />
+      )}
 
-      {/* Password */}
       <div>
         <label className="block text-xs font-bold text-slate-300 mb-1.5">
-          تعيين كلمة المرور
+          {existingAccount ? "كلمة مرور حسابك الحالية" : "إنشاء كلمة مرور"}
         </label>
         <div className="relative">
           <input
             type="password"
             name="password"
             required
-            minLength={6}
+            minLength={existingAccount ? 1 : 8}
+            maxLength={128}
+            autoComplete={existingAccount ? "current-password" : "new-password"}
             disabled={isPending}
-            placeholder="6 أحرف على الأقل"
+            placeholder={existingAccount ? "أدخل كلمة مرور حسابك الحالية" : "8 أحرف على الأقل"}
             dir="ltr"
             className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-xs font-bold text-white placeholder:text-slate-600 focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 font-numeric"
           />
           <Lock className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
         </div>
+        <p className="mt-1.5 text-[10px] font-semibold leading-5 text-slate-500">
+          {existingAccount
+            ? "هذا البريد مرتبط بحساب مسار موجود. لن يتم تغيير كلمة مرورك؛ نتحقق منها فقط لإثبات ملكية الحساب قبل إضافة العضوية الجديدة."
+            : "سيتم إنشاء حسابك بهذه الكلمة. استخدم 8 أحرف على الأقل."}
+        </p>
       </div>
 
-      {/* Submit Button */}
       <Button
         type="submit"
         disabled={isPending}
@@ -104,12 +113,12 @@ export function AcceptInvitationForm({
         {isPending ? (
           <>
             <Loader2 className="h-4 w-4 ml-1.5 animate-spin" />
-            جاري التفعيل والدخول...
+            جاري التحقق وتفعيل العضوية...
           </>
         ) : (
           <>
             <ShieldCheck className="h-4 w-4 ml-1.5" />
-            قبول الدعوة وتفعيل الحساب
+            قبول الدعوة والانضمام
           </>
         )}
       </Button>
