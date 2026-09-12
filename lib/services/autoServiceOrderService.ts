@@ -392,16 +392,20 @@ export async function getServiceOrderById(shopId: string, serviceOrderId: string
         barcode: sameShopInventory?.barcode ?? null,
       };
     })),
-    prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT * FROM "Quotation"
-      WHERE "shopId" = ${shopId}::uuid AND "serviceOrderId" = ${serviceOrderId}::uuid
-      ORDER BY "revision" DESC
-    `,
-    prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT * FROM "CustomerApproval"
-      WHERE "shopId" = ${shopId}::uuid AND "serviceOrderId" = ${serviceOrderId}::uuid
-      ORDER BY "decidedAt" DESC
-    `,
+    prisma.quotation.findMany({
+      where: { shopId, serviceOrderId },
+      orderBy: { revision: "desc" },
+    }).then((rows) => rows.map((row) => ({
+      ...row,
+      subtotal: Number(row.subtotal),
+      discountTotal: Number(row.discountTotal),
+      taxTotal: Number(row.taxTotal),
+      total: Number(row.total),
+    }))),
+    prisma.customerApproval.findMany({
+      where: { shopId, serviceOrderId },
+      orderBy: { decidedAt: "desc" },
+    }),
   ]);
 
   return { ...order, history, inspections, laborLines, partLines, quotations, approvals };
