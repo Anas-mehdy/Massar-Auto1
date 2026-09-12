@@ -136,6 +136,7 @@ const followUpSchema = z.object({
 export async function createWarrantyFollowUpOrderAction(formData: FormData) {
   const rawOrderId = readString(formData, "serviceOrderId");
   let serviceOrderId = rawOrderId;
+  let followUpServiceOrderId: string | null = null;
   try {
     const input = followUpSchema.parse({
       serviceOrderId: rawOrderId,
@@ -150,13 +151,15 @@ export async function createWarrantyFollowUpOrderAction(formData: FormData) {
       odometerAtIntake: optionalNumber(input.odometerAtIntake),
       receptionNotes: input.receptionNotes || null,
     });
+    followUpServiceOrderId = followUp.serviceOrderId;
     revalidateWarrantyPaths(input.serviceOrderId);
     revalidatePath(`/service-orders/${followUp.serviceOrderId}`);
-    redirect(`/service-orders/${followUp.serviceOrderId}`);
   } catch (error) {
     if (z.string().uuid().safeParse(serviceOrderId).success) redirect(claimUrl(serviceOrderId, "warrantyError", errorMessage(error)));
     throw error;
   }
+  if (!followUpServiceOrderId) redirect(claimUrl(serviceOrderId, "warrantyError", "تعذر تحديد أمر المتابعة الجديد."));
+  redirect(`/service-orders/${followUpServiceOrderId}`);
 }
 
 const resolveSchema = z.object({
