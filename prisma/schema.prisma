@@ -1064,6 +1064,7 @@ model Invoice {
   shopId            String        @db.Uuid
   customerId        String?       @db.Uuid
   repairOrderId     String?       @db.Uuid
+  serviceOrderId    String?       @db.Uuid
   saleId            String?       @db.Uuid
   createdByUserId   String?       @db.Uuid
   clientGeneratedId String?
@@ -1097,6 +1098,7 @@ model Invoice {
   @@index([shopId, type])
   @@index([shopId, customerId])
   @@index([shopId, repairOrderId])
+  @@index([shopId, serviceOrderId])
   @@index([shopId, saleId])
   @@index([shopId, createdByUserId])
   @@index([shopId, issuedAt])
