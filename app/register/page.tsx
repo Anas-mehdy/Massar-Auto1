@@ -158,8 +158,8 @@ export default function RegisterPage() {
                     type="password"
                     name="password"
                     required
-                    minLength={6}
-                    placeholder="لا تقل عن 6 خانات"
+                    minLength={8}
+                    placeholder="لا تقل عن 8 خانات"
                     className="w-full rounded-xl border border-slate-800 bg-slate-950/60 py-2.5 pr-9 pl-3 text-sm text-white placeholder-slate-600 focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 transition"
                   />
                 </div>
