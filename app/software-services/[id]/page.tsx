@@ -19,6 +19,8 @@ export default async function SoftwareServiceDetailsPage({ params, searchParams 
   const { id } = await params;
   const query = await searchParams;
   const context = await getCurrentShopContext();
+  const canCreateSale = context.permissions.includes("sales:create");
+  const canCancelSale = context.permissions.includes("sales:cancel");
   const sale = await softwareServiceService.getSaleById(context.shopId, id);
   if (!sale) notFound();
   const currency = context.currency || "SAR";
@@ -85,7 +87,7 @@ export default async function SoftwareServiceDetailsPage({ params, searchParams 
               <p className="mt-3 text-xs font-medium text-slate-500">الجهاز لم يُسجل كجهاز متروك في المحل.</p>
             ) : sale.deliveredAt ? (
               <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs font-bold text-emerald-800">تم تسليم الجهاز بتاريخ {formatDate(sale.deliveredAt)}</div>
-            ) : (
+            ) : canCreateSale ? (
               <form action={markSoftwareDeviceDeliveredAction} className="mt-4">
                 <input type="hidden" name="id" value={sale.id} />
                 <p className="mb-3 text-xs font-medium text-slate-500">الجهاز ما زال مسجلاً داخل المحل. لا توجد حالات تنفيذ؛ هذا فقط لتتبع العهدة.</p>
@@ -96,6 +98,8 @@ export default async function SoftwareServiceDetailsPage({ params, searchParams 
                   تم تسليم الجهاز
                 </ConfirmSubmitButton>
               </form>
+            ) : (
+              <p className="mt-3 text-xs font-medium text-slate-500">الجهاز ما زال مسجلاً داخل المحل.</p>
             )}
           </div>
           <div className="erp-section">
@@ -103,19 +107,21 @@ export default async function SoftwareServiceDetailsPage({ params, searchParams 
             <p className="mt-2 text-xs font-medium leading-6 text-slate-500">الخصم والدفع والمتبقي تتم إدارتها من فاتورة مسار نفسها، لذلك لا يوجد نظام مالي منفصل لخدمات السوفتوير.</p>
             <Button asChild variant="outline" className="mt-4 w-full rounded-xl font-bold"><Link href={`/invoices/${sale.invoiceId}`}>فتح الفاتورة</Link></Button>
           </div>
-          <div className="rounded-2xl border border-rose-100 bg-rose-50/60 p-4">
-            <h2 className="text-sm font-black text-rose-800">إلغاء العملية</h2>
-            <p className="mt-2 text-xs font-medium leading-6 text-rose-700/80">الإلغاء يزيل الخدمة من السجل والتقارير ويُلغي فاتورتها. إذا كانت هناك دفعة فسيتم عكس أثرها المالي تلقائياً.</p>
-            <form action={cancelSoftwareServiceSaleAction} className="mt-3">
-              <input type="hidden" name="id" value={sale.id} />
-              <ConfirmSubmitButton
-                className="h-10 w-full rounded-xl border border-rose-200 bg-white text-xs font-black text-rose-700 hover:bg-rose-100"
-                message="هل أنت متأكد من إلغاء هذه الخدمة؟ سيتم إلغاء الفاتورة المرتبطة وعكس أي دفعات مسجلة وإزالة الخدمة من السجلات الفعالة والتقارير."
-              >
-                <Trash2 className="ml-1.5 h-4 w-4" />إلغاء خدمة السوفتوير
-              </ConfirmSubmitButton>
-            </form>
-          </div>
+          {canCancelSale ? (
+            <div className="rounded-2xl border border-rose-100 bg-rose-50/60 p-4">
+              <h2 className="text-sm font-black text-rose-800">إلغاء العملية</h2>
+              <p className="mt-2 text-xs font-medium leading-6 text-rose-700/80">الإلغاء يزيل الخدمة من السجل والتقارير ويُلغي فاتورتها. إذا كانت هناك دفعة فسيتم عكس أثرها المالي تلقائياً.</p>
+              <form action={cancelSoftwareServiceSaleAction} className="mt-3">
+                <input type="hidden" name="id" value={sale.id} />
+                <ConfirmSubmitButton
+                  className="h-10 w-full rounded-xl border border-rose-200 bg-white text-xs font-black text-rose-700 hover:bg-rose-100"
+                  message="هل أنت متأكد من إلغاء هذه الخدمة؟ سيتم إلغاء الفاتورة المرتبطة وعكس أي دفعات مسجلة وإزالة الخدمة من السجلات الفعالة والتقارير."
+                >
+                  <Trash2 className="ml-1.5 h-4 w-4" />إلغاء خدمة السوفتوير
+                </ConfirmSubmitButton>
+              </form>
+            </div>
+          ) : null}
         </aside>
       </section>
     </div>
