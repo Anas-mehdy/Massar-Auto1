@@ -9,7 +9,7 @@ import QRCode from "qrcode";
 import { SubmitButton } from "@/components/submit-button";
 import { PaymentSourceField } from "@/components/payment-source-field";
 import { Button } from "@/components/ui/button";
-import { requirePermission } from "@/lib/auth/context";
+import { can, requirePermission } from "@/lib/auth/context";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { createInstallmentPublicToken } from "@/lib/installment-public-link";
 import { financialTransferService } from "@/lib/services/financialTransferService";
@@ -27,15 +27,19 @@ export const dynamic = "force-dynamic";
 export default async function InstallmentDetailsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string; created?: string; paid?: string; linkReset?: string; updated?: string }> }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
   const auth = await requirePermission("invoices:read");
+  const canCollect = can(auth, "invoices:pay");
   const timeZone = timeZoneForCountry(auth.shop.countryCode);
   const todayKey = localDateString(new Date(), timeZone);
-  const [plan, paymentSources, wallets, bankAccounts] = await Promise.all([
-    installmentService.getPlanById(auth.shop.id, id),
-    paymentSourceService.listPaymentSourceOptions(auth.shop.id),
-    financialTransferService.listWallets(auth.shop.id),
-    bankAccountService.listAccounts(auth.shop.id),
-  ]);
+  const plan = await installmentService.getPlanById(auth.shop.id, id);
   if (!plan) notFound();
+
+  const [paymentSources, wallets, bankAccounts] = canCollect
+    ? await Promise.all([
+        paymentSourceService.listPaymentSourceOptions(auth.shop.id),
+        financialTransferService.listWallets(auth.shop.id),
+        bankAccountService.listAccounts(auth.shop.id),
+      ])
+    : [[], [], []];
 
   const token = await createInstallmentPublicToken(plan.id, plan.publicTokenVersion);
   const publicUrl = buildAppUrl(`/installment-track/${token}`);
@@ -47,7 +51,7 @@ export default async function InstallmentDetailsPage({ params, searchParams }: {
   return <div className="space-y-6">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div><Link href="/installments" className="mb-2 inline-flex items-center text-xs font-bold text-slate-500 hover:text-teal-700"><ArrowRight className="ml-1 h-4 w-4" />الدفعات والأقساط</Link><div className="flex items-center gap-3"><h1 className="text-2xl font-black text-slate-950">{plan.planNumber}</h1><PlanStatus status={plan.status} overdue={overdue} /></div><p className="mt-1 text-sm text-slate-500">{plan.title}</p></div>
-      <Button asChild variant="outline"><Link href="/installments/new">خطة جديدة</Link></Button>
+      {canCollect && <Button asChild variant="outline"><Link href="/installments/new">خطة جديدة</Link></Button>}
     </div>
 
     {(query.created || query.paid || query.linkReset || query.updated) && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700">{query.created ? "تم إنشاء الخطة وجدول الأقساط بنجاح." : query.paid ? "تم تسجيل الدفعة وتوزيعها على الأقساط وتحديث رصيد المال بنجاح." : query.updated ? "تم حفظ تعديلات خطة الأقساط بنجاح." : "تم إلغاء الرابط السابق وإصدار رابط جديد."}</div>}
@@ -83,7 +87,7 @@ export default async function InstallmentDetailsPage({ params, searchParams }: {
           {plan.notes && <p className="mt-4 rounded-xl bg-slate-50 p-3 text-xs leading-6 text-slate-600">{plan.notes}</p>}
         </section>
 
-        {plan.status === InstallmentPlanStatus.ACTIVE && <form action={addInstallmentPaymentAction} className="erp-section space-y-4">
+        {canCollect && plan.status === InstallmentPlanStatus.ACTIVE && <form action={addInstallmentPaymentAction} className="erp-section space-y-4">
           <input type="hidden" name="planId" value={plan.id} /><input type="hidden" name="clientGeneratedId" value={randomUUID()} />
           <h2 className="font-black text-slate-900">تسجيل دفعة جديدة</h2>
           <label className="grid gap-2"><span className="text-xs font-bold">المبلغ</span><input name="amount" className="erp-input" type="number" min="0.01" max={plan.balanceDue.toString()} step="0.01" required /></label>
@@ -100,7 +104,7 @@ export default async function InstallmentDetailsPage({ params, searchParams }: {
           <QrCode className="mx-auto h-5 w-5 text-violet-600" /><h2 className="mt-2 font-black text-slate-900">رابط متابعة العميل</h2>
           <Image src={qrData} width={180} height={180} alt={`QR ${plan.planNumber}`} className="mx-auto my-4 rounded-xl border border-slate-100" unoptimized />
           <div className="grid gap-2"><CopyInstallmentLink value={publicUrl} /><Button asChild variant="outline" className="h-10 text-xs font-black"><a href={publicUrl} target="_blank" rel="noreferrer"><ExternalLink className="ml-2 h-4 w-4" />فتح صفحة العميل</a></Button>{whatsappUrl && <Button asChild variant="outline" className="h-10 text-xs font-black text-emerald-700"><a href={whatsappUrl} target="_blank" rel="noreferrer"><MessageCircle className="ml-2 h-4 w-4" />إرسال عبر WhatsApp</a></Button>}</div>
-          <form action={rotateInstallmentLinkAction} className="mt-3"><input type="hidden" name="planId" value={plan.id} /><SubmitButton variant="ghost" className="h-9 w-full text-[11px] text-slate-500" loadingText="جاري التغيير..."><RefreshCw className="ml-1 h-3.5 w-3.5" />إلغاء الرابط السابق وإصدار جديد</SubmitButton></form>
+          {canCollect && <form action={rotateInstallmentLinkAction} className="mt-3"><input type="hidden" name="planId" value={plan.id} /><SubmitButton variant="ghost" className="h-9 w-full text-[11px] text-slate-500" loadingText="جاري التغيير..."><RefreshCw className="ml-1 h-3.5 w-3.5" />إلغاء الرابط السابق وإصدار جديد</SubmitButton></form>}
         </section>
       </aside>
     </div>
