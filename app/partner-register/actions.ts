@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { getRequestFingerprint } from "@/lib/auth/requestFingerprint";
+import { getRequestNetworkFingerprint } from "@/lib/auth/requestFingerprint";
 import {
   registerFromPartnerInvitation,
   registerFromPartnerPublicLink,
@@ -23,7 +23,7 @@ export async function partnerClientRegisterAction(formData: FormData) {
   };
 
   try {
-    const requestFingerprint = await getRequestFingerprint();
+    const requestFingerprint = await getRequestNetworkFingerprint();
     if (mode === "invite") {
       await registerFromPartnerInvitation(key, input, requestFingerprint);
     } else if (mode === "public") {
