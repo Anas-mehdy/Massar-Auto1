@@ -17,12 +17,24 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Link corrections page
+        run: python scripts/link-post-delivery-part-corrections.py
+
+      - name: Verify corrections link
+        run: |
+          grep -F 'href={`/service-orders/${order.id}/corrections`}' 'app/service-orders/[id]/page.tsx'
+          grep -F 'تصحيحات بعد التسليم' 'app/service-orders/[id]/page.tsx'
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -43,3 +55,15 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Commit corrections link
+        if: github.event_name == 'push'
+        run: |
+          if git diff --quiet -- 'app/service-orders/[id]/page.tsx'; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'app/service-orders/[id]/page.tsx'
+          git commit -m 'feat(auto): link post-delivery part corrections'
+          git push origin HEAD:feature/auto-core-v1
