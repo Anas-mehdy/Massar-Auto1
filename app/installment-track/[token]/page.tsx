@@ -1,5 +1,6 @@
 import { InstallmentPlanStatus, InstallmentScheduleStatus } from "@prisma/client";
 import { CalendarDays, CheckCircle2, Clock3, Phone, ShieldCheck, WalletCards } from "lucide-react";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
@@ -7,6 +8,9 @@ import { verifyInstallmentPublicToken } from "@/lib/installment-public-link";
 import { installmentService } from "@/lib/services/installmentService";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 export default async function InstallmentTrackPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
