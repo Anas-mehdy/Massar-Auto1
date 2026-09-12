@@ -136,17 +136,26 @@ async function getActiveInvoiceTx(
     invoiceNumber: string;
     status: string;
     total: number;
+    effectiveTotal: number;
     balanceDue: number;
   }>>`
-    SELECT "id", "invoiceNumber", "status"::text AS "status",
-           "total"::double precision AS "total",
-           "balanceDue"::double precision AS "balanceDue"
-    FROM "Invoice"
-    WHERE "shopId" = ${shopId}::uuid
-      AND "serviceOrderId" = ${serviceOrderId}::uuid
-      AND "deletedAt" IS NULL
-      AND "status" <> 'VOID'::"InvoiceStatus"
-    ORDER BY "issuedAt" DESC
+    SELECT i."id", i."invoiceNumber", i."status"::text AS "status",
+           i."total"::double precision AS "total",
+           GREATEST(
+             i."total" - COALESCE((
+               SELECT SUM(cn."amount")
+               FROM "InvoiceCreditNote" cn
+               WHERE cn."shopId" = i."shopId" AND cn."invoiceId" = i."id"
+             ), 0),
+             0
+           )::double precision AS "effectiveTotal",
+           i."balanceDue"::double precision AS "balanceDue"
+    FROM "Invoice" i
+    WHERE i."shopId" = ${shopId}::uuid
+      AND i."serviceOrderId" = ${serviceOrderId}::uuid
+      AND i."deletedAt" IS NULL
+      AND i."status" <> 'VOID'::"InvoiceStatus"
+    ORDER BY i."issuedAt" DESC
     LIMIT 1
     FOR SHARE
   `;
@@ -206,7 +215,7 @@ export async function deliverServiceOrder(
           "deliveryNotes" = ${deliveryNotes},
           "deliveredByUserId" = ${deliveredByUserId}::uuid,
           "deliveredAt" = now(),
-          "finalTotal" = ${invoice.total},
+          "finalTotal" = ${invoice.effectiveTotal},
           "updatedByUserId" = ${deliveredByUserId}::uuid,
           "updatedAt" = now(),
           "version" = "version" + 1
@@ -292,7 +301,7 @@ export async function closeServiceOrder(
           "closedAt" = now(),
           "closedByUserId" = ${closedByUserId}::uuid,
           "resolutionNotes" = COALESCE(${finalNotes}, "resolutionNotes"),
-          "finalTotal" = ${invoice.total},
+          "finalTotal" = ${invoice.effectiveTotal},
           "updatedByUserId" = ${closedByUserId}::uuid,
           "updatedAt" = now(),
           "version" = "version" + 1
