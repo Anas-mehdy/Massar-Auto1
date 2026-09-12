@@ -32,8 +32,8 @@ const ALLOWED_TRANSITIONS: Record<ServiceOrderStatus, readonly ServiceOrderStatu
   APPROVED: ["IN_SERVICE", "WAITING_PARTS", "CANCELLED"],
   IN_SERVICE: ["WAITING_PARTS", "READY_FOR_DELIVERY", "CANCELLED"],
   WAITING_PARTS: ["IN_SERVICE", "READY_FOR_DELIVERY", "CANCELLED"],
-  READY_FOR_DELIVERY: ["DELIVERED", "IN_SERVICE"],
-  DELIVERED: ["CLOSED"],
+  READY_FOR_DELIVERY: ["IN_SERVICE"],
+  DELIVERED: [],
   CLOSED: [],
   REJECTED: [],
   CANCELLED: [],
@@ -433,8 +433,27 @@ export async function updateServiceOrderStatus(
     if (!current) throw new Error("أمر الصيانة غير موجود.");
     if (current.status === toStatus) return current;
 
+    if (toStatus === "DELIVERED" || toStatus === "CLOSED") {
+      throw new Error("استخدم إجراء تسليم المركبة أو إغلاق أمر الصيانة المخصص لضمان الفاتورة وسجل التدقيق.");
+    }
+
     if (!ALLOWED_TRANSITIONS[current.status]?.includes(toStatus)) {
       throw new Error(`لا يمكن نقل أمر الصيانة من ${current.status} إلى ${toStatus}.`);
+    }
+
+    if (!["READY_FOR_DELIVERY", "DELIVERED", "CLOSED"].includes(toStatus)) {
+      const activeInvoice = await tx.invoice.findFirst({
+        where: {
+          shopId,
+          serviceOrderId,
+          deletedAt: null,
+          status: { not: "VOID" },
+        },
+        select: { id: true },
+      });
+      if (activeInvoice) {
+        throw new Error("لا يمكن إعادة أمر الصيانة إلى مرحلة تنفيذية أو إلغائه مع وجود فاتورة فعالة. ألغِ الفاتورة أولاً ثم أعد فتح العمل.");
+      }
     }
 
     let effectiveStatus: ServiceOrderStatus = toStatus;
