@@ -4,6 +4,7 @@ import { requirePartnerSession } from "@/lib/partner-auth";
 import { hashPassword, setSessionCookie } from "@/lib/auth";
 import { COUNTRY_DIAL_CODES, validatePhoneForCountry } from "@/lib/countries";
 import { prisma } from "@/lib/prisma";
+import { registrationRateLimitService } from "@/lib/services/registrationRateLimitService";
 
 const TRIAL_DURATION_MS = 10 * 24 * 60 * 60 * 1000;
 const INVITE_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -112,8 +113,9 @@ function validateRegistration(input: PartnerClientRegistrationInput) {
   return { ownerName, email, shopName, countryCode, phone: phoneValidation.formattedInternational, currency: input.currency.trim() || country.currency, address: input.address?.trim() || null };
 }
 
-async function createPartnerManagedShop(partnerId: string, input: PartnerClientRegistrationInput) {
+async function createPartnerManagedShop(partnerId: string, input: PartnerClientRegistrationInput, requestFingerprint: string) {
   const v = validateRegistration(input);
+  await registrationRateLimitService.consumeAttempt(v.email, requestFingerprint);
   const passwordHash = await hashPassword(input.password);
   const trialStartedAt = new Date();
   const trialEndsAt = new Date(trialStartedAt.getTime() + TRIAL_DURATION_MS);
@@ -133,9 +135,10 @@ async function createPartnerManagedShop(partnerId: string, input: PartnerClientR
   return result;
 }
 
-export async function registerFromPartnerInvitation(token: string, input: PartnerClientRegistrationInput) {
+export async function registerFromPartnerInvitation(token: string, input: PartnerClientRegistrationInput, requestFingerprint: string) {
   const hash = tokenHash(token);
   const v = validateRegistration(input);
+  await registrationRateLimitService.consumeAttempt(v.email, requestFingerprint);
   const passwordHash = await hashPassword(input.password);
   const trialStartedAt = new Date();
   const trialEndsAt = new Date(trialStartedAt.getTime() + TRIAL_DURATION_MS);
@@ -162,8 +165,8 @@ export async function registerFromPartnerInvitation(token: string, input: Partne
   return result;
 }
 
-export async function registerFromPartnerPublicLink(code: string, input: PartnerClientRegistrationInput) {
+export async function registerFromPartnerPublicLink(code: string, input: PartnerClientRegistrationInput, requestFingerprint: string) {
   const partner = await getPublicPartnerPreview(code);
   if (!partner) throw new Error("رابط الوكيل غير صالح أو غير متاح.");
-  return createPartnerManagedShop(partner.partnerId, input);
+  return createPartnerManagedShop(partner.partnerId, input, requestFingerprint);
 }
