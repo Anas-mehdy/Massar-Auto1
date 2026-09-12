@@ -6,6 +6,7 @@ export type WarrantyFollowUpLink = {
   claimType: string;
   claimStatus: string;
   coverageDecision: string;
+  customerCharge: string;
   originalServiceOrderId: string;
   originalOrderNumber: string;
 };
@@ -16,7 +17,7 @@ export async function getWarrantyFollowUpLink(
 ): Promise<WarrantyFollowUpLink | null> {
   const rows = await prisma.$queryRaw<WarrantyFollowUpLink[]>`
     SELECT wc."id" AS "claimId", wc."claimNumber", wc."claimType",
-           wc."status" AS "claimStatus", wc."coverageDecision",
+           wc."status" AS "claimStatus", wc."coverageDecision", wc."customerCharge"::text AS "customerCharge",
            wc."originalServiceOrderId", original."orderNumber" AS "originalOrderNumber"
     FROM "ServiceWarrantyClaim" wc
     JOIN "ServiceOrder" original
