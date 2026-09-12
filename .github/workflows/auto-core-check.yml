@@ -18,7 +18,6 @@ permissions:
 
 jobs:
   build:
-    if: ${{ github.event.head_commit.message == 'stage auto prisma vehicle service reconciliation' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -35,12 +34,16 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          from textwrap import dedent
 
           path = Path('prisma/schema.prisma')
           text = path.read_text()
 
+          if 'model Vehicle {' in text and 'model ServiceOrder {' in text:
+              print('Vehicle and ServiceOrder already reconciled')
+              raise SystemExit(0)
           if 'model Vehicle {' in text or 'model ServiceOrder {' in text:
-              raise SystemExit('Vehicle or ServiceOrder is already present in Prisma schema')
+              raise SystemExit('Partial Vehicle/ServiceOrder reconciliation detected')
 
           def replace_once(anchor: str, replacement: str, label: str):
               global text
@@ -63,7 +66,7 @@ jobs:
 
           replace_once(
               '  repairOrders     RepairOrder[]\n  sales            Sale[]\n',
-              '  repairOrders     RepairOrder[]\n  vehicles         Vehicle[]      @relation("AutoVehicleCustomer")\n  autoServiceOrders ServiceOrder[] @relation("AutoServiceOrderCustomer")\n  sales            Sale[]\n',
+              '  repairOrders      RepairOrder[]\n  vehicles          Vehicle[]      @relation("AutoVehicleCustomer")\n  autoServiceOrders ServiceOrder[] @relation("AutoServiceOrderCustomer")\n  sales             Sale[]\n',
               'Customer relations',
           )
 
@@ -73,97 +76,97 @@ jobs:
               'Invoice service relation',
           )
 
-          models = r'''
-model Vehicle {
-  id              String   @id @default(uuid()) @db.Uuid
-  shopId          String   @db.Uuid
-  customerId      String   @db.Uuid
-  plateNumber     String?
-  vin             String?
-  make            String
-  model           String
-  year            Int?
-  color           String?
-  engineNumber    String?
-  fuelType        String?  @db.VarChar(24)
-  transmission    String?  @db.VarChar(24)
-  engineDetails   String?
-  currentOdometer Int?
-  notes           String?
-  createdAt       DateTime @default(now()) @db.Timestamptz(6)
-  updatedAt       DateTime @default(now()) @db.Timestamptz(6)
-  deletedAt       DateTime? @db.Timestamptz(6)
-  version         Int      @default(1)
+          models = dedent('''
+          model Vehicle {
+            id              String    @id @default(uuid()) @db.Uuid
+            shopId          String    @db.Uuid
+            customerId      String    @db.Uuid
+            plateNumber     String?
+            vin             String?
+            make            String
+            model           String
+            year            Int?
+            color           String?
+            engineNumber    String?
+            fuelType        String?   @db.VarChar(24)
+            transmission    String?   @db.VarChar(24)
+            engineDetails   String?
+            currentOdometer Int?
+            notes           String?
+            createdAt       DateTime  @default(now()) @db.Timestamptz(6)
+            updatedAt       DateTime  @default(now()) @db.Timestamptz(6)
+            deletedAt       DateTime? @db.Timestamptz(6)
+            version         Int       @default(1)
 
-  shop          Shop           @relation("AutoVehicleShop", fields: [shopId], references: [id], onDelete: Cascade, map: "Vehicle_shopId_fkey")
-  customer      Customer       @relation("AutoVehicleCustomer", fields: [customerId], references: [id], onDelete: Restrict, map: "Vehicle_customerId_fkey")
-  serviceOrders ServiceOrder[] @relation("AutoVehicleServiceOrders")
+            shop          Shop           @relation("AutoVehicleShop", fields: [shopId], references: [id], onDelete: Cascade, map: "Vehicle_shopId_fkey")
+            customer      Customer       @relation("AutoVehicleCustomer", fields: [customerId], references: [id], onDelete: Restrict, map: "Vehicle_customerId_fkey")
+            serviceOrders ServiceOrder[] @relation("AutoVehicleServiceOrders")
 
-  @@unique([shopId, id], map: "Vehicle_shop_id_key")
-  @@index([shopId, customerId, createdAt(sort: Desc)], map: "Vehicle_shop_customer_idx")
-  @@index([shopId, make, model], map: "Vehicle_shop_make_model_idx")
-  @@index([shopId, deletedAt], map: "Vehicle_shop_deleted_idx")
-}
+            @@unique([shopId, id], map: "Vehicle_shop_id_key")
+            @@index([shopId, customerId, createdAt(sort: Desc)], map: "Vehicle_shop_customer_idx")
+            @@index([shopId, make, model], map: "Vehicle_shop_make_model_idx")
+            @@index([shopId, deletedAt], map: "Vehicle_shop_deleted_idx")
+          }
 
-model ServiceOrder {
-  id                  String    @id @default(uuid()) @db.Uuid
-  shopId              String    @db.Uuid
-  vehicleId           String    @db.Uuid
-  customerId          String    @db.Uuid
-  orderNumber         String
-  status              String    @default("RECEIVED") @db.VarChar(40)
-  reportedIssue       String
-  receptionNotes      String?
-  exteriorCondition   String?
-  keysAndItems        String?
-  diagnosis           String?
-  resolutionNotes     String?
-  odometerAtIntake    Int?
-  fuelLevelPercent    Decimal?  @db.Decimal(5, 2)
-  estimatedTotal      Decimal?  @db.Decimal(14, 2)
-  finalTotal          Decimal?  @db.Decimal(14, 2)
-  receivedAt          DateTime  @default(now()) @db.Timestamptz(6)
-  promisedAt          DateTime? @db.Timestamptz(6)
-  approvedAt          DateTime? @db.Timestamptz(6)
-  startedAt           DateTime? @db.Timestamptz(6)
-  readyAt             DateTime? @db.Timestamptz(6)
-  deliveredAt         DateTime? @db.Timestamptz(6)
-  closedAt            DateTime? @db.Timestamptz(6)
-  receptionistUserId  String?   @db.Uuid
-  assignedToUserId    String?   @db.Uuid
-  createdByUserId     String?   @db.Uuid
-  updatedByUserId     String?   @db.Uuid
-  clientGeneratedId   String?
-  createdAt           DateTime  @default(now()) @db.Timestamptz(6)
-  updatedAt           DateTime  @default(now()) @db.Timestamptz(6)
-  deletedAt           DateTime? @db.Timestamptz(6)
-  version             Int       @default(1)
-  odometerAtDelivery  Int?
-  deliveryNotes       String?
-  deliveredByUserId   String?   @db.Uuid
-  closedByUserId      String?   @db.Uuid
+          model ServiceOrder {
+            id                 String    @id @default(uuid()) @db.Uuid
+            shopId             String    @db.Uuid
+            vehicleId          String    @db.Uuid
+            customerId         String    @db.Uuid
+            orderNumber        String
+            status             String    @default("RECEIVED") @db.VarChar(40)
+            reportedIssue      String
+            receptionNotes     String?
+            exteriorCondition  String?
+            keysAndItems       String?
+            diagnosis          String?
+            resolutionNotes    String?
+            odometerAtIntake   Int?
+            fuelLevelPercent   Decimal?  @db.Decimal(5, 2)
+            estimatedTotal     Decimal?  @db.Decimal(14, 2)
+            finalTotal         Decimal?  @db.Decimal(14, 2)
+            receivedAt         DateTime  @default(now()) @db.Timestamptz(6)
+            promisedAt         DateTime? @db.Timestamptz(6)
+            approvedAt         DateTime? @db.Timestamptz(6)
+            startedAt          DateTime? @db.Timestamptz(6)
+            readyAt            DateTime? @db.Timestamptz(6)
+            deliveredAt        DateTime? @db.Timestamptz(6)
+            closedAt           DateTime? @db.Timestamptz(6)
+            receptionistUserId String?   @db.Uuid
+            assignedToUserId   String?   @db.Uuid
+            createdByUserId    String?   @db.Uuid
+            updatedByUserId    String?   @db.Uuid
+            clientGeneratedId  String?
+            createdAt          DateTime  @default(now()) @db.Timestamptz(6)
+            updatedAt          DateTime  @default(now()) @db.Timestamptz(6)
+            deletedAt          DateTime? @db.Timestamptz(6)
+            version            Int       @default(1)
+            odometerAtDelivery Int?
+            deliveryNotes      String?
+            deliveredByUserId  String?   @db.Uuid
+            closedByUserId     String?   @db.Uuid
 
-  shop          Shop     @relation("AutoServiceOrderShop", fields: [shopId], references: [id], onDelete: Cascade, map: "ServiceOrder_shopId_fkey")
-  vehicle       Vehicle  @relation("AutoVehicleServiceOrders", fields: [shopId, vehicleId], references: [shopId, id], onDelete: Restrict, map: "ServiceOrder_vehicle_shop_fkey")
-  customer      Customer @relation("AutoServiceOrderCustomer", fields: [customerId], references: [id], onDelete: Restrict, map: "ServiceOrder_customerId_fkey")
-  receptionist  User?    @relation("AutoServiceOrderReceptionist", fields: [receptionistUserId], references: [id], onDelete: SetNull, map: "ServiceOrder_receptionistUserId_fkey")
-  assignedTo    User?    @relation("AutoServiceOrderAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull, map: "ServiceOrder_assignedToUserId_fkey")
-  createdBy     User?    @relation("AutoServiceOrderCreator", fields: [createdByUserId], references: [id], onDelete: SetNull, map: "ServiceOrder_createdByUserId_fkey")
-  updatedBy     User?    @relation("AutoServiceOrderUpdater", fields: [updatedByUserId], references: [id], onDelete: SetNull, map: "ServiceOrder_updatedByUserId_fkey")
-  deliveredBy   User?    @relation("AutoServiceOrderDeliveredBy", fields: [deliveredByUserId], references: [id], onDelete: SetNull, map: "ServiceOrder_deliveredByUserId_fkey")
-  closedBy      User?    @relation("AutoServiceOrderClosedBy", fields: [closedByUserId], references: [id], onDelete: SetNull, map: "ServiceOrder_closedByUserId_fkey")
-  invoices      Invoice[] @relation("AutoServiceOrderInvoices")
+            shop         Shop      @relation("AutoServiceOrderShop", fields: [shopId], references: [id], onDelete: Cascade, map: "ServiceOrder_shopId_fkey")
+            vehicle      Vehicle   @relation("AutoVehicleServiceOrders", fields: [shopId, vehicleId], references: [shopId, id], onDelete: Restrict, map: "ServiceOrder_vehicle_shop_fkey")
+            customer     Customer  @relation("AutoServiceOrderCustomer", fields: [customerId], references: [id], onDelete: Restrict, map: "ServiceOrder_customerId_fkey")
+            receptionist User?     @relation("AutoServiceOrderReceptionist", fields: [receptionistUserId], references: [id], onDelete: SetNull, map: "ServiceOrder_receptionistUserId_fkey")
+            assignedTo   User?     @relation("AutoServiceOrderAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull, map: "ServiceOrder_assignedToUserId_fkey")
+            createdBy    User?     @relation("AutoServiceOrderCreator", fields: [createdByUserId], references: [id], onDelete: SetNull, map: "ServiceOrder_createdByUserId_fkey")
+            updatedBy    User?     @relation("AutoServiceOrderUpdater", fields: [updatedByUserId], references: [id], onDelete: SetNull, map: "ServiceOrder_updatedByUserId_fkey")
+            deliveredBy  User?     @relation("AutoServiceOrderDeliveredBy", fields: [deliveredByUserId], references: [id], onDelete: SetNull, map: "ServiceOrder_deliveredByUserId_fkey")
+            closedBy     User?     @relation("AutoServiceOrderClosedBy", fields: [closedByUserId], references: [id], onDelete: SetNull, map: "ServiceOrder_closedByUserId_fkey")
+            invoices     Invoice[] @relation("AutoServiceOrderInvoices")
 
-  @@unique([shopId, orderNumber], map: "ServiceOrder_shop_order_number_key")
-  @@unique([shopId, id], map: "ServiceOrder_shop_id_key")
-  @@index([shopId, status, receivedAt(sort: Desc)], map: "ServiceOrder_shop_status_idx")
-  @@index([shopId, vehicleId, receivedAt(sort: Desc)], map: "ServiceOrder_shop_vehicle_idx")
-  @@index([shopId, customerId, receivedAt(sort: Desc)], map: "ServiceOrder_shop_customer_idx")
-  @@index([shopId, assignedToUserId, status], map: "ServiceOrder_shop_assignee_idx")
-  @@index([shopId, deletedAt], map: "ServiceOrder_shop_deleted_idx")
-}
+            @@unique([shopId, orderNumber], map: "ServiceOrder_shop_order_number_key")
+            @@unique([shopId, id], map: "ServiceOrder_shop_id_key")
+            @@index([shopId, status, receivedAt(sort: Desc)], map: "ServiceOrder_shop_status_idx")
+            @@index([shopId, vehicleId, receivedAt(sort: Desc)], map: "ServiceOrder_shop_vehicle_idx")
+            @@index([shopId, customerId, receivedAt(sort: Desc)], map: "ServiceOrder_shop_customer_idx")
+            @@index([shopId, assignedToUserId, status], map: "ServiceOrder_shop_assignee_idx")
+            @@index([shopId, deletedAt], map: "ServiceOrder_shop_deleted_idx")
+          }
 
-'''
+          ''')
 
           replace_once('model RepairOrder {', models + 'model RepairOrder {', 'Auto model insertion')
           path.write_text(text)
@@ -190,6 +193,10 @@ model ServiceOrder {
 
       - name: Commit reconciled Prisma schema
         run: |
+          if git diff --quiet -- prisma/schema.prisma; then
+            echo "No Prisma schema changes to commit"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add prisma/schema.prisma
