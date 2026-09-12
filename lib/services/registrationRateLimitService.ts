@@ -19,7 +19,7 @@ export async function consumeRegistrationAttempt(email: string, requestFingerpri
   await prisma.$transaction(async (tx) => {
     // Serialize registration attempts from the same fingerprint so concurrent
     // requests cannot race past the hourly cap.
-    await tx.$executeRaw`
+    await tx.$queryRaw`
       SELECT pg_advisory_xact_lock(hashtextextended(${requestFingerprint}, 0))
     `;
 
