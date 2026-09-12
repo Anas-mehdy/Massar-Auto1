@@ -1,372 +1,254 @@
-import Link from "next/link";
 import Image from "next/image";
+import Link from "next/link";
 import {
-  Wrench,
-  MessageSquareCode,
-  ShoppingCart,
-  Boxes,
-  FileText,
-  ShieldCheck,
-  Zap,
-  CheckCircle2,
   ArrowLeft,
-  Sparkles,
-  Printer,
+  BarChart3,
+  Boxes,
+  CarFront,
+  CheckCircle2,
+  ClipboardCheck,
+  FileText,
+  Gauge,
+  PackageCheck,
   QrCode,
+  ShieldCheck,
+  Sparkles,
+  Truck,
+  UsersRound,
+  Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+const features = [
+  {
+    icon: CarFront,
+    title: "العملاء والمركبات",
+    description: "ملف مستقل لكل عميل ومركبة مع اللوحة وVIN والعداد وسجل الصيانة الكامل.",
+  },
+  {
+    icon: ClipboardCheck,
+    title: "أوامر الصيانة",
+    description: "من استقبال المركبة وتسجيل الشكوى والفحص إلى التنفيذ والتسليم وإغلاق الأمر.",
+  },
+  {
+    icon: FileText,
+    title: "عروض الأسعار والموافقات",
+    description: "أنشئ عرض سعر واضحاً للقطع والأجور وسجّل موافقة العميل قبل بدء العمل.",
+  },
+  {
+    icon: Boxes,
+    title: "المخزون وقطع الغيار",
+    description: "تابع الكميات والمستودعات وحركة الصنف وحد إعادة الطلب وربط القطع بأوامر الصيانة.",
+  },
+  {
+    icon: PackageCheck,
+    title: "المشتريات والموردون",
+    description: "استلم فواتير الشراء، حدّث المخزون تلقائياً، وتابع دفعات الموردين وأرصدتهم.",
+  },
+  {
+    icon: BarChart3,
+    title: "الفواتير والتقارير",
+    description: "راقب المبيعات والتحصيل والأرباح والذمم وحركة النقد من شاشة واحدة مترابطة.",
+  },
+];
+
+const workflow = [
+  ["01", "استقبال المركبة", "اختيار العميل والمركبة وتسجيل الشكوى والعداد ومعلومات الاستلام."],
+  ["02", "الفحص والتشخيص", "توثيق نتيجة الفحص وتحديد قطع الغيار والأعمال المطلوبة."],
+  ["03", "عرض السعر والموافقة", "تجهيز السعر النهائي وتسجيل قرار العميل قبل التنفيذ."],
+  ["04", "التنفيذ والتسليم", "استهلاك القطع وتسجيل الأجور وإصدار الفاتورة ثم تسليم المركبة."],
+];
+
 export default function LandingPage() {
   return (
-    <div className="relative min-h-screen w-full max-w-full overflow-x-hidden bg-slate-950 text-slate-100 selection:bg-teal-500 selection:text-white font-sans antialiased">
-      {/* Glow Effects - strictly clipped inside overflow-hidden container */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
-        <div className="absolute top-0 right-1/4 w-[300px] sm:w-[600px] h-[300px] sm:h-[600px] bg-teal-500/10 rounded-full blur-[90px] sm:blur-[140px]" />
-        <div className="absolute top-[600px] -left-20 sm:-left-40 w-[250px] sm:w-[500px] h-[250px] sm:h-[500px] bg-cyan-500/10 rounded-full blur-[90px] sm:blur-[140px]" />
+    <main className="relative min-h-screen overflow-x-hidden bg-slate-950 text-slate-100 selection:bg-teal-500 selection:text-white">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+        <div className="absolute -top-28 right-[12%] h-[520px] w-[520px] rounded-full bg-teal-500/10 blur-[130px]" />
+        <div className="absolute top-[760px] -left-40 h-[440px] w-[440px] rounded-full bg-cyan-500/10 blur-[120px]" />
       </div>
 
-      {/* Navigation Header */}
-      <header className="sticky top-0 z-50 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-xl w-full">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-2">
-          <Link href="/" className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
-            <div className="flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl sm:rounded-2xl bg-white p-1.5 sm:p-2 shadow-lg shadow-teal-500/10">
-              <Image
-                src="/masar-icon.png"
-                alt="مسار"
-                width={32}
-                height={32}
-                className="h-full w-full object-contain"
-              />
-            </div>
-            <div className="min-w-0">
-              <span className="text-base sm:text-xl font-black tracking-tight text-white block truncate">مسار</span>
-              <span className="hidden sm:block text-[9px] font-bold text-teal-400 tracking-wider">من الاستلام حتى التسليم</span>
-            </div>
+      <header className="sticky top-0 z-50 w-full border-b border-slate-800/80 bg-slate-950/85 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 sm:h-20 sm:px-6 lg:px-8">
+          <Link href="/" className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white p-2 shadow-lg shadow-teal-500/10 sm:h-11 sm:w-11 sm:rounded-2xl">
+              <Image src="/masar-icon.png" alt="مسار" width={32} height={32} className="h-full w-full object-contain" />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-lg font-black tracking-tight text-white sm:text-xl">مسار</span>
+              <span className="hidden text-[9px] font-bold tracking-wider text-teal-400 sm:block">إدارة مراكز صيانة المركبات</span>
+            </span>
           </Link>
 
-          <nav className="hidden md:flex items-center gap-8 text-xs font-bold text-slate-300 shrink-0">
-            <a href="#features" className="hover:text-teal-400 transition">المميزات</a>
-            <a href="#how-it-works" className="hover:text-teal-400 transition">كيف يعمل</a>
-            <a href="#thermal-print" className="hover:text-teal-400 transition">الطباعة والـ QR</a>
-            <a href="#faq" className="hover:text-teal-400 transition">الأسئلة الشائعة</a>
+          <nav className="hidden items-center gap-7 text-xs font-bold text-slate-300 md:flex">
+            <a href="#features" className="transition hover:text-teal-400">المميزات</a>
+            <a href="#how-it-works" className="transition hover:text-teal-400">دورة العمل</a>
+            <a href="#operations" className="transition hover:text-teal-400">التشغيل والمحاسبة</a>
+            <a href="#faq" className="transition hover:text-teal-400">الأسئلة الشائعة</a>
           </nav>
 
-          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-            <Button asChild variant="ghost" className="text-slate-300 hover:text-white hover:bg-slate-900 text-xs font-bold h-9 sm:h-10 px-2.5 sm:px-4 rounded-xl">
+          <div className="flex shrink-0 items-center gap-2">
+            <Button asChild variant="ghost" className="h-9 rounded-xl px-3 text-xs font-bold text-slate-300 hover:bg-slate-900 hover:text-white sm:h-10 sm:px-4">
               <Link href="/login">تسجيل الدخول</Link>
             </Button>
-            <Button asChild className="bg-gradient-to-r from-teal-400 to-primary text-slate-950 hover:from-teal-300 hover:to-teal-500 text-xs font-black h-9 sm:h-10 px-3 sm:px-5 rounded-xl shadow-lg shadow-teal-500/20 border-0">
-              <Link href="/register" className="flex items-center gap-1">
-                <span>ابدأ الآن مجاناً</span>
-                <ArrowLeft className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-0.5 sm:mr-1 shrink-0" />
-              </Link>
+            <Button asChild className="h-9 rounded-xl border-0 bg-gradient-to-r from-teal-400 to-teal-600 px-3 text-xs font-black text-slate-950 shadow-lg shadow-teal-500/20 sm:h-10 sm:px-5">
+              <Link href="/register" className="flex items-center gap-1.5">ابدأ مجاناً <ArrowLeft className="h-4 w-4" /></Link>
             </Button>
           </div>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="relative pt-10 pb-16 sm:pt-16 sm:pb-24 lg:pt-24 lg:pb-32 overflow-hidden w-full">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
-          <div className="inline-flex items-center gap-2 rounded-full border border-teal-500/30 bg-teal-500/10 px-3.5 sm:px-4 py-1.5 text-[11px] sm:text-xs font-black text-teal-300 backdrop-blur-md mb-6 sm:mb-8 max-w-full">
-            <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-teal-400 shrink-0" />
-            <span className="truncate">نظام الجيل القادم لإدارة ورش ومحلات صيانة الهواتف</span>
+      <section className="relative px-4 pb-16 pt-12 sm:px-6 sm:pb-24 sm:pt-20 lg:px-8 lg:pb-28 lg:pt-24">
+        <div className="mx-auto max-w-7xl text-center">
+          <div className="mx-auto inline-flex max-w-full items-center gap-2 rounded-full border border-teal-500/30 bg-teal-500/10 px-4 py-1.5 text-[11px] font-black text-teal-300 sm:text-xs">
+            <Sparkles className="h-4 w-4 shrink-0" />
+            <span>نظام واحد لإدارة مركز صيانة المركبات من الاستقبال حتى التسليم</span>
           </div>
 
-          <h1 className="text-2xl sm:text-5xl lg:text-6xl font-black tracking-tight text-white max-w-4xl mx-auto leading-[1.25] sm:leading-[1.15] break-words">
-            تحكم كامل في مركز الصيانة،{" "}
-            <span className="bg-gradient-to-l from-teal-400 via-emerald-300 to-cyan-400 bg-clip-text text-transparent">
-              من استلام الجهاز وحتى الفاتورة
+          <h1 className="mx-auto mt-7 max-w-5xl text-3xl font-black leading-[1.25] tracking-tight text-white sm:text-5xl lg:text-6xl">
+            شغّل مركز الصيانة بوضوح،
+            <span className="mt-2 block bg-gradient-to-l from-teal-400 via-emerald-300 to-cyan-400 bg-clip-text text-transparent">
+              واربط المركبة والعمل والمخزون والمحاسبة معاً
             </span>
           </h1>
 
-          <p className="mt-4 sm:mt-6 max-w-2xl mx-auto text-xs sm:text-base text-slate-400 leading-relaxed font-medium">
-            تتبع تذاكر الصيانة، أصدر إيصالات الاستلام الحرارية مع رمز QR، راسل عملاءك تلقائياً عبر واتساب، وأدر مبيعاتك ومخزون قطع الغيار من أي جهاز وبكل دقة.
+          <p className="mx-auto mt-6 max-w-3xl text-sm font-medium leading-8 text-slate-400 sm:text-base">
+            مسار يساعدك على إدارة العملاء والمركبات وأوامر الصيانة وعروض الأسعار وقطع الغيار والمشتريات والفواتير،
+            مع سجل واضح لكل مركبة وصلاحيات دقيقة لفريق العمل.
           </p>
 
-          <div className="mt-8 sm:mt-10 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 max-w-md sm:max-w-none mx-auto w-full">
-            <Button asChild className="w-full sm:w-auto h-12 sm:h-13 px-6 sm:px-8 rounded-2xl bg-gradient-to-r from-teal-400 via-teal-500 to-primary text-slate-950 hover:from-teal-300 hover:to-teal-400 font-black text-xs sm:text-sm shadow-xl shadow-teal-500/25 border-0">
-              <Link href="/register" className="flex items-center justify-center gap-2">
-                أنشئ متجرك مجاناً وابدأ الآن
-                <ArrowLeft className="h-4 w-4 sm:h-4.5 sm:w-4.5 shrink-0" />
-              </Link>
+          <div className="mx-auto mt-8 flex max-w-md flex-col items-center justify-center gap-3 sm:max-w-none sm:flex-row">
+            <Button asChild className="h-12 w-full rounded-2xl border-0 bg-gradient-to-r from-teal-400 via-teal-500 to-teal-700 px-8 text-sm font-black text-slate-950 shadow-xl shadow-teal-500/20 sm:w-auto">
+              <Link href="/register" className="flex items-center justify-center gap-2">أنشئ حسابك وابدأ الآن <ArrowLeft className="h-4 w-4" /></Link>
             </Button>
-            <Button asChild variant="outline" className="w-full sm:w-auto h-12 sm:h-13 px-6 rounded-2xl border-slate-800 bg-slate-900/60 hover:bg-slate-800 text-white font-bold text-xs sm:text-sm">
-              <Link href="/login">
-                الدخول للنظام
-              </Link>
+            <Button asChild variant="outline" className="h-12 w-full rounded-2xl border-slate-800 bg-slate-900/60 px-7 text-sm font-bold text-white hover:bg-slate-800 sm:w-auto">
+              <Link href="/login">الدخول للنظام</Link>
             </Button>
           </div>
 
-          {/* Interactive Preview Dashboard Mockup */}
-          <div className="mt-12 sm:mt-20 max-w-5xl mx-auto rounded-3xl border border-slate-800 bg-slate-900/60 p-3.5 sm:p-6 shadow-2xl backdrop-blur-xl relative w-full overflow-hidden">
-            <div className="absolute -top-3 sm:-top-4 right-4 sm:right-8 bg-teal-500 text-slate-950 text-[10px] sm:text-[11px] font-black px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-full shadow-md flex items-center gap-1.5 z-20">
-              <Zap className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
-              معاينة حية للنظام
+          <div className="mx-auto mt-14 max-w-5xl rounded-3xl border border-slate-800 bg-slate-900/70 p-4 text-right shadow-2xl backdrop-blur-xl sm:mt-20 sm:p-6">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-wider text-teal-400">لوحة تشغيل موحدة</p>
+                <h2 className="mt-1 text-lg font-black text-white">صورة واضحة عن ورشة اليوم</h2>
+              </div>
+              <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-black text-emerald-300">بيانات مترابطة لحظياً</span>
             </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 text-right pt-2 sm:pt-0">
-              <div className="rounded-xl sm:rounded-2xl border border-slate-800 bg-slate-950/60 p-3 sm:p-4">
-                <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 block truncate">طلبات صيانة قيد العمل</span>
-                <span className="text-lg sm:text-2xl font-black text-teal-400 font-numeric mt-1 block">14 جهاز</span>
-              </div>
-              <div className="rounded-xl sm:rounded-2xl border border-slate-800 bg-slate-950/60 p-3 sm:p-4">
-                <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 block truncate">أجهزة جاهزة للتسليم</span>
-                <span className="text-lg sm:text-2xl font-black text-emerald-400 font-numeric mt-1 block">6 أجهزة</span>
-              </div>
-              <div className="rounded-xl sm:rounded-2xl border border-slate-800 bg-slate-950/60 p-3 sm:p-4">
-                <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 block truncate">مبيعات اليوم</span>
-                <span className="text-lg sm:text-2xl font-black text-amber-400 font-numeric mt-1 block truncate">2,450 ر.س</span>
-              </div>
-              <div className="rounded-xl sm:rounded-2xl border border-slate-800 bg-slate-950/60 p-3 sm:p-4">
-                <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 block truncate">تنبيهات قطع الغيار</span>
-                <span className="text-lg sm:text-2xl font-black text-rose-400 font-numeric mt-1 block">2 صنف</span>
-              </div>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <PreviewMetric icon={Wrench} label="أوامر قيد التنفيذ" value="12" />
+              <PreviewMetric icon={CarFront} label="مركبات جاهزة للتسليم" value="5" />
+              <PreviewMetric icon={Gauge} label="مواعيد اليوم" value="8" />
+              <PreviewMetric icon={Boxes} label="قطع تحت حد الطلب" value="7" />
             </div>
-
-            {/* Mock repair ticket preview row */}
-            <div className="mt-3 sm:mt-4 rounded-xl sm:rounded-2xl border border-slate-800/80 bg-slate-950/80 p-3 sm:p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4 text-right">
-              <div className="flex items-center gap-3 w-full sm:w-auto min-w-0">
-                <div className="flex h-9 w-9 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-xl bg-teal-500/10 text-teal-400 border border-teal-500/20">
-                  <Wrench className="h-4.5 w-4.5 sm:h-5 sm:w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-black text-white font-numeric">#TK-1082</span>
-                    <span className="text-[9px] sm:text-[10px] font-extrabold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 sm:px-2 py-0.5 rounded-md">
-                      مكتمل وجاهز للتسليم
-                    </span>
-                  </div>
-                  <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 truncate">iPhone 14 Pro Max • استبدال شاشة أصلية + بطارية</p>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-start sm:justify-end">
-                <span className="text-[10px] sm:text-xs font-bold text-slate-300 bg-slate-900 border border-slate-800 px-2.5 sm:px-3 py-1.5 rounded-xl flex items-center gap-1.5">
-                  <MessageSquareCode className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-400 shrink-0" />
-                  تم الإشعار بالواتساب
-                </span>
-                <span className="text-[10px] sm:text-xs font-bold text-slate-300 bg-slate-900 border border-slate-800 px-2.5 sm:px-3 py-1.5 rounded-xl flex items-center gap-1.5">
-                  <QrCode className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-cyan-400 shrink-0" />
-                  QR تتبع متاح
-                </span>
-              </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <PreviewRow title="تويوتا كامري 2022" subtitle="فحص فرامل وتغيير فحمات" badge="قيد التنفيذ" />
+              <PreviewRow title="هيونداي إلنترا 2020" subtitle="تغيير زيت وفلاتر" badge="جاهزة" />
+              <PreviewRow title="كيا سبورتاج 2021" subtitle="تشخيص نظام التبريد" badge="بانتظار الموافقة" />
             </div>
           </div>
         </div>
       </section>
 
-      {/* Features Grid */}
-      <section id="features" className="py-16 sm:py-20 border-t border-slate-900 bg-slate-950/40 relative w-full overflow-hidden">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto mb-12 sm:mb-16">
-            <span className="text-xs font-black text-teal-400 uppercase tracking-wider">مميزات صممت خصيصاً لمجال الصيانة</span>
-            <h2 className="mt-3 text-2xl sm:text-4xl font-black text-white">كل ما يحتاجه محلك في منصة واحدة ذكية</h2>
-            <p className="mt-3 text-xs sm:text-sm text-slate-400">
-              تخلص من الدفاتر الورقية وجداول الإكسل المعقدة، وادمج عمليات الاستقبال، الفحص، الفنيين، والمبيعات بسلاسة.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
-            {/* Feature 1 */}
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6 sm:p-7 hover:border-teal-500/30 transition duration-300 group">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-500/10 text-teal-400 border border-teal-500/20 group-hover:scale-110 transition duration-300">
-                <Wrench className="h-6 w-6" />
-              </div>
-              <h3 className="mt-5 text-base font-black text-white">دورة حياة تذكرة الصيانة</h3>
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed font-medium">
-                تتبع حالة الجهاز خطوة بخطوة من (استلام، فحص، قيد الإصلاح، انتظار قطع، منجز، مسلم) مع سجل زمني غير قابل للتعديل.
-              </p>
-            </div>
-
-            {/* Feature 2 */}
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6 sm:p-7 hover:border-emerald-500/30 transition duration-300 group">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 group-hover:scale-110 transition duration-300">
-                <MessageSquareCode className="h-6 w-6" />
-              </div>
-              <h3 className="mt-5 text-base font-black text-white">إشعارات واتساب بنقرة واحدة</h3>
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed font-medium">
-                أرسل رسائل مخصصة باللغة العربية تحتوي على تفاصيل التذكرة، التكلفة المقدرة، وجاهزية الجهاز للاستلام مباشرة لرقم العميل.
-              </p>
-            </div>
-
-            {/* Feature 3 */}
-            <div id="thermal-print" className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6 sm:p-7 hover:border-cyan-500/30 transition duration-300 group">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 group-hover:scale-110 transition duration-300">
-                <Printer className="h-6 w-6" />
-              </div>
-              <h3 className="mt-5 text-base font-black text-white">إيصالات حرارية ورمز تتبع QR</h3>
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed font-medium">
-                طباعة إيصال استلام حراري فوري (80mm / 58mm) يحتوي على رمز QR يتيح للعميل مسحه بكاميرا هاتفه لمتابعة حالة جهازه.
-              </p>
-            </div>
-
-            {/* Feature 4 */}
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6 sm:p-7 hover:border-amber-500/30 transition duration-300 group">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-500/20 group-hover:scale-110 transition duration-300">
-                <ShoppingCart className="h-6 w-6" />
-              </div>
-              <h3 className="mt-5 text-base font-black text-white">نقطة بيع سريعة (POS)</h3>
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed font-medium">
-                بيع الإكسسوارات والقطع وخدمات الصيانة السريعة مع خصم تلقائي فوري من المخزون وإمكانية إلغاء العملية واسترجاع الكمية.
-              </p>
-            </div>
-
-            {/* Feature 5 */}
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6 sm:p-7 hover:border-rose-500/30 transition duration-300 group">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-500/10 text-rose-400 border border-rose-500/20 group-hover:scale-110 transition duration-300">
-                <Boxes className="h-6 w-6" />
-              </div>
-              <h3 className="mt-5 text-base font-black text-white">مخزون ذكي وتنبيه النواقص</h3>
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed font-medium">
-                تتبع كميات الشاشات والبطاريات والقطع، وحساب تكلفة الشراء وسعر البيع، مع تنبيه فوري عندما تصل القطعة لحد إعادة الطلب.
-              </p>
-            </div>
-
-            {/* Feature 6 */}
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6 sm:p-7 hover:border-indigo-500/30 transition duration-300 group">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 group-hover:scale-110 transition duration-300">
-                <FileText className="h-6 w-6" />
-              </div>
-              <h3 className="mt-5 text-base font-black text-white">فواتير وسداد دفعات وعربون</h3>
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed font-medium">
-                إصدار فواتير ضريبية، قبول سداد جزئي (عربون استلام) ثم تحصيل المتبقي عند التسليم مع تتبع الحسابات غير المحصلة.
-              </p>
-            </div>
+      <section id="features" className="relative border-y border-slate-800/80 bg-slate-900/40 px-4 py-16 sm:px-6 sm:py-20 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <SectionHeading eyebrow="كل الأساسيات في مكان واحد" title="مصمم لدورة عمل مركز صيانة المركبات" description="بدل الملفات المنفصلة والحسابات اليدوية، كل خطوة تبني على الخطوة التي قبلها وتترك سجلاً واضحاً يمكن الرجوع إليه." />
+          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {features.map(({ icon: Icon, title, description }) => (
+              <article key={title} className="rounded-2xl border border-slate-800 bg-slate-950/65 p-5 shadow-lg shadow-black/10">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-500/10 text-teal-400 ring-1 ring-teal-500/20"><Icon className="h-5 w-5" /></span>
+                <h3 className="mt-4 text-sm font-black text-white">{title}</h3>
+                <p className="mt-2 text-xs font-medium leading-6 text-slate-400">{description}</p>
+              </article>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* How It Works Section */}
-      <section id="how-it-works" className="py-16 sm:py-20 border-t border-slate-900 bg-slate-950 w-full overflow-hidden">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <span className="text-xs font-black text-teal-400 uppercase tracking-wider">خطوات بسيطة وسريعة</span>
-          <h2 className="mt-3 text-2xl sm:text-4xl font-black text-white">كيف تبدأ استخدام مسار؟</h2>
-
-          <div className="mt-12 sm:mt-14 grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8 text-right">
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6 sm:p-7 relative">
-              <span className="text-4xl font-black text-teal-500/30 font-numeric block mb-3">01</span>
-              <h3 className="text-base font-black text-white">سجّل متجرك في دقيقة</h3>
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed">
-                أدخل اسم محلك وعملتك المفضلة ورقم هاتفك وسيتم تجهيز قاعدة بياناتك المستقلة فوراً.
-              </p>
-            </div>
-
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6 sm:p-7 relative">
-              <span className="text-4xl font-black text-teal-500/30 font-numeric block mb-3">02</span>
-              <h3 className="text-base font-black text-white">استقبل الأجهزة واطبع التذكرة</h3>
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed">
-                سجل بيانات العميل، نوع الهاتف، والعطل. اطبع وصل الاستلام الحراري وأرسل إشعار واتساب بنقرة واحدة.
-              </p>
-            </div>
-
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-6 sm:p-7 relative">
-              <span className="text-4xl font-black text-teal-500/30 font-numeric block mb-3">03</span>
-              <h3 className="text-base font-black text-white">سلّم وحصّل وراقب أرباحك</h3>
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed">
-                عند إتمام الصيانة، أصدر الفاتورة وحصّل المبلغ وتابع نمو أرباح متجرك في لوحة المؤشرات اليومية.
-              </p>
-            </div>
+      <section id="how-it-works" className="relative px-4 py-16 sm:px-6 sm:py-20 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <SectionHeading eyebrow="من الاستقبال إلى الفاتورة" title="دورة عمل واضحة لفريق الاستقبال والفني والمحاسبة" description="كل قسم يرى ما يحتاجه، مع بقاء المركبة وأمر الصيانة والمخزون والفاتورة ضمن سلسلة واحدة." />
+          <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {workflow.map(([number, title, description]) => (
+              <div key={number} className="relative rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+                <span className="font-numeric text-3xl font-black text-teal-500/30">{number}</span>
+                <h3 className="mt-3 text-sm font-black text-white">{title}</h3>
+                <p className="mt-2 text-xs font-medium leading-6 text-slate-400">{description}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Security & Multi-tenant banner */}
-      <section className="py-14 sm:py-16 border-t border-slate-900 bg-gradient-to-b from-slate-950 to-slate-900 w-full overflow-hidden">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <div className="inline-flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-2xl bg-teal-500/10 text-teal-400 border border-teal-500/20 mb-6">
-            <ShieldCheck className="h-6 w-6 sm:h-7 sm:w-7" />
-          </div>
-          <h2 className="text-2xl sm:text-3xl font-black text-white">بيانات متجرك معزولة ومحمية 100%</h2>
-          <p className="mt-3 text-xs sm:text-sm text-slate-400 max-w-xl mx-auto leading-relaxed">
-            كل متجر يملك معرفه المستقل `ShopId`، سجلات عملائك، تذاكر الصيانة، المخزون، والمبيعات مشفرة ومحفوظة بأعلى معايير الأمان السحابي.
-          </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-4 sm:gap-6 text-xs font-bold text-slate-400">
-            <span className="flex items-center gap-1.5">
-              <CheckCircle2 className="h-4 w-4 text-teal-400 shrink-0" />
-              تشفير كلمات المرور والبيانات
-            </span>
-            <span className="flex items-center gap-1.5">
-              <CheckCircle2 className="h-4 w-4 text-teal-400 shrink-0" />
-              نسخ احتياطي يومي تلقائي
-            </span>
-            <span className="flex items-center gap-1.5">
-              <CheckCircle2 className="h-4 w-4 text-teal-400 shrink-0" />
-              دعم فني وتحديثات مستمرة
-            </span>
-          </div>
+      <section id="operations" className="relative px-4 pb-16 sm:px-6 sm:pb-20 lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-5 lg:grid-cols-2">
+          <article className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 p-6 sm:p-8">
+            <Truck className="h-7 w-7 text-teal-400" />
+            <h2 className="mt-4 text-xl font-black text-white">المخزون والمشتريات مرتبطان بالصيانة</h2>
+            <p className="mt-3 text-sm font-medium leading-7 text-slate-400">استلام البضاعة يرفع المخزون، واستخدام القطعة في أمر الصيانة يسجل حركتها، والمرتجعات والتوالف تبقى ضمن سجل يمكن مراجعته.</p>
+            <div className="mt-5 space-y-2 text-xs font-bold text-slate-300">
+              <CheckLine>مستودعات وكميات وحركات صنف</CheckLine>
+              <CheckLine>فواتير شراء وموردون ودفعات</CheckLine>
+              <CheckLine>تنبيه حد إعادة الطلب وجرد المخزون</CheckLine>
+            </div>
+          </article>
+
+          <article className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 p-6 sm:p-8">
+            <ShieldCheck className="h-7 w-7 text-emerald-400" />
+            <h2 className="mt-4 text-xl font-black text-white">صلاحيات ومحاسبة بدون خلط الأدوار</h2>
+            <p className="mt-3 text-sm font-medium leading-7 text-slate-400">فريق الاستقبال ينفذ عمله، الفني يتابع أوامر الصيانة، المخزن يدير القطع، والمالية تتحكم بالحركات النقدية حسب الصلاحية.</p>
+            <div className="mt-5 space-y-2 text-xs font-bold text-slate-300">
+              <CheckLine>درج نقدي ومحافظ وحسابات بنكية</CheckLine>
+              <CheckLine>فواتير ودفعات وذمم وأقساط</CheckLine>
+              <CheckLine>سجل عمليات وتقارير قابلة للمراجعة</CheckLine>
+            </div>
+          </article>
         </div>
       </section>
 
-      {/* FAQ Section */}
-      <section id="faq" className="py-16 sm:py-20 border-t border-slate-900 bg-slate-950 w-full overflow-hidden">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12 sm:mb-14">
-            <span className="text-xs font-black text-teal-400 uppercase tracking-wider">الإجابات على استفساراتك</span>
-            <h2 className="mt-3 text-2xl sm:text-3xl font-black text-white">الأسئلة الشائعة</h2>
+      <section id="faq" className="relative border-t border-slate-800 bg-slate-900/40 px-4 py-16 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-4xl">
+          <SectionHeading eyebrow="أسئلة سريعة" title="ابدأ بدون تعقيد" description="النظام يعمل من المتصفح ومصمم ليتدرج مع مركز الصيانة من العمليات اليومية إلى التقارير والمحاسبة." />
+          <div className="mt-9 space-y-3">
+            <Faq question="هل أستطيع حفظ سجل صيانة مستقل لكل مركبة؟" answer="نعم. كل مركبة مرتبطة بعميلها ولها بيانات اللوحة وVIN والعداد وسجل أوامر الصيانة السابق." />
+            <Faq question="هل المخزون يتحدث عند استخدام قطع الغيار؟" answer="نعم، العمليات المخزنية مرتبطة بأوامر الصيانة والمبيعات والمشتريات مع سجل حركة للصنف والمستودع." />
+            <Faq question="هل يمكن توزيع العمل بين موظفين بصلاحيات مختلفة؟" answer="نعم. النظام يعتمد أدواراً وصلاحيات لفريق الإدارة والاستقبال والفنيين والمخزن والمالية." />
           </div>
-
-          <div className="space-y-4 text-right">
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 sm:p-5">
-              <h3 className="text-sm font-bold text-white">هل يدعم النظام طابعات الفواتير الحرارية (Receipt Printers)؟</h3>
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed font-medium">
-                نعم، تم تصميم تذاكر الاستلام وفواتير البيع لتتوافق تماماً مع طابعات الإيصالات الحرارية قياس 80mm و 58mm (مثل Xprinter و Epson وغيرها) بضغطة زر.
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 sm:p-5">
-              <h3 className="text-sm font-bold text-white">هل يمكنني تغيير عملة النظام لتناسب بلدي؟</h3>
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed font-medium">
-                نعم بكل تأكيد! يدعم النظام جميع العملات العربية والعالمية (الريال السعودي، الدرهم، الدينار، الجنيه المصري، الدولار وغيرها)، ويمكنك اختيار العملة عند التسجيل وتعديلها من الإعدادات في أي وقت.
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 sm:p-5">
-              <h3 className="text-sm font-bold text-white">هل أحتاج إلى شراء أجهزة خاصة لتشغيل النظام؟</h3>
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed font-medium">
-                لا، النظام سحابي ويعمل مباشرة من أي متصفح على أجهزة الكمبيوتر، اللابتوب، الأجهزة اللوحية (Tablets)، والهواتف الذكية دون الحاجة لتثبيت أي برامج معقدة.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Footer Banner */}
-      <section className="py-16 sm:py-20 border-t border-slate-900 bg-gradient-to-br from-teal-950/60 via-slate-950 to-slate-900 w-full overflow-hidden">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-2xl sm:text-4xl font-black text-white">جاهز لنقل مركز الصيانة إلى المستوى التالي؟</h2>
-          <p className="mt-3 sm:mt-4 text-xs sm:text-sm text-slate-300 max-w-xl mx-auto">
-            سجل الآن وابدأ تجربة إدارة تذاكر الصيانة والمبيعات والمخزون في أقل من دقيقة.
-          </p>
-          <div className="mt-8 flex justify-center">
-            <Button asChild className="w-full sm:w-auto h-12 sm:h-13 px-6 sm:px-8 rounded-2xl bg-gradient-to-r from-teal-400 to-primary text-slate-950 hover:from-teal-300 hover:to-teal-500 font-black text-xs sm:text-sm shadow-xl shadow-teal-500/25 border-0">
-              <Link href="/register" className="flex items-center justify-center gap-2">
-                سجّل متجرك مجاناً الآن
-                <ArrowLeft className="h-4 w-4 sm:h-4.5 sm:w-4.5 shrink-0" />
-              </Link>
+          <div className="mt-10 rounded-3xl border border-teal-500/20 bg-teal-500/10 p-6 text-center sm:p-8">
+            <UsersRound className="mx-auto h-8 w-8 text-teal-400" />
+            <h2 className="mt-3 text-xl font-black text-white">جاهز لتنظيم مركز الصيانة؟</h2>
+            <p className="mt-2 text-sm font-medium text-slate-400">أنشئ حسابك وابدأ بإضافة أول عميل ومركبة.</p>
+            <Button asChild className="mt-5 h-11 rounded-xl bg-teal-400 px-7 text-xs font-black text-slate-950 hover:bg-teal-300">
+              <Link href="/register">ابدأ الآن <ArrowLeft className="mr-1.5 h-4 w-4" /></Link>
             </Button>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-900 bg-slate-950 py-8 text-center text-xs text-slate-500 w-full overflow-hidden">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Image
-              src="/masar-icon.png"
-              alt="مسار"
-              width={20}
-              height={20}
-              className="h-4.5 w-4.5 object-contain"
-            />
-            <span className="font-bold text-slate-400">مسار - جميع الحقوق محفوظة {new Date().getFullYear()}</span>
-          </div>
-          <div className="flex items-center gap-4 sm:gap-6 font-medium">
-            <Link href="/login" className="hover:text-teal-400 transition">تسجيل الدخول</Link>
-            <Link href="/register" className="hover:text-teal-400 transition">تسجيل متجر جديد</Link>
-          </div>
+      <footer className="border-t border-slate-800 px-4 py-7 text-center text-[11px] font-medium text-slate-500">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 sm:flex-row">
+          <span>مسار — إدارة مراكز صيانة المركبات</span>
+          <div className="flex items-center gap-4"><Link href="/privacy" className="hover:text-teal-400">الخصوصية</Link><Link href="/terms" className="hover:text-teal-400">الشروط</Link><Link href="/support" className="hover:text-teal-400">الدعم</Link></div>
         </div>
       </footer>
-    </div>
+    </main>
   );
+}
+
+function PreviewMetric({ icon: Icon, label, value }: { icon: typeof Wrench; label: string; value: string }) {
+  return <div className="rounded-2xl border border-slate-800 bg-slate-950/75 p-4"><div className="flex items-center justify-between gap-2"><span className="text-[10px] font-bold text-slate-400">{label}</span><Icon className="h-4 w-4 text-teal-400" /></div><span className="font-numeric mt-3 block text-2xl font-black text-white">{value}</span></div>;
+}
+
+function PreviewRow({ title, subtitle, badge }: { title: string; subtitle: string; badge: string }) {
+  return <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-xs font-black text-white">{title}</div><div className="mt-1 truncate text-[10px] font-medium text-slate-500">{subtitle}</div></div><span className="shrink-0 rounded-lg bg-teal-500/10 px-2 py-1 text-[9px] font-black text-teal-300">{badge}</span></div></div>;
+}
+
+function SectionHeading({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
+  return <div className="mx-auto max-w-3xl text-center"><p className="text-[11px] font-black uppercase tracking-wider text-teal-400">{eyebrow}</p><h2 className="mt-2 text-2xl font-black text-white sm:text-3xl">{title}</h2><p className="mt-3 text-sm font-medium leading-7 text-slate-400">{description}</p></div>;
+}
+
+function CheckLine({ children }: { children: React.ReactNode }) {
+  return <div className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" /><span>{children}</span></div>;
+}
+
+function Faq({ question, answer }: { question: string; answer: string }) {
+  return <article className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5 text-right"><h3 className="text-sm font-black text-white">{question}</h3><p className="mt-2 text-xs font-medium leading-6 text-slate-400">{answer}</p></article>;
 }
