@@ -27,26 +27,31 @@ export function normalizePhone(phone?: string | null) {
   return hasPlus ? `+${digits}` : digits;
 }
 
+async function assertUniqueActivePhone(shopId: string, phoneNormalized: string | null, excludeCustomerId?: string) {
+  if (!phoneNormalized) return;
+
+  const existing = await prisma.customer.findFirst({
+    where: {
+      shopId,
+      deletedAt: null,
+      phoneNormalized,
+      ...(excludeCustomerId ? { id: { not: excludeCustomerId } } : {}),
+    },
+    select: { id: true, name: true },
+  });
+
+  if (existing) {
+    throw new Error(`يوجد عميل مسجل بهذا الرقم بالفعل: ${existing.name}. استخدم العميل الموجود بدلاً من إنشاء سجل مكرر.`);
+  }
+}
+
 export async function createCustomer(shopId: string, input: CreateCustomerInput) {
   const name = input.name.trim();
   if (!name) throw new Error("اسم العميل مطلوب.");
   const phone = emptyToNull(input.phone);
   const phoneNormalized = normalizePhone(phone);
 
-  if (phoneNormalized) {
-    const existing = await prisma.customer.findFirst({
-      where: {
-        shopId,
-        deletedAt: null,
-        phoneNormalized,
-      },
-      select: { id: true, name: true },
-    });
-
-    if (existing) {
-      throw new Error(`يوجد عميل مسجل بهذا الرقم بالفعل: ${existing.name}. استخدم العميل الموجود بدلاً من إنشاء سجل مكرر.`);
-    }
-  }
+  await assertUniqueActivePhone(shopId, phoneNormalized);
 
   return prisma.customer.create({
     data: {
@@ -145,18 +150,25 @@ export async function getCustomerById(shopId: string, customerId: string) {
 }
 
 export async function updateCustomer(shopId: string, customerId: string, input: UpdateCustomerInput) {
+  const name = input.name.trim();
+  if (!name) throw new Error("اسم العميل مطلوب.");
+
   const customer = await prisma.customer.findFirst({
     where: { id: customerId, shopId, deletedAt: null },
     select: { id: true },
   });
   if (!customer) throw new Error("العميل غير موجود.");
+
   const phone = emptyToNull(input.phone);
+  const phoneNormalized = normalizePhone(phone);
+  await assertUniqueActivePhone(shopId, phoneNormalized, customer.id);
+
   return prisma.customer.update({
     where: { id: customer.id },
     data: {
-      name: input.name.trim(),
+      name,
       phone,
-      phoneNormalized: normalizePhone(phone),
+      phoneNormalized,
       email: emptyToNull(input.email),
       notes: emptyToNull(input.notes),
       version: { increment: 1 },
