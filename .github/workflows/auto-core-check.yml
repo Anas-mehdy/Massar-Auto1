@@ -4,14 +4,14 @@ on:
   push:
     branches:
       - feature/auto-core-v1
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 concurrency:
   group: massar-auto-core-${{ github.ref }}
   cancel-in-progress: true
-
-permissions:
-  contents: write
 
 jobs:
   build:
@@ -23,12 +23,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: feature/auto-core-v1
-          fetch-depth: 0
-
-      - name: Apply reconciliation
-        run: python scripts/reconcile-labor-prisma.py
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -49,12 +43,3 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      - name: Commit reconciliation
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- prisma/schema.prisma lib/services/autoServiceOrderService.ts; then exit 0; fi
-          git add prisma/schema.prisma lib/services/autoServiceOrderService.ts
-          git commit -m "chore(auto): reconcile service labor model"
-          git push origin HEAD:feature/auto-core-v1
