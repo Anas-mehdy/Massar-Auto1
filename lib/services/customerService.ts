@@ -76,7 +76,8 @@ export async function listCustomers(shopId: string, filters: CustomerFilters = {
     include: {
       _count: {
         select: {
-          repairOrders: { where: { deletedAt: null } },
+          vehicles: { where: { deletedAt: null } },
+          autoServiceOrders: { where: { deletedAt: null } },
           sales: { where: { deletedAt: null } },
           invoices: { where: { deletedAt: null } },
         },
@@ -91,10 +92,34 @@ export async function getCustomerById(shopId: string, customerId: string) {
   return prisma.customer.findFirst({
     where: { id: customerId, shopId, deletedAt: null },
     include: {
-      repairOrders: {
+      vehicles: {
         where: { deletedAt: null },
-        orderBy: { createdAt: "desc" },
+        orderBy: { updatedAt: "desc" },
         take: 20,
+        select: {
+          id: true,
+          make: true,
+          model: true,
+          year: true,
+          plateNumber: true,
+          currentOdometer: true,
+          updatedAt: true,
+        },
+      },
+      autoServiceOrders: {
+        where: { deletedAt: null },
+        orderBy: { receivedAt: "desc" },
+        take: 20,
+        include: {
+          vehicle: {
+            select: {
+              id: true,
+              make: true,
+              model: true,
+              plateNumber: true,
+            },
+          },
+        },
       },
       sales: {
         where: { deletedAt: null },
@@ -108,6 +133,8 @@ export async function getCustomerById(shopId: string, customerId: string) {
       },
       _count: {
         select: {
+          vehicles: { where: { deletedAt: null } },
+          autoServiceOrders: { where: { deletedAt: null } },
           repairOrders: { where: { deletedAt: null } },
           sales: { where: { deletedAt: null } },
           invoices: { where: { deletedAt: null } },
@@ -144,6 +171,8 @@ export async function softDeleteCustomer(shopId: string, customerId: string) {
       include: {
         _count: {
           select: {
+            vehicles: { where: { deletedAt: null } },
+            autoServiceOrders: { where: { deletedAt: null } },
             repairOrders: { where: { deletedAt: null } },
             sales: { where: { deletedAt: null } },
             invoices: { where: { deletedAt: null } },
@@ -165,6 +194,8 @@ export async function softDeleteCustomer(shopId: string, customerId: string) {
 
     const debtAccountCount = Number(debtRows[0]?.count ?? 0);
     const linkedRecords =
+      customer._count.vehicles +
+      customer._count.autoServiceOrders +
       customer._count.repairOrders +
       customer._count.sales +
       customer._count.invoices +
@@ -172,7 +203,7 @@ export async function softDeleteCustomer(shopId: string, customerId: string) {
       debtAccountCount;
 
     if (linkedRecords > 0) {
-      throw new Error("لا يمكن حذف عميل لديه صيانة أو مبيعات أو فواتير أو أقساط أو دفتر ديون مرتبط.");
+      throw new Error("لا يمكن حذف عميل لديه مركبة أو أمر صيانة أو مبيعات أو فواتير أو أقساط أو دفتر ديون مرتبط.");
     }
 
     return tx.customer.update({
