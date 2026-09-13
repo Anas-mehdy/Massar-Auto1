@@ -38,7 +38,7 @@ export async function updateInvoiceDiscountAction(formData: FormData) {
       discountTotal: readString(formData, "discountTotal"),
     });
 
-    const auth = await requirePermission("invoices:pay");
+    const auth = await requirePermission("invoices:credit");
     await invoiceDiscountService.updateInvoiceDiscount(
       auth.shop.id,
       input.invoiceId,
