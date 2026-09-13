@@ -38,8 +38,14 @@ jobs:
           npx prisma validate
           npx prisma generate
 
-      - name: Auto static regression checks
-        run: npm run auto:static-test
+      - name: Auto route retirement checks
+        run: node scripts/test-auto-core-static.cjs routes
+
+      - name: Auto inventory boundary checks
+        run: node scripts/test-auto-core-static.cjs inventory
+
+      - name: Auto user-facing content checks
+        run: node scripts/test-auto-core-static.cjs content
 
       - name: TypeScript
         run: npx tsc --noEmit
