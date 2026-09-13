@@ -452,7 +452,7 @@ export async function createAccount(shopId: string, userId: string | null, input
     }
     const refreshed = await tx.$queryRaw<BankAccountRow[]>`
       SELECT "id", "name", "bankName", "openingBalance", "currentBalance", "openingBalanceSetAt", "isActive", "createdAt", "updatedAt"
-      FROM "BankAccount" WHERE "id" = ${account.id}::uuid
+      FROM "BankAccount" WHERE "id" = ${account.id}::uuid AND "shopId" = ${shopId}::uuid
     `;
     return refreshed[0];
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
@@ -529,12 +529,27 @@ async function lockEndpoint(tx: Prisma.TransactionClient, shopId: string, type: 
   return { type, id: rows[0].id, name: rows[0].name, balance: rows[0].currentBalance };
 }
 
-async function writeNonBankEndpointBalance(tx: Prisma.TransactionClient, endpoint: LockedEndpoint, next: Prisma.Decimal) {
+async function writeNonBankEndpointBalance(
+  tx: Prisma.TransactionClient,
+  shopId: string,
+  endpoint: LockedEndpoint,
+  next: Prisma.Decimal,
+) {
+  let affected = 0;
   if (endpoint.type === "DRAWER") {
-    await tx.$executeRaw`UPDATE "CashDrawer" SET "currentBalance"=${next}, "updatedAt"=NOW() WHERE "id"=${endpoint.id}::uuid`;
+    affected = await tx.$executeRaw`
+      UPDATE "CashDrawer"
+      SET "currentBalance"=${next}, "updatedAt"=NOW()
+      WHERE "id"=${endpoint.id}::uuid AND "shopId"=${shopId}::uuid
+    `;
   } else if (endpoint.type === "WALLET") {
-    await tx.$executeRaw`UPDATE "FinancialWallet" SET "currentBalance"=${next}, "updatedAt"=NOW() WHERE "id"=${endpoint.id}::uuid`;
+    affected = await tx.$executeRaw`
+      UPDATE "FinancialWallet"
+      SET "currentBalance"=${next}, "updatedAt"=NOW()
+      WHERE "id"=${endpoint.id}::uuid AND "shopId"=${shopId}::uuid AND "deletedAt" IS NULL
+    `;
   }
+  if (affected !== 1) throw new Error("تعذر تحديث الحساب المالي المحدد ضمن المركز.");
 }
 
 async function insertTransferLedgerMovement(
@@ -640,8 +655,8 @@ export async function transferMoney(
     if (fromAfter.lt(0)) throw new Error(`رصيد ${from.name} غير كافٍ للتحويل.`);
     const toAfter = to.balance.add(amount);
 
-    if (from.type !== "BANK") await writeNonBankEndpointBalance(tx, from, fromAfter);
-    if (to.type !== "BANK") await writeNonBankEndpointBalance(tx, to, toAfter);
+    if (from.type !== "BANK") await writeNonBankEndpointBalance(tx, shopId, from, fromAfter);
+    if (to.type !== "BANK") await writeNonBankEndpointBalance(tx, shopId, to, toAfter);
     await insertTransferLedgerMovement(tx, shopId, userId, from, to, "OUT", amount, groupId, note, reference, occurredAt);
     await insertTransferLedgerMovement(tx, shopId, userId, to, from, "IN", amount, groupId, note, reference, occurredAt);
 
@@ -690,7 +705,7 @@ export async function getMovementById(shopId: string, movementId: string) {
     ${movementSelect()}
     WHERE m."shopId"=${shopId}::uuid AND m."id"=${movementId}::uuid
     LIMIT 1
-  `);
+  `;
   return rows[0] ?? null;
 }
 
