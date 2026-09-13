@@ -6,7 +6,6 @@ export const ONBOARDING_JOBS = [
   "INVENTORY",
   "WALLETS",
   "DEBTS",
-  "ELECTRONIC_SERVICES",
 ] as const;
 
 export type OnboardingJob = (typeof ONBOARDING_JOBS)[number];
@@ -19,8 +18,8 @@ export function isOnboardingJob(value: unknown): value is OnboardingJob {
 
 /**
  * Returns supported jobs once, in the canonical product order.
- * Unknown values are intentionally discarded so old clients cannot persist
- * arbitrary strings into the onboarding profile.
+ * Unknown and retired values are intentionally discarded so old clients cannot persist
+ * arbitrary or phone-era strings into the automotive onboarding profile.
  */
 export function normalizeOnboardingJobs(values: readonly unknown[]): OnboardingJob[] {
   const requested = new Set(values.filter(isOnboardingJob));
