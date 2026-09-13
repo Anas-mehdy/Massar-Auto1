@@ -21,6 +21,7 @@
     "compatibility:test:remaining-import": "tsx scripts/test-multi-section-candidate-import.ts",
     "compatibility:corroborate:screens": "tsx scripts/run-screen-auto-corroboration.ts",
     "compatibility:test:corroboration": "tsx scripts/test-screen-auto-corroboration.ts",
+    "auto:static-test": "node scripts/test-auto-core-static.cjs",
     "installments:test": "tsx scripts/test-installment-schedule.ts",
     "entitlement:test": "tsx scripts/test-entitlement-service.ts",
     "entitlement:test:integration": "tsx scripts/test-subscription-integration.ts",
