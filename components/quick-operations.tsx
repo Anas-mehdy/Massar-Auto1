@@ -19,6 +19,7 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import type { AppPermission } from "@/lib/auth/permissions";
 import { cn } from "@/lib/utils";
 import styles from "./quick-operations.module.css";
 
@@ -31,26 +32,28 @@ type QuickOperation = {
   href?: string;
   icon: LucideIcon;
   tone: Tone;
+  permission: AppPermission;
   comingSoon?: boolean;
-  requiresDebts?: boolean;
 };
 
 const primaryOperations: QuickOperation[] = [
   {
-    key: "repair",
-    label: "طلب صيانة جديد",
-    description: "استلام جهاز وفتح تذكرة صيانة",
-    href: "/point-of-sale?tab=repair",
+    key: "service",
+    label: "أمر صيانة جديد",
+    description: "استقبال مركبة وفتح أمر صيانة",
+    href: "/point-of-sale?tab=service",
     icon: Wrench,
     tone: "cyan",
+    permission: "service_orders:create",
   },
   {
     key: "pos",
     label: "بيع POS",
-    description: "بيع قطعة أو إكسسوار من نقطة البيع",
+    description: "بيع قطعة أو خدمة سريعة من نقطة البيع",
     href: "/point-of-sale?tab=sale",
     icon: ShoppingCart,
     tone: "indigo",
+    permission: "sales:create",
   },
   {
     key: "software",
@@ -59,6 +62,7 @@ const primaryOperations: QuickOperation[] = [
     href: "/point-of-sale?tab=software",
     icon: Code2,
     tone: "violet",
+    permission: "sales:create",
   },
   {
     key: "electronic-service",
@@ -67,6 +71,7 @@ const primaryOperations: QuickOperation[] = [
     href: "/point-of-sale?tab=electronic",
     icon: Zap,
     tone: "amber",
+    permission: "electronic_services:execute",
   },
 ];
 
@@ -78,6 +83,7 @@ const secondaryOperations: QuickOperation[] = [
     href: "/customers/new",
     icon: UserPlus,
     tone: "sky",
+    permission: "customers:manage",
   },
   {
     key: "inventory",
@@ -86,6 +92,7 @@ const secondaryOperations: QuickOperation[] = [
     href: "/inventory/new",
     icon: Boxes,
     tone: "amber",
+    permission: "inventory:manage",
   },
   {
     key: "debt",
@@ -94,7 +101,7 @@ const secondaryOperations: QuickOperation[] = [
     href: "/debts",
     icon: BookOpenText,
     tone: "rose",
-    requiresDebts: true,
+    permission: "debts:manage",
   },
   {
     key: "transfer",
@@ -103,6 +110,7 @@ const secondaryOperations: QuickOperation[] = [
     href: "/transfers",
     icon: ArrowLeftRight,
     tone: "emerald",
+    permission: "sales:create",
   },
 ];
 
@@ -164,10 +172,10 @@ function isHiddenPath(pathname: string) {
 }
 
 export function QuickOperationsLauncher({
-  canManageDebts = false,
+  permissions = [],
   readOnly = false,
 }: {
-  canManageDebts?: boolean;
+  permissions?: readonly AppPermission[];
   readOnly?: boolean;
 }) {
   const pathname = usePathname();
@@ -175,9 +183,13 @@ export function QuickOperationsLauncher({
   const [showMore, setShowMore] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  const primary = useMemo(
+    () => primaryOperations.filter((operation) => permissions.includes(operation.permission)),
+    [permissions],
+  );
   const secondary = useMemo(
-    () => secondaryOperations.filter((operation) => !operation.requiresDebts || canManageDebts),
-    [canManageDebts],
+    () => secondaryOperations.filter((operation) => permissions.includes(operation.permission)),
+    [permissions],
   );
 
   useEffect(() => {
@@ -206,9 +218,10 @@ export function QuickOperationsLauncher({
     };
   }, [mobileOpen]);
 
-  if (isHiddenPath(pathname)) return null;
+  if (isHiddenPath(pathname) || (primary.length === 0 && secondary.length === 0)) return null;
 
-  const desktopOperations = showMore ? secondary : primaryOperations;
+  const canShowMore = primary.length > 0 && secondary.length > 0;
+  const desktopOperations = showMore && canShowMore ? secondary : primary.length > 0 ? primary : secondary;
 
   return (
     <>
@@ -240,19 +253,21 @@ export function QuickOperationsLauncher({
               />
             ))}
 
-            <button
-              type="button"
-              className={styles.desktopActionRow}
-              style={{ animationDelay: `${desktopOperations.length * 45}ms` }}
-              onClick={() => setShowMore((value) => !value)}
-            >
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-lg shadow-slate-950/10 transition hover:-translate-y-0.5 hover:border-teal-300 hover:text-teal-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:shadow-black/30 dark:hover:border-teal-700 dark:hover:text-teal-300">
-                {showMore ? <ArrowRight className="h-4.5 w-4.5" /> : <MoreHorizontal className="h-5 w-5" />}
-              </span>
-              <span className={styles.desktopActionLabel} dir="rtl">
-                {showMore ? "العودة للعمليات الأساسية" : "المزيد من العمليات"}
-              </span>
-            </button>
+            {canShowMore ? (
+              <button
+                type="button"
+                className={styles.desktopActionRow}
+                style={{ animationDelay: `${desktopOperations.length * 45}ms` }}
+                onClick={() => setShowMore((value) => !value)}
+              >
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-lg shadow-slate-950/10 transition hover:-translate-y-0.5 hover:border-teal-300 hover:text-teal-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:shadow-black/30 dark:hover:border-teal-700 dark:hover:text-teal-300">
+                  {showMore ? <ArrowRight className="h-4.5 w-4.5" /> : <MoreHorizontal className="h-5 w-5" />}
+                </span>
+                <span className={styles.desktopActionLabel} dir="rtl">
+                  {showMore ? "العودة للعمليات الأساسية" : "المزيد من العمليات"}
+                </span>
+              </button>
+            ) : null}
           </div>
         ) : null}
 
@@ -328,31 +343,39 @@ export function QuickOperationsLauncher({
                 </div>
               ) : null}
 
-              <p className="mb-2.5 px-1 text-[11px] font-black text-slate-500 dark:text-slate-400">العمليات الأساسية</p>
-              <div className="grid grid-cols-2 gap-2.5">
-                {primaryOperations.map((operation) => (
-                  <MobileOperation
-                    key={operation.key}
-                    operation={operation}
-                    readOnly={readOnly}
-                    onNavigate={() => setMobileOpen(false)}
-                  />
-                ))}
-              </div>
+              {primary.length > 0 ? (
+                <>
+                  <p className="mb-2.5 px-1 text-[11px] font-black text-slate-500 dark:text-slate-400">العمليات الأساسية</p>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {primary.map((operation) => (
+                      <MobileOperation
+                        key={operation.key}
+                        operation={operation}
+                        readOnly={readOnly}
+                        onNavigate={() => setMobileOpen(false)}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : null}
 
-              <div className="my-4 h-px bg-slate-100 dark:bg-slate-800" />
-              <p className="mb-2.5 px-1 text-[11px] font-black text-slate-500 dark:text-slate-400">عمليات أخرى</p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {secondary.map((operation) => (
-                  <MobileOperation
-                    key={operation.key}
-                    operation={operation}
-                    readOnly={readOnly}
-                    compact
-                    onNavigate={() => setMobileOpen(false)}
-                  />
-                ))}
-              </div>
+              {primary.length > 0 && secondary.length > 0 ? <div className="my-4 h-px bg-slate-100 dark:bg-slate-800" /> : null}
+              {secondary.length > 0 ? (
+                <>
+                  <p className="mb-2.5 px-1 text-[11px] font-black text-slate-500 dark:text-slate-400">عمليات أخرى</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {secondary.map((operation) => (
+                      <MobileOperation
+                        key={operation.key}
+                        operation={operation}
+                        readOnly={readOnly}
+                        compact
+                        onNavigate={() => setMobileOpen(false)}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : null}
             </div>
           </section>
         </>
