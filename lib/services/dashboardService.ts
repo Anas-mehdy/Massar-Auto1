@@ -5,11 +5,11 @@ import { softwareServiceService } from "@/lib/services/softwareServiceService";
 import { dayUtcBoundsForTimeZone } from "@/lib/timezone";
 import { getShopTimeZone } from "@/lib/shop-timezone";
 
-function hasPermission(permissions: readonly AppPermission[], permission: AppPermission) {
+function hasPermission(permissions: readonly string[], permission: AppPermission) {
   return permissions.includes(permission);
 }
 
-export async function getDashboardMetrics(shopId: string, permissions: readonly AppPermission[]) {
+export async function getDashboardMetrics(shopId: string, permissions: readonly string[]) {
   const timeZone = await getShopTimeZone(shopId);
   const { start: startOfToday, end: startOfTomorrow } = dayUtcBoundsForTimeZone(new Date(), timeZone);
   const canReadServiceOrders = hasPermission(permissions, "service_orders:read");
@@ -137,7 +137,7 @@ export async function getDashboardMetrics(shopId: string, permissions: readonly 
   };
 }
 
-export async function getRecentActivity(shopId: string, permissions: readonly AppPermission[]) {
+export async function getRecentActivity(shopId: string, permissions: readonly string[]) {
   const canReadServiceOrders = hasPermission(permissions, "service_orders:read");
   const canReadSales = hasPermission(permissions, "sales:read");
   const canReadInvoices = hasPermission(permissions, "invoices:read");
