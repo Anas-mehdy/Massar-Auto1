@@ -42,7 +42,7 @@ export const metadata: Metadata = { metadataBase: new URL(APP_URL), title: "مس
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   let navPermissions: AppPermission[] = [];
-  let canManageSubscription = false, canManageDebts = false, showTutorialBanner = false;
+  let canManageSubscription = false, showTutorialBanner = false;
   let subscriptionReadOnly = false;
   let lifetimeBanner: { remaining: number; total: number } | null = null;
   let analyticsIdentity: AnalyticsIdentityData | null = null;
@@ -57,7 +57,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       currency: auth.shop.currency,
       membershipRole: auth.membership.role,
     };
-    canManageDebts = can(auth, "debts:manage");
 
     try {
       const entitlement = await entitlementService.getEntitlementContext(auth.shop.id);
@@ -109,7 +108,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   } catch {
     navPermissions = [];
     canManageSubscription = false;
-    canManageDebts = false;
     showTutorialBanner = false;
     subscriptionReadOnly = false;
     lifetimeBanner = null;
@@ -132,7 +130,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       {lifetimeBanner ? <LifetimeOfferBanner remaining={lifetimeBanner.remaining} total={lifetimeBanner.total} /> : null}
       <AppShell permissions={navPermissions} canManageSubscription={canManageSubscription} subscriptionReadOnly={subscriptionReadOnly} tutorialInitialShowBanner={showTutorialBanner}>{children}</AppShell>
       <AutoPrintShortcuts />
-      <QuickOperationsLauncher canManageDebts={canManageDebts} readOnly={subscriptionReadOnly} />
+      <QuickOperationsLauncher permissions={navPermissions} readOnly={subscriptionReadOnly} />
     </body>
   </html>;
 }
