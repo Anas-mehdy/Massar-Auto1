@@ -24,6 +24,51 @@ export async function lockShopFinancialTx(
 }
 
 /**
+ * Check one or more affected financial dates under the same shop-level lock.
+ *
+ * Historical edits/voids can alter a previously closed day even when the
+ * correcting action happens today. Those mutations must therefore validate the
+ * original movement date as well as any replacement date.
+ */
+export async function assertBusinessDatesOpenTx(
+  tx: Prisma.TransactionClient,
+  shopId: string,
+  occurredAts: Array<Date | string>,
+) {
+  await lockShopFinancialTx(tx, shopId);
+
+  const shop = await tx.shop.findFirst({
+    where: { id: shopId, deletedAt: null },
+    select: { countryCode: true },
+  });
+  if (!shop) throw new Error("المركز غير موجود.");
+
+  const timeZone = timeZoneForCountry(shop.countryCode);
+  const businessDates = [...new Set(
+    (occurredAts.length ? occurredAts : [new Date()]).map((occurredAt) => localDateString(occurredAt, timeZone)),
+  )].sort();
+
+  for (const businessDate of businessDates) {
+    const rows = await tx.$queryRaw<Array<{ status: string }>>`
+      SELECT "status"
+      FROM "DailyCashClose"
+      WHERE "shopId" = ${shopId}::uuid
+        AND "businessDate" = ${businessDate}::date
+      LIMIT 1
+      FOR SHARE
+    `;
+
+    if (rows[0]?.status === "CLOSED") {
+      throw new Error(
+        `يوم ${businessDate} مغلق نقدياً. يجب إعادة فتح اليوم بصلاحية المدير قبل تسجيل أو تعديل حركة مالية.`,
+      );
+    }
+  }
+
+  return businessDates;
+}
+
+/**
  * Transaction-scoped business-day lock check for Massar Auto.
  *
  * Use this inside the same transaction that posts a dated financial mutation so
@@ -35,32 +80,12 @@ export async function assertBusinessDateOpenTx(
   shopId: string,
   occurredAt: Date | string = new Date(),
 ) {
-  await lockShopFinancialTx(tx, shopId);
-
-  const shop = await tx.shop.findFirst({
-    where: { id: shopId, deletedAt: null },
-    select: { countryCode: true },
-  });
-  if (!shop) throw new Error("المركز غير موجود.");
-
-  const timeZone = timeZoneForCountry(shop.countryCode);
-  const businessDate = localDateString(occurredAt, timeZone);
-  const rows = await tx.$queryRaw<Array<{ status: string }>>`
-    SELECT "status"
-    FROM "DailyCashClose"
-    WHERE "shopId" = ${shopId}::uuid
-      AND "businessDate" = ${businessDate}::date
-    LIMIT 1
-    FOR SHARE
-  `;
-
-  if (rows[0]?.status === "CLOSED") {
-    throw new Error(
-      `يوم ${businessDate} مغلق نقدياً. يجب إعادة فتح اليوم بصلاحية المدير قبل تسجيل أو تعديل حركة مالية.`,
-    );
-  }
-
+  const [businessDate] = await assertBusinessDatesOpenTx(tx, shopId, [occurredAt]);
   return businessDate;
 }
 
-export const businessDateLockService = { lockShopFinancialTx, assertBusinessDateOpenTx };
+export const businessDateLockService = {
+  lockShopFinancialTx,
+  assertBusinessDateOpenTx,
+  assertBusinessDatesOpenTx,
+};
