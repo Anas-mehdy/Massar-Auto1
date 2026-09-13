@@ -13,7 +13,6 @@ import {
   Sparkles,
   WalletCards,
   Wrench,
-  Zap,
   type LucideIcon,
 } from "lucide-react";
 import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
@@ -31,7 +30,6 @@ const JOB_META: Record<OnboardingJob, { label: string; icon: LucideIcon; normalH
   INVENTORY: { label: "المخزون", icon: Boxes, normalHref: "/inventory/new" },
   WALLETS: { label: "المحافظ والتحويلات", icon: WalletCards, normalHref: "/transfers" },
   DEBTS: { label: "الديون والتحصيلات", icon: HandCoins, normalHref: "/debts" },
-  ELECTRONIC_SERVICES: { label: "الخدمات الإلكترونية", icon: Zap, normalHref: "/electronic-services/new" },
 };
 
 type ClientState = {
