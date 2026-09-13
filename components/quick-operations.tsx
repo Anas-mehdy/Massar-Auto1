@@ -5,7 +5,6 @@ import {
   ArrowRight,
   BookOpenText,
   Boxes,
-  Code2,
   MoreHorizontal,
   Plus,
   ShoppingCart,
@@ -13,7 +12,6 @@ import {
   UserPlus,
   Wrench,
   X,
-  Zap,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -54,24 +52,6 @@ const primaryOperations: QuickOperation[] = [
     icon: ShoppingCart,
     tone: "indigo",
     permission: "sales:create",
-  },
-  {
-    key: "software",
-    label: "خدمة سوفتوير",
-    description: "تسجيل خدمة سوفتوير جديدة",
-    href: "/point-of-sale?tab=software",
-    icon: Code2,
-    tone: "violet",
-    permission: "sales:create",
-  },
-  {
-    key: "electronic-service",
-    label: "خدمة إلكترونية",
-    description: "شحن وفواتير وخدمات مزودي الرصيد",
-    href: "/point-of-sale?tab=electronic",
-    icon: Zap,
-    tone: "amber",
-    permission: "electronic_services:execute",
   },
 ];
 
