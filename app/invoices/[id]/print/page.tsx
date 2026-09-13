@@ -70,7 +70,7 @@ export default async function InvoicePrintPage({ params }: InvoicePrintPageProps
         {/* Invoice Title */}
         <div className="text-center py-2 border-b border-slate-300">
           <span className="text-[11px] font-black tracking-wider text-slate-900 bg-slate-100 px-3 py-0.5 rounded border border-slate-300 inline-block">
-            فاتورة ضريبية مبسطة
+            فاتورة
           </span>
           <div className="text-lg font-black text-slate-950 font-numeric mt-1 tracking-tight">
             {invoice.invoiceNumber}
@@ -183,7 +183,7 @@ export default async function InvoicePrintPage({ params }: InvoicePrintPageProps
             />
           </div>
           <p className="text-[9px] font-bold text-slate-500 mt-1">
-            رمز التحقق من الفاتورة الضريبية
+            رمز الفاتورة
           </p>
         </div>
 
