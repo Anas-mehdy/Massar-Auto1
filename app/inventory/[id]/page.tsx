@@ -11,9 +11,7 @@ import { inventoryService } from "@/lib/services/inventoryService";
 import { inventoryCategoryService } from "@/lib/services/inventoryCategoryService";
 import { supplierService } from "@/lib/services/supplierService";
 import { supplierInvoiceAttachmentService } from "@/lib/services/supplierInvoiceAttachmentService";
-import { datasetKeyForSourceCategory } from "@/lib/services/compatibility/compatibility-datasets";
 import { Field, formatDate, formatMoney, inputClassName, isLowStock, textareaClassName } from "../_components";
-import { CompatibilityGroupPicker } from "../_compatibility-group-picker";
 import { InventoryCategoryField } from "../_category-field";
 import { addStockAction, adjustStockAction, recordDamagedStockAction, updateInventoryItemDetailsAction } from "../actions";
 import { InventoryActivationSuccess } from "./_activation-success";
@@ -55,14 +53,6 @@ export default async function InventoryItemDetailsPage({ params, searchParams }:
 
   const attachmentByMovementId = new Map(attachments.map((attachment) => [attachment.movementId, attachment]));
   const lowStock = isLowStock(item.quantity, item.reorderLevel);
-  const linkedGroup = item.compatibilityGroupLinks[0]?.candidateGroup;
-  const initialCompatibilitySelection = linkedGroup ? {
-    groupId: linkedGroup.id,
-    brandSection: linkedGroup.brandSection,
-    deviceName: linkedGroup.members[0]?.rawModelName || "مجموعة توافق",
-    compatibleDevices: linkedGroup.members.map((member) => ({ id: member.id, name: member.rawModelName })),
-    dataset: datasetKeyForSourceCategory(linkedGroup.batch.categoryName),
-  } : null;
   const openingMovement = movements.find((movement) => movement.note === "رصيد افتتاحي" && movement.quantityChange > 0) ?? null;
 
   return (
@@ -104,7 +94,6 @@ export default async function InventoryItemDetailsPage({ params, searchParams }:
               <Info label="سعر البيع للعميل" value={<span className="font-numeric">{formatMoney(item.unitPrice, currency)}</span>} />
               <Info label="آخر تحديث" value={<span className="font-numeric">{formatDate(item.updatedAt, timeZone)}</span>} />
               <Info label="حالة المخزون" value={<PlainBadge tone={lowStock ? "red" : "green"} label={lowStock ? "مخزون منخفض" : "طبيعي"} />} />
-              <Info label="دليل التوافق" value={linkedGroup ? <span className="text-violet-700">مرتبط مع {linkedGroup.members.map((member) => member.rawModelName).join("، ")}</span> : <span className="text-slate-400">غير مرتبط</span>} />
             </div>
             {item.description ? <div className="mt-5 border-t border-slate-100/60 pt-4"><Info label="الوصف والتفاصيل" value={<p className="text-xs font-medium leading-relaxed text-slate-600">{item.description}</p>} /></div> : null}
           </div>
@@ -121,7 +110,6 @@ export default async function InventoryItemDetailsPage({ params, searchParams }:
               <Field label="حد إعادة الطلب"><input className={`${inputClassName} font-numeric`} name="reorderLevel" defaultValue={String(item.reorderLevel)} min="0" step="1" type="number" /></Field>
               <div className="sm:col-span-2"><Field label="الوصف والتفاصيل"><textarea className={textareaClassName} name="description" defaultValue={item.description ?? ""} /></Field></div>
             </div>
-            <div className="mt-6"><CompatibilityGroupPicker initialSelection={initialCompatibilitySelection} /></div>
             <div className="mt-6 flex justify-end"><Button type="submit" className="h-11 rounded-xl px-6 font-bold shadow-sm"><Save className="ml-1.5 h-4.5 w-4.5" />حفظ بيانات القطعة المحدثة</Button></div>
           </form>
 
@@ -142,7 +130,7 @@ export default async function InventoryItemDetailsPage({ params, searchParams }:
 
           <form action={addStockAction} className="erp-section"><input type="hidden" name="inventoryItemId" value={item.id} /><div className="mb-4 border-b border-slate-100/60 pb-3"><h3 className="text-sm font-bold text-slate-800">توريد وإدخال كمية للمخزون</h3><p className="mt-1 text-[10px] font-medium text-slate-400">يمكن ربط كل دفعة بالمورد الذي جاءت منه، بدون تثبيت مورد واحد على المنتج.</p></div><div className="grid gap-4"><Field label="الكمية المضافة"><input className={`${inputClassName} font-numeric`} name="quantity" min="1" required step="1" type="number" placeholder="عدد الوحدات المضافة..." /></Field><Field label="المورد (اختياري)"><select className={inputClassName} name="supplierId" defaultValue=""><option value="">بدون تحديد مورد</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></Field><Field label="ملاحظة / رقم الفاتورة"><textarea className={textareaClassName} name="note" maxLength={1000} placeholder="مثال: فاتورة توريد رقم 123..." /></Field><Button type="submit" className="h-11 w-full rounded-xl font-bold shadow-sm"><Save className="ml-1.5 h-4 w-4" />حفظ حركة التوريد</Button></div></form>
 
-          <form action={recordDamagedStockAction} className="rounded-3xl border border-rose-200/70 bg-white p-5 shadow-sm shadow-rose-100/30"><input type="hidden" name="inventoryItemId" value={item.id} /><div className="mb-4 border-b border-rose-100 pb-3"><div className="flex items-center gap-2"><span aria-hidden="true">⚠️</span><h3 className="text-sm font-bold text-rose-800">تسجيل قطعة تالفة / هالكة</h3></div><p className="mt-1 text-[10px] font-medium leading-relaxed text-rose-500">سيتم خصم الكمية التالفة من المخزون وتسجيلها بشكل مستقل لاحتساب خسائر التوالف لاحقاً.</p></div><div className="grid gap-4"><Field label="الكمية التالفة"><input className={`${inputClassName} font-numeric`} name="quantity" min="1" max={item.quantity} required step="1" type="number" placeholder="عدد القطع التالفة..." disabled={item.quantity <= 0} /></Field><Field label="سبب التلف"><input className={inputClassName} name="reason" required maxLength={200} placeholder="مثال: كسر أثناء التركيب، عيب مصنعي، ماء..." disabled={item.quantity <= 0} /></Field><Field label="ملاحظة إضافية (اختياري)"><textarea className={textareaClassName} name="note" maxLength={1000} placeholder="أي تفاصيل تساعدك عند مراجعة التوالف لاحقاً..." disabled={item.quantity <= 0} /></Field><Button type="submit" variant="outline" disabled={item.quantity <= 0} className="h-11 w-full rounded-xl border-rose-300 font-bold text-rose-700 shadow-sm hover:bg-rose-50 hover:text-rose-800">تأكيد تسجيل التالف وخصم الكمية</Button>{item.quantity <= 0 ? <p className="text-center text-[10px] font-bold text-slate-400">لا توجد كمية متاحة يمكن تسجيلها كتالف.</p> : null}</div></form>
+          <form action={recordDamagedStockAction} className="rounded-3xl border border-rose-200/70 bg-white p-5 shadow-sm shadow-rose-100/30"><input type="hidden" name="inventoryItemId" value={item.id} /><div className="mb-4 border-b border-rose-100 pb-3"><div className="flex items-center gap-2"><span aria-hidden="true">⚠️</span><h3 className="text-sm font-bold text-rose-800">تسجيل قطعة تالفة / هالكة</h3></div><p className="mt-1 text-[10px] font-medium leading-relaxed text-rose-500">سيتم خصم الكمية التالفة من المخزون وتسجيلها بشكل مستقل لاحتساب خسائر التوالف لاحقاً.</p></div><div className="grid gap-4"><Field label="الكمية التالفة"><input className={`${inputClassName} font-numeric`} name="quantity" min="1" max={item.quantity} required step="1" type="number" placeholder="عدد القطع التالفة..." disabled={item.quantity <= 0} /></Field><Field label="سبب التلف"><input className={inputClassName} name="reason" required maxLength={200} placeholder="مثال: كسر أثناء التركيب، عيب مصنعي، تلف أثناء التخزين..." disabled={item.quantity <= 0} /></Field><Field label="ملاحظة إضافية (اختياري)"><textarea className={textareaClassName} name="note" maxLength={1000} placeholder="أي تفاصيل تساعدك عند مراجعة التوالف لاحقاً..." disabled={item.quantity <= 0} /></Field><Button type="submit" variant="outline" disabled={item.quantity <= 0} className="h-11 w-full rounded-xl border-rose-300 font-bold text-rose-700 shadow-sm hover:bg-rose-50 hover:text-rose-800">تأكيد تسجيل التالف وخصم الكمية</Button>{item.quantity <= 0 ? <p className="text-center text-[10px] font-bold text-slate-400">لا توجد كمية متاحة يمكن تسجيلها كتالف.</p> : null}</div></form>
 
           <form action={adjustStockAction} className="erp-section"><input type="hidden" name="inventoryItemId" value={item.id} /><div className="mb-4 border-b border-slate-100/60 pb-3"><h3 className="text-sm font-bold text-slate-800">تسوية كميات المخزون (فردي)</h3></div><div className="grid gap-4"><Field label="الكمية الفعلية الجديدة بالرف"><input className={`${inputClassName} font-numeric`} name="newQuantity" min="0" required step="1" type="number" placeholder="أدخل الجرد الفعلي..." /></Field><Field label="سبب التسوية والجرد"><textarea className={textareaClassName} name="note" placeholder="مثال: جرد دوري، تصحيح فرق في الكمية..." /></Field><Button type="submit" variant="secondary" className="h-11 w-full rounded-xl border-slate-200 font-bold shadow-sm"><Save className="ml-1.5 h-4 w-4" />تأكيد وحفظ الجرد</Button></div></form>
         </div>
