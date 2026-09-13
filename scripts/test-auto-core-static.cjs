@@ -29,6 +29,12 @@ function runRoutesChecks() {
     "app/api/compatibility/inventory/route.ts",
     "app/api/compatibility/search/route.ts",
   ];
+  const retiredMutationFiles = [
+    "app/software-services/actions.ts",
+    "app/electronic-services/actions.ts",
+    "app/electronic-services/service-actions.ts",
+    "app/electronic-services/reconcile/actions.ts",
+  ];
 
   assertIncludes(
     "app/repair-orders/layout.tsx",
@@ -57,6 +63,11 @@ function runRoutesChecks() {
   for (const file of retiredCompatibilityApis) {
     assertIncludes(file, "FEATURE_RETIRED", `${file} must stay retired.`);
     assertIncludes(file, "status: 410", `${file} must return HTTP 410.`);
+  }
+
+  for (const file of retiredMutationFiles) {
+    assertIncludes(file, "FEATURE_RETIRED", `${file} must remain fail-closed in Massar Auto.`);
+    assertIncludes(file, 'redirect("/dashboard")', `${file} must redirect before legacy mutation logic can run.`);
   }
 
   console.log("Massar Auto route retirement checks passed.");
@@ -169,6 +180,16 @@ function runContentChecks() {
     "app/reports/page.tsx",
     "الخدمات الإلكترونية",
     "Automotive reports must not present phone-era electronic services as financial activity.",
+  );
+  assertExcludes(
+    "app/daily-summary/page.tsx",
+    "electronicCategories",
+    "Automotive daily summary UI must not depend on retired electronic-service categories.",
+  );
+  assertExcludes(
+    "app/daily-summary/page.tsx",
+    "الخدمات الإلكترونية",
+    "Automotive daily summary UI must not expose retired electronic services.",
   );
   assertExcludes(
     "lib/services/dailySummaryService.ts",
