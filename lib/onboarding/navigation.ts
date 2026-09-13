@@ -16,7 +16,7 @@ export function shouldEnterOnboarding(profile: OnboardingProfileGate | null | un
 }
 
 const DESTINATION_BY_JOB: Record<OnboardingJob, string> = {
-  REPAIRS: "/repair-orders/new?onboarding=1",
+  REPAIRS: "/service-orders/new",
   SALES: "/point-of-sale?tab=sale&onboarding=1",
   INVENTORY: "/inventory/new?onboarding=1",
   WALLETS: "/transfers?onboarding=1",
