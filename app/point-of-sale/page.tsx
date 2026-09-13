@@ -12,7 +12,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { ElectronicServiceExecutionForm } from "@/app/electronic-services/new/_service-form";
-import { CreateRepairOrderForm } from "@/app/repair-orders/new/_create-form";
 import { SaleForm } from "@/app/sales/sale-form";
 import { SaleOnboardingQuickForm } from "./_onboarding-sale-form";
 import { SoftwareServiceForm } from "@/app/software-services/_software-service-form";
@@ -24,11 +23,8 @@ import { prisma } from "@/lib/prisma";
 import { electronicServiceTransactionService } from "@/lib/services/electronicServiceTransactionService";
 import { bankAccountService } from "@/lib/services/bankAccountService";
 import { financialTransferService } from "@/lib/services/financialTransferService";
-import { inventoryService } from "@/lib/services/inventoryService";
-import { repairOrderService } from "@/lib/services/repairOrderService";
 import { salesInventorySearchService } from "@/lib/services/salesInventorySearchService";
 import { softwareServiceService } from "@/lib/services/softwareServiceService";
-import { supplierService } from "@/lib/services/supplierService";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -133,34 +129,6 @@ function renderServiceForm() {
         <Button asChild variant="outline" className="font-black"><Link href="/service-orders">سجل أوامر الصيانة</Link></Button>
       </div>
     </div>
-  );
-}
-
-async function renderRepairForm(context: CurrentShopContext, key: string) {
-  const canAssign = context.permissions.includes("repairs:assign");
-  const [suppliers, inventoryItems, technicians] = await Promise.all([
-    supplierService.listSuppliers(context.shopId),
-    inventoryService.listInventoryItems(context.shopId),
-    canAssign ? repairOrderService.listAssignableTechnicians(context.shopId) : Promise.resolve([]),
-  ]);
-
-  return (
-    <CreateRepairOrderForm
-      key={key}
-      suppliers={suppliers}
-      inventoryItems={inventoryItems.map((item) => ({
-        id: item.id,
-        name: item.name,
-        sku: item.sku,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice.toString(),
-        unitCost: item.unitCost ? item.unitCost.toString() : null,
-      }))}
-      currency={context.currency}
-      technicians={technicians}
-      returnTo={pointOfSaleReturnPath("repair")}
-      cancelHref={pointOfSaleReturnPath("repair")}
-    />
   );
 }
 
@@ -273,8 +241,7 @@ async function renderWalletForm(context: CurrentShopContext, key: string) {
 
 async function renderActiveForm(tab: PointOfSaleTabKey, context: CurrentShopContext, key: string) {
   if (tab === "sale") return renderSaleForm(context, key);
-  if (tab === "service") return renderServiceForm();
-  if (tab === "repair") return renderRepairForm(context, key);
+  if (tab === "service" || tab === "repair") return renderServiceForm();
   if (tab === "software") return renderSoftwareForm(context, key);
   if (tab === "wallet") return renderWalletForm(context, key);
   return renderElectronicForm(context, key);
