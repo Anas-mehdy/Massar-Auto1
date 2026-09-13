@@ -14,6 +14,7 @@ type VehiclesPageProps = {
 
 export default async function VehiclesPage({ searchParams }: VehiclesPageProps) {
   const auth = await requirePermission("vehicles:read");
+  const canManage = auth.permissions.includes("vehicles:manage");
   const params = await searchParams;
   const search = params.search?.trim() ?? "";
   const vehicles = await vehicleService.listVehicles(auth.shop.id, search);
@@ -23,14 +24,14 @@ export default async function VehiclesPage({ searchParams }: VehiclesPageProps) 
       <PageHeader
         title="المركبات"
         description="ملف مستقل لكل مركبة مع مالكها وسجل الصيانة الكامل"
-        actions={
+        actions={canManage ? (
           <Button asChild className="font-bold shadow-sm">
             <Link href="/vehicles/new">
               <Plus className="ml-1.5 h-4 w-4" aria-hidden="true" />
               إضافة مركبة
             </Link>
           </Button>
-        }
+        ) : undefined}
       />
 
       <form className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -59,11 +60,15 @@ export default async function VehiclesPage({ searchParams }: VehiclesPageProps) 
           <Truck className="mx-auto mb-4 h-11 w-11 text-slate-400" aria-hidden="true" />
           <h2 className="text-lg font-black text-slate-900">لا توجد مركبات بعد</h2>
           <p className="mx-auto mt-2 max-w-md text-sm leading-7 text-slate-500">
-            أضف أول مركبة واربطها بالعميل، وبعدها سيظهر سجل أوامر الصيانة الخاص بها هنا.
+            {canManage
+              ? "أضف أول مركبة واربطها بالعميل، وبعدها سيظهر سجل أوامر الصيانة الخاص بها هنا."
+              : "لا توجد مركبات مطابقة للتصفية الحالية."}
           </p>
-          <Button asChild className="mt-5 font-bold">
-            <Link href="/vehicles/new">إضافة أول مركبة</Link>
-          </Button>
+          {canManage ? (
+            <Button asChild className="mt-5 font-bold">
+              <Link href="/vehicles/new">إضافة أول مركبة</Link>
+            </Button>
+          ) : null}
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
