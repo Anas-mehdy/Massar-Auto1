@@ -3,6 +3,7 @@ name: Massar Auto Core Check
 on:
   push:
     branches:
+      - main
       - feature/auto-core-v1
   pull_request:
     branches:
