@@ -5,7 +5,6 @@ export type HelpCategory =
   | "INVENTORY"
   | "WALLETS"
   | "DEBTS"
-  | "ELECTRONIC_SERVICES"
   | "ACCOUNT";
 
 export type HelpArticle = {
@@ -28,7 +27,6 @@ export const HELP_CATEGORY_LABELS: Record<HelpCategory, string> = {
   INVENTORY: "المخزون وقطع الغيار",
   WALLETS: "المحافظ والتحويلات",
   DEBTS: "الديون والتحصيلات",
-  ELECTRONIC_SERVICES: "الخدمات الإلكترونية",
   ACCOUNT: "الحساب والاشتراك",
 };
 
@@ -204,22 +202,6 @@ export const HELP_ARTICLES: HelpArticle[] = [
     cta: { href: "/debts", label: "فتح دفتر الديون" },
   },
   {
-    slug: "electronic-provider-first-service",
-    category: "ELECTRONIC_SERVICES",
-    title: "إعداد مزود خدمة وتنفيذ أول خدمة",
-    summary: "أدخل رصيد المزود الحقيقي، ثم نفذ خدمة فعلية حتى يسجل مسار تكلفة المزود والربح وأثر الرصيد.",
-    keywords: ["خدمات الكترونية", "مزود", "رصيد المزود", "شحن", "ربح"],
-    contextRoutes: ["/electronic-services"],
-    estimatedMinutes: 3,
-    steps: [
-      "أنشئ المزود وأدخل الرصيد الفعلي الموجود في حسابه.",
-      "ابدأ خدمة جديدة وحدد تكلفة التنفيذ والمبلغ على العميل.",
-      "بعد الحفظ راجع الخصم من رصيد المزود والربح المسجل للعملية.",
-    ],
-    tips: ["إنشاء المزود وحده إعداد فقط؛ أول خدمة فعلية هي التي تختبر دورة العمل كاملة."],
-    cta: { href: "/electronic-services", label: "فتح الخدمات الإلكترونية" },
-  },
-  {
     slug: "account-trial-and-data",
     category: "ACCOUNT",
     title: "ماذا يحدث عند انتهاء الفترة التجريبية؟",
@@ -272,7 +254,6 @@ export function helpContextKeyForPath(pathname: string): HelpCategory {
   if (pathname.startsWith("/inventory") || pathname.startsWith("/suppliers") || pathname.startsWith("/warehouses")) return "INVENTORY";
   if (pathname.startsWith("/transfers") || pathname.startsWith("/cash-drawer")) return "WALLETS";
   if (pathname.startsWith("/debts") || pathname.startsWith("/installments")) return "DEBTS";
-  if (pathname.startsWith("/electronic-services")) return "ELECTRONIC_SERVICES";
   if (pathname.startsWith("/subscription") || pathname.startsWith("/account") || pathname.startsWith("/settings")) return "ACCOUNT";
   return "GETTING_STARTED";
 }
