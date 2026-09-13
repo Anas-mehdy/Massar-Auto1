@@ -6,16 +6,13 @@ import { getCurrentShopContext } from "@/lib/current-shop";
 import { inventoryCategoryService } from "@/lib/services/inventoryCategoryService";
 import { createInventoryItemAction } from "../actions";
 import { Field, inputClassName, textareaClassName } from "../_components";
-import { CompatibilityGroupPicker } from "../_compatibility-group-picker";
 import { InventoryCategoryField } from "../_category-field";
-import { getCompatibilityGroupSelection } from "@/lib/services/compatibility/compatibility-directory.service";
-import { datasetKeyForSourceCategory } from "@/lib/services/compatibility/compatibility-datasets";
 import { OnboardingInventoryItemForm } from "./_onboarding-inventory-form";
 
 export default async function NewInventoryItemPage({
   searchParams,
 }: {
-  searchParams: Promise<{ groupId?: string; name?: string; categoryId?: string; error?: string; onboarding?: string; full?: string }>;
+  searchParams: Promise<{ name?: string; categoryId?: string; error?: string; onboarding?: string; full?: string }>;
 }) {
   const params = await searchParams;
   const context = await getCurrentShopContext();
@@ -29,24 +26,13 @@ export default async function NewInventoryItemPage({
     );
   }
 
-  const [group, categories] = await Promise.all([
-    params.groupId ? getCompatibilityGroupSelection(params.groupId) : Promise.resolve(null),
-    inventoryCategoryService.listInventoryCategories(context.shopId),
-  ]);
-
-  const initialSelection = group ? {
-    groupId: group.id,
-    brandSection: group.brandSection,
-    deviceName: group.members[0]?.rawModelName || "مجموعة توافق",
-    compatibleDevices: group.members.map((member) => ({ id: member.id, name: member.rawModelName })),
-    dataset: datasetKeyForSourceCategory(group.batch.categoryName),
-  } : null;
+  const categories = await inventoryCategoryService.listInventoryCategories(context.shopId);
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <PageHeader
         title="إضافة قطعة جديدة"
-        description="أدخل بيانات القطعة واختر تصنيفاً محفوظاً أو أنشئ تصنيفاً جديداً مرة واحدة"
+        description="أدخل بيانات قطعة الغيار واختر تصنيفاً محفوظاً أو أنشئ تصنيفاً جديداً مرة واحدة"
         actions={
           <Button asChild variant="outline">
             <Link href="/inventory">
@@ -73,13 +59,13 @@ export default async function NewInventoryItemPage({
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="اسم القطعة">
-            <input className={inputClassName} name="name" required placeholder="مثال: شاشة آيفون 11 برو الأصلية" defaultValue={params.name || ""} />
+            <input className={inputClassName} name="name" required placeholder="مثال: فلتر زيت تويوتا كورولا" defaultValue={params.name || ""} />
           </Field>
           <Field label="التصنيف">
             <InventoryCategoryField categories={categories} defaultCategoryId={params.categoryId} />
           </Field>
-          <Field label="SKU / رمز المنتج" helper="كود تتبع فريد للمنتج">
-            <input className={`${inputClassName} font-numeric`} name="sku" placeholder="مثال: SCR-IPH11P-ORG" />
+          <Field label="SKU / رمز المنتج" helper="كود تتبع فريد للقطعة">
+            <input className={`${inputClassName} font-numeric`} name="sku" placeholder="مثال: OIL-FLT-COR-001" />
           </Field>
           <Field label="تكلفة الشراء (لكل وحدة)">
             <input className={`${inputClassName} font-numeric`} name="unitCost" inputMode="decimal" min="0" step="0.01" type="number" placeholder="0.00" />
@@ -95,12 +81,9 @@ export default async function NewInventoryItemPage({
           </Field>
           <div className="sm:col-span-2">
             <Field label="الوصف والتفاصيل">
-              <textarea className={textareaClassName} name="description" placeholder="اكتب أية تفاصيل إضافية حول المنتج ومواصفاته..." />
+              <textarea className={textareaClassName} name="description" placeholder="مثال: رقم القطعة، الشركة المصنعة، المقاسات أو أي ملاحظات فنية مهمة..." />
             </Field>
           </div>
-        </div>
-        <div className="mt-6">
-          <CompatibilityGroupPicker initialSelection={initialSelection} />
         </div>
         <div className="mt-6 flex justify-end">
           <Button type="submit" size="lg" className="px-6 font-semibold shadow-md">
