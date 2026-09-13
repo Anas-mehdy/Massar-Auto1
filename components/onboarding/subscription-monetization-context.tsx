@@ -17,7 +17,6 @@ const JOB_LABELS: Record<OnboardingJob, string> = {
   INVENTORY: "المخزون",
   WALLETS: "المحافظ والتحويلات",
   DEBTS: "الديون والتحصيلات",
-  ELECTRONIC_SERVICES: "الخدمات الإلكترونية",
 };
 
 function copy(state: MonetizationState) {
@@ -40,7 +39,7 @@ function copy(state: MonetizationState) {
   } as const;
   if (state.stage === "HABIT") return {
     title: "هلق صار قرار الاشتراك مبني على استخدام فعلي",
-    description: "وصلت لعدة عمليات وعلى أكثر من يوم. قارن الخيارات تحت واختار اللي يناسب متجرك إذا بدك تكمل بنفس السجلات والروتين.",
+    description: "وصلت لعدة عمليات وعلى أكثر من يوم. قارن الخيارات تحت واختار اللي يناسب مركزك إذا بدك تكمل بنفس السجلات والروتين.",
     primaryLabel: "قارن خيارات الاشتراك",
     primaryHref: "#subscription-plans",
     primaryDestination: "plans_anchor",
@@ -55,8 +54,8 @@ function copy(state: MonetizationState) {
     Icon: Clock3,
   } as const;
   return {
-    title: "انتهت التجربة، لكن بيانات متجرك محفوظة",
-    description: "اختار الخطة المناسبة للعودة لتسجيل عمليات جديدة. ما في داعي تعيد إعداد المتجر أو بياناتك من الصفر.",
+    title: "انتهت التجربة، لكن بيانات مركزك محفوظة",
+    description: "اختار الخطة المناسبة للعودة لتسجيل عمليات جديدة. ما في داعي تعيد إعداد المركز أو بياناتك من الصفر.",
     primaryLabel: "عرض خيارات الاشتراك",
     primaryHref: "#subscription-plans",
     primaryDestination: "plans_anchor",
