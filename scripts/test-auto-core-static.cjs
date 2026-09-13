@@ -155,6 +155,42 @@ function runContentChecks() {
     "Automotive onboarding activation must not query retired electronic-service entities.",
   );
 
+  assertIncludes(
+    "lib/services/autoFinancialReportService.ts",
+    "autoBaseFinancialReportService",
+    "Automotive financial reports must use the automotive-only financial base.",
+  );
+  assertExcludes(
+    "app/reports/page.tsx",
+    "/electronic-services",
+    "Automotive reports must not link to retired electronic services.",
+  );
+  assertExcludes(
+    "app/reports/page.tsx",
+    "الخدمات الإلكترونية",
+    "Automotive reports must not present phone-era electronic services as financial activity.",
+  );
+  assertExcludes(
+    "lib/services/dailySummaryService.ts",
+    "/electronic-services",
+    "Automotive daily summary must not link to retired electronic services.",
+  );
+  assertExcludes(
+    "lib/services/dailySummaryService.ts",
+    "/software-services",
+    "Automotive daily summary must not link to retired software services.",
+  );
+  assertExcludes(
+    "lib/services/dailySummaryService.ts",
+    "ElectronicServiceProvider",
+    "Automotive daily liquidity must not include retired electronic-service provider balances.",
+  );
+  assertExcludes(
+    "lib/services/dailySummaryService.ts",
+    "softwareServiceService",
+    "Automotive daily summary must not query retired software-service financial rows.",
+  );
+
   console.log("Massar Auto user-facing content checks passed.");
 }
 
