@@ -1,16 +1,15 @@
-import { InvoiceStatus, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { parseSourceDebtReference } from "@/lib/debt-source-reference";
 import { prisma } from "@/lib/prisma";
 import { autoFinancialReportService } from "@/lib/services/autoFinancialReportService";
+import type { AutoFinancialRange } from "@/lib/services/autoBaseFinancialReportService";
 import { getInventoryDamageReportSummary } from "@/lib/services/inventoryDamageReportService";
-import type { FinancialRange } from "@/lib/services/reportService";
-import { softwareServiceService } from "@/lib/services/softwareServiceService";
 import { getTransferCommissionReportSummary } from "@/lib/services/transferCommissionReportService";
 import { getShopTimeZone } from "@/lib/shop-timezone";
 import { dayUtcBoundsForTimeZone } from "@/lib/timezone";
 
 export type DailySalesChannel = {
-  key: "POS" | "REPAIR" | "SOFTWARE" | "RECHARGE" | "ELECTRONIC_OTHER" | "OTHER" | "WALLET_TRANSFERS";
+  key: "POS" | "SERVICE" | "OTHER" | "WALLET_TRANSFERS";
   label: string;
   revenue: number;
   cost: number;
@@ -25,7 +24,7 @@ export type DailyLiquiditySource = {
   label: string;
   balance: number;
   href: string;
-  kind: "DRAWER" | "WALLET" | "BANK" | "PROVIDER";
+  kind: "DRAWER" | "WALLET" | "BANK";
 };
 
 export type DailyCollectionSource = {
@@ -46,7 +45,7 @@ export type DailyDamageItem = {
 export type DailyPeriodLiquiditySource = {
   id: string;
   label: string;
-  kind: "DRAWER" | "WALLET" | "BANK" | "PROVIDER";
+  kind: "DRAWER" | "WALLET" | "BANK";
   openingBalance: number;
   inflow: number;
   outflow: number;
@@ -62,25 +61,12 @@ type DebtLedgerRow = {
   isReversed: boolean;
 };
 
-type ElectronicCategoryRow = {
-  category: string;
-  revenue: Prisma.Decimal;
-  cost: Prisma.Decimal;
-  profit: Prisma.Decimal;
-  count: bigint;
-};
-
 function money(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
 function number(value: Prisma.Decimal | string | number | bigint | null | undefined) {
   return Number(value ?? 0);
-}
-
-function isRechargeCategory(category: string) {
-  const normalized = category.replace(/\s+/g, " ").trim().toLowerCase();
-  return normalized.includes("شحن") || normalized.includes("رصيد") || normalized.includes("باقة");
 }
 
 function paymentMethodLabel(method: string | null | undefined) {
@@ -191,8 +177,8 @@ async function getSupplierPayables(shopId: string) {
   };
 }
 
-async function getPeriodLiquidity(shopId: string, range: FinancialRange) {
-  const [drawerRows, walletRows, bankRows, providerRows] = await Promise.all([
+async function getPeriodLiquidity(shopId: string, range: AutoFinancialRange) {
+  const [drawerRows, walletRows, bankRows] = await Promise.all([
     prisma.$queryRaw<Array<{
       id: string;
       currentBalance: Prisma.Decimal;
@@ -246,7 +232,7 @@ async function getPeriodLiquidity(shopId: string, range: FinancialRange) {
         ), 0) AS "afterNet"
       FROM "FinancialWallet" w
       LEFT JOIN "FinancialTransfer" t ON t."walletId" = w."id" AND t."shopId" = ${shopId}::uuid
-      WHERE w."shopId" = ${shopId}::uuid
+      WHERE w."shopId" = ${shopId}::uuid AND w."deletedAt" IS NULL AND w."isActive" = TRUE
       GROUP BY w."id", w."name", w."currentBalance"
       ORDER BY w."name" ASC
     `,
@@ -276,30 +262,6 @@ async function getPeriodLiquidity(shopId: string, range: FinancialRange) {
       GROUP BY b."id", b."name", b."currentBalance"
       ORDER BY b."name" ASC
     `,
-    prisma.$queryRaw<Array<{
-      id: string;
-      name: string;
-      currentBalance: Prisma.Decimal;
-      periodIn: Prisma.Decimal;
-      periodOut: Prisma.Decimal;
-      afterNet: Prisma.Decimal;
-    }>>`
-      SELECT p."id", p."name", p."currentBalance",
-        COALESCE(SUM(m."amount") FILTER (
-          WHERE m."direction" = 'IN' AND m."createdAt" >= ${range.start} AND m."createdAt" < ${range.end}
-        ), 0) AS "periodIn",
-        COALESCE(SUM(m."amount") FILTER (
-          WHERE m."direction" = 'OUT' AND m."createdAt" >= ${range.start} AND m."createdAt" < ${range.end}
-        ), 0) AS "periodOut",
-        COALESCE(SUM(CASE WHEN m."direction" = 'IN' THEN m."amount" ELSE -m."amount" END) FILTER (
-          WHERE m."createdAt" >= ${range.end}
-        ), 0) AS "afterNet"
-      FROM "ElectronicServiceProvider" p
-      LEFT JOIN "ElectronicServiceProviderMovement" m ON m."providerId" = p."id" AND m."shopId" = ${shopId}::uuid
-      WHERE p."shopId" = ${shopId}::uuid
-      GROUP BY p."id", p."name", p."currentBalance"
-      ORDER BY p."name" ASC
-    `,
   ]);
 
   const buildSource = (
@@ -318,7 +280,6 @@ async function getPeriodLiquidity(shopId: string, range: FinancialRange) {
     ...drawerRows.map((row) => buildSource(row, "الدرج النقدي", "DRAWER")),
     ...walletRows.map((row) => buildSource(row, row.name, "WALLET")),
     ...bankRows.map((row) => buildSource(row, row.name, "BANK")),
-    ...providerRows.map((row) => buildSource(row, row.name, "PROVIDER")),
   ];
 
   return {
@@ -330,7 +291,7 @@ async function getPeriodLiquidity(shopId: string, range: FinancialRange) {
   };
 }
 
-async function getDailyFinancialCore(shopId: string, requestedRange?: FinancialRange) {
+async function getDailyFinancialCore(shopId: string, requestedRange?: AutoFinancialRange) {
   const timeZone = await getShopTimeZone(shopId);
   const range = requestedRange ?? dayUtcBoundsForTimeZone(new Date(), timeZone);
   const [report, transferCommission] = await Promise.all([
@@ -362,36 +323,30 @@ export async function getDailySummaryHeadline(shopId: string) {
   return { timeZone, range, totals };
 }
 
-export async function getDailySummary(shopId: string, requestedRange?: FinancialRange) {
+export async function getDailySummary(shopId: string, requestedRange?: AutoFinancialRange) {
   const { timeZone, range, report, transferCommission, totals } = await getDailyFinancialCore(shopId, requestedRange);
   const periodLiquidityPromise = getPeriodLiquidity(shopId, range);
 
   const [
     damageSummary,
-    softwareRows,
     posRows,
     posCostRows,
     serviceRows,
-    serviceCostRows,
     otherInvoiceRows,
     manualPlanRows,
-    electronicCategoryRows,
     walletTransferRows,
     invoiceCollectionRows,
     installmentCollectionRows,
     debtCollectionRows,
-    electronicCollectionRows,
     posAccountRows,
     drawerRows,
     walletRows,
     bankRows,
-    providerRows,
     damageItems,
     debt,
     supplierPayables,
   ] = await Promise.all([
     getInventoryDamageReportSummary(shopId, range.start, range.end),
-    softwareServiceService.getFinancialRows(shopId, range.start, range.end).catch(() => []),
     prisma.$queryRaw<Array<{ revenue: Prisma.Decimal; count: bigint }>>`
       SELECT COALESCE(SUM("total"), 0) AS revenue, COUNT(*) AS count
       FROM "Sale"
@@ -426,7 +381,6 @@ export async function getDailySummary(shopId: string, requestedRange?: Financial
         AND i."issuedAt" >= ${range.start}
         AND i."issuedAt" < ${range.end}
     `,
-    Promise.resolve([{ cost: new Prisma.Decimal(report.metrics.autoServiceDirectCost) }]),
     prisma.$queryRaw<Array<{ revenue: Prisma.Decimal; count: bigint }>>`
       SELECT COALESCE(SUM(i."total"), 0) AS revenue, COUNT(*) AS count
       FROM "Invoice" i
@@ -452,20 +406,6 @@ export async function getDailySummary(shopId: string, requestedRange?: Financial
         AND "createdAt" >= ${range.start}
         AND "createdAt" < ${range.end}
     `,
-    prisma.$queryRaw<ElectronicCategoryRow[]>`
-      SELECT COALESCE(NULLIF(TRIM("category"), ''), 'خدمات إلكترونية أخرى') AS category,
-        COALESCE(SUM("customerCharge"), 0) AS revenue,
-        COALESCE(SUM("providerCost"), 0) AS cost,
-        COALESCE(SUM("profit"), 0) AS profit,
-        COUNT(*) AS count
-      FROM "ElectronicServiceTransaction"
-      WHERE "shopId" = ${shopId}::uuid
-        AND "status" = 'ACTIVE'
-        AND "createdAt" >= ${range.start}
-        AND "createdAt" < ${range.end}
-      GROUP BY COALESCE(NULLIF(TRIM("category"), ''), 'خدمات إلكترونية أخرى')
-      ORDER BY revenue DESC
-    `,
     prisma.$queryRaw<Array<{ volume: Prisma.Decimal; profit: Prisma.Decimal; count: bigint }>>`
       SELECT COALESCE(SUM("amount"), 0) AS volume,
         COALESCE(SUM("commission"), 0) AS profit,
@@ -483,12 +423,15 @@ export async function getDailySummary(shopId: string, requestedRange?: Financial
       SELECT p."sourceName", p."method"::text AS "paymentMethod", COALESCE(SUM(p."amount"), 0) AS amount
       FROM "Payment" p
       JOIN "Invoice" i ON i."id" = p."invoiceId"
+      LEFT JOIN "SoftwareServiceSale" ss ON ss."invoiceId" = i."id" AND ss."shopId" = ${shopId}::uuid AND ss."deletedAt" IS NULL
       WHERE p."shopId" = ${shopId}::uuid
         AND p."deletedAt" IS NULL
         AND p."paidAt" >= ${range.start}
         AND p."paidAt" < ${range.end}
         AND i."deletedAt" IS NULL
         AND i."status" <> 'VOID'
+        AND i."repairOrderId" IS NULL
+        AND ss."id" IS NULL
       GROUP BY p."sourceName", p."method"
     `,
     prisma.$queryRaw<Array<{ sourceName: string | null; paymentMethod: string | null; amount: Prisma.Decimal }>>`
@@ -513,20 +456,6 @@ export async function getDailySummary(shopId: string, requestedRange?: Financial
         AND d."occurredAt" >= ${range.start}
         AND d."occurredAt" < ${range.end}
       GROUP BY d."sourceName", d."paymentMethod"
-    `,
-    prisma.$queryRaw<Array<{ paymentDestination: string; walletId: string | null; walletName: string | null; bankAccountId: string | null; bankAccountName: string | null; amount: Prisma.Decimal }>>`
-      SELECT tx."paymentDestination", tx."walletId", w."name" AS "walletName",
-        tx."bankAccountId", ba."name" AS "bankAccountName",
-        COALESCE(SUM(tx."customerCharge"), 0) AS amount
-      FROM "ElectronicServiceTransaction" tx
-      LEFT JOIN "FinancialWallet" w ON w."id" = tx."walletId" AND w."shopId" = ${shopId}::uuid
-      LEFT JOIN "BankAccount" ba ON ba."id" = tx."bankAccountId" AND ba."shopId" = ${shopId}::uuid AND ba."deletedAt" IS NULL
-      WHERE tx."shopId" = ${shopId}::uuid
-        AND tx."status" = 'ACTIVE'
-        AND tx."paymentDestination" <> 'DEBT'
-        AND tx."createdAt" >= ${range.start}
-        AND tx."createdAt" < ${range.end}
-      GROUP BY tx."paymentDestination", tx."walletId", w."name", tx."bankAccountId", ba."name"
     `,
     prisma.$queryRaw<Array<{ kind: "DRAWER" | "WALLET" | "BANK"; walletId: string | null; walletName: string | null; bankAccountId: string | null; bankAccountName: string | null; amount: Prisma.Decimal }>>`
       SELECT 'DRAWER'::text AS kind, NULL::uuid AS "walletId", NULL::text AS "walletName", NULL::uuid AS "bankAccountId", NULL::text AS "bankAccountName",
@@ -589,12 +518,6 @@ export async function getDailySummary(shopId: string, requestedRange?: Financial
       WHERE "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL
       ORDER BY "name" ASC
     `,
-    prisma.$queryRaw<Array<{ id: string; name: string; currentBalance: Prisma.Decimal }>>`
-      SELECT "id", "name", "currentBalance"
-      FROM "ElectronicServiceProvider"
-      WHERE "shopId" = ${shopId}::uuid AND "isActive" = TRUE
-      ORDER BY "name" ASC
-    `,
     prisma.$queryRaw<Array<{ inventoryItemId: string; name: string; quantity: bigint; value: Prisma.Decimal }>>`
       SELECT d."inventoryItemId", i."name", SUM(d."quantity") AS quantity,
         COALESCE(SUM(d."quantity" * COALESCE(d."unitCostSnapshot", 0)), 0) AS value
@@ -610,49 +533,20 @@ export async function getDailySummary(shopId: string, requestedRange?: Financial
     getDebtSnapshot(shopId),
     getSupplierPayables(shopId),
   ]);
-  const periodLiquidity = await periodLiquidityPromise;
 
+  const periodLiquidity = await periodLiquidityPromise;
   const posRevenue = number(posRows[0]?.revenue);
   const posCost = number(posCostRows[0]?.cost);
   const serviceRevenue = number(serviceRows[0]?.revenue);
-  const serviceCost = number(serviceCostRows[0]?.cost);
-  const softwareRevenue = softwareRows
-    .filter((row) => row.invoiceStatus !== InvoiceStatus.VOID)
-    .reduce((sum, row) => sum + number(row.invoiceTotal), 0);
-  const softwareCost = softwareRows
-    .filter((row) => row.invoiceStatus !== InvoiceStatus.VOID)
-    .reduce((sum, row) => sum + number(row.serviceCost), 0);
-
-  const recharge = electronicCategoryRows
-    .filter((row) => isRechargeCategory(row.category))
-    .reduce((sum, row) => ({
-      revenue: sum.revenue + number(row.revenue),
-      cost: sum.cost + number(row.cost),
-      profit: sum.profit + number(row.profit),
-      count: sum.count + Number(row.count),
-    }), { revenue: 0, cost: 0, profit: 0, count: 0 });
-
-  const electronicOther = electronicCategoryRows
-    .filter((row) => !isRechargeCategory(row.category))
-    .reduce((sum, row) => ({
-      revenue: sum.revenue + number(row.revenue),
-      cost: sum.cost + number(row.cost),
-      profit: sum.profit + number(row.profit),
-      count: sum.count + Number(row.count),
-    }), { revenue: 0, cost: 0, profit: 0, count: 0 });
-
+  const serviceCost = report.metrics.autoServiceDirectCost;
   const otherRevenue = number(otherInvoiceRows[0]?.revenue) + number(manualPlanRows[0]?.revenue);
-  const knownCosts = posCost + serviceCost + softwareCost + report.metrics.electronicServiceCost;
-  const otherCost = money(Math.max(0, report.metrics.directCosts - knownCosts));
+  const otherCost = money(Math.max(0, report.metrics.directCosts - posCost - serviceCost));
   const walletVolume = number(walletTransferRows[0]?.volume);
   const walletProfit = money(transferCommission.totalProfit || number(walletTransferRows[0]?.profit));
 
   const channels: DailySalesChannel[] = [
-    { key: "POS", label: "الإكسسوار وبيع القطع (POS)", revenue: money(posRevenue), cost: money(posCost), profit: money(posRevenue - posCost), count: Number(posRows[0]?.count ?? 0), href: "/sales" },
-    { key: "REPAIR", label: "صيانة المركبات المفوترة", revenue: money(serviceRevenue), cost: money(serviceCost), profit: money(serviceRevenue - serviceCost), count: Number(serviceRows[0]?.count ?? 0), href: "/service-orders" },
-    { key: "SOFTWARE", label: "خدمات السوفتوير", revenue: money(softwareRevenue), cost: money(softwareCost), profit: money(softwareRevenue - softwareCost), count: softwareRows.filter((row) => row.invoiceStatus !== InvoiceStatus.VOID).length, href: "/software-services" },
-    { key: "RECHARGE", label: "شحن الرصيد والباقات", revenue: money(recharge.revenue), cost: money(recharge.cost), profit: money(recharge.profit), count: recharge.count, href: "/electronic-services" },
-    { key: "ELECTRONIC_OTHER", label: "خدمات إلكترونية أخرى", revenue: money(electronicOther.revenue), cost: money(electronicOther.cost), profit: money(electronicOther.profit), count: electronicOther.count, href: "/electronic-services" },
+    { key: "POS", label: "بيع قطع الغيار (POS)", revenue: money(posRevenue), cost: money(posCost), profit: money(posRevenue - posCost), count: Number(posRows[0]?.count ?? 0), href: "/sales" },
+    { key: "SERVICE", label: "صيانة المركبات المفوترة", revenue: money(serviceRevenue), cost: money(serviceCost), profit: money(serviceRevenue - serviceCost), count: Number(serviceRows[0]?.count ?? 0), href: "/service-orders" },
     { key: "OTHER", label: "فواتير وخطط أخرى", revenue: money(otherRevenue), cost: otherCost, profit: money(otherRevenue - otherCost), count: Number(otherInvoiceRows[0]?.count ?? 0) + Number(manualPlanRows[0]?.count ?? 0), href: "/invoices" },
     { key: "WALLET_TRANSFERS", label: "عمليات المحافظ الإلكترونية", revenue: money(walletVolume), cost: 0, profit: walletProfit, count: Number(walletTransferRows[0]?.count ?? 0), href: "/transfers", volumeOnly: true },
   ];
@@ -672,18 +566,10 @@ export async function getDailySummary(shopId: string, requestedRange?: Financial
     href: `/bank-accounts?account=${account.id}`,
     kind: "BANK",
   }));
-  const providers: DailyLiquiditySource[] = providerRows.map((provider) => ({
-    id: provider.id,
-    label: provider.name,
-    balance: money(number(provider.currentBalance)),
-    href: "/electronic-services",
-    kind: "PROVIDER",
-  }));
   const liquiditySources: DailyLiquiditySource[] = [
     { id: "cash-drawer", label: "الدرج النقدي", balance: drawerBalance, href: "/cash-drawer", kind: "DRAWER" },
     ...wallets,
     ...banks,
-    ...providers,
   ];
   const liquidityTotal = money(liquiditySources.reduce((sum, source) => sum + source.balance, 0));
 
@@ -707,12 +593,6 @@ export async function getDailySummary(shopId: string, requestedRange?: Financial
   for (const row of invoiceCollectionRows) addCollection(row.sourceName?.trim() || paymentMethodLabel(row.paymentMethod), number(row.amount));
   for (const row of installmentCollectionRows) addCollection(row.sourceName?.trim() || paymentMethodLabel(row.paymentMethod), number(row.amount));
   for (const row of debtCollectionRows) addCollection(row.sourceName?.trim() || paymentMethodLabel(row.paymentMethod), number(row.amount));
-  for (const row of electronicCollectionRows) {
-    if (row.paymentDestination === "DRAWER") addCollection("الدرج النقدي", number(row.amount), { kind: "DRAWER", href: "/cash-drawer", key: "DRAWER:cash-drawer" });
-    else if (row.paymentDestination === "WALLET") addCollection(row.walletName?.trim() || "محفظة إلكترونية", number(row.amount), { kind: "WALLET", href: row.walletId ? `/transfers?walletId=${row.walletId}` : "/transfers", key: `WALLET:${row.walletId ?? row.walletName ?? "unknown"}` });
-    else if (row.paymentDestination === "BANK") addCollection(row.bankAccountName?.trim() || "حساب بنكي", number(row.amount), { kind: "BANK", href: row.bankAccountId ? `/bank-accounts?account=${row.bankAccountId}` : "/bank-accounts", key: `BANK:${row.bankAccountId ?? row.bankAccountName ?? "unknown"}` });
-    else addCollection("مصدر آخر للخدمات الإلكترونية", number(row.amount), { kind: "OTHER", href: "/electronic-services", key: "OTHER:electronic-services" });
-  }
   for (const row of posAccountRows) {
     if (row.kind === "DRAWER") addCollection("الدرج النقدي", number(row.amount), { kind: "DRAWER", href: "/cash-drawer", key: "DRAWER:cash-drawer" });
     else if (row.kind === "WALLET") addCollection(row.walletName?.trim() || "محفظة إلكترونية", number(row.amount), { kind: "WALLET", href: row.walletId ? `/transfers?walletId=${row.walletId}` : "/transfers", key: `WALLET:${row.walletId ?? row.walletName ?? "unknown"}` });
@@ -735,18 +615,14 @@ export async function getDailySummary(shopId: string, requestedRange?: Financial
     range,
     totals,
     channels,
-    electronicCategories: electronicCategoryRows.map((row) => ({
-      category: row.category,
-      revenue: money(number(row.revenue)),
-      cost: money(number(row.cost)),
-      profit: money(number(row.profit)),
-      count: Number(row.count),
-    })),
+    // Kept for page-shape compatibility. Retired phone-era electronic services
+    // are intentionally absent from Massar Auto.
+    electronicCategories: [] as Array<{ category: string; revenue: number; cost: number; profit: number; count: number }>,
     liquidity: {
       drawerBalance,
       wallets,
       banks,
-      providers,
+      providers: [] as DailyLiquiditySource[],
       sources: liquiditySources,
       total: liquidityTotal,
     },
