@@ -42,6 +42,18 @@ function runRoutesChecks() {
     "Phone compatibility workspace must remain retired in Massar Auto.",
   );
 
+  assertIncludes(
+    "app/software-services/layout.tsx",
+    'redirect("/dashboard")',
+    "Phone-era software service routes must remain retired in Massar Auto.",
+  );
+
+  assertIncludes(
+    "app/electronic-services/layout.tsx",
+    'redirect("/dashboard")',
+    "Phone-era electronic service routes must remain retired in Massar Auto.",
+  );
+
   for (const file of retiredCompatibilityApis) {
     assertIncludes(file, "FEATURE_RETIRED", `${file} must stay retired.`);
     assertIncludes(file, "status: 410", `${file} must return HTTP 410.`);
@@ -110,6 +122,37 @@ function runContentChecks() {
     "components/quick-operations.tsx",
     'tab=electronic',
     "Quick operations must not expose phone-era electronic services.",
+  );
+
+  assertExcludes(
+    "lib/onboarding/jobs.ts",
+    '"ELECTRONIC_SERVICES"',
+    "Electronic services must not return to the Massar Auto onboarding job model.",
+  );
+  assertExcludes(
+    "app/onboarding/onboarding-wizard.tsx",
+    "استلام الأجهزة",
+    "Automotive onboarding must not use phone-device intake copy.",
+  );
+  assertExcludes(
+    "app/onboarding/onboarding-wizard.tsx",
+    "الإكسسوارات",
+    "Automotive onboarding must not use phone-accessories copy.",
+  );
+  assertIncludes(
+    "lib/services/onboardingService.ts",
+    "prisma.serviceOrder.aggregate",
+    "Repair activation must be based on automotive ServiceOrder activity.",
+  );
+  assertExcludes(
+    "lib/services/onboardingService.ts",
+    "prisma.repairOrder",
+    "Automotive onboarding must not use legacy RepairOrder activity.",
+  );
+  assertExcludes(
+    "lib/services/onboardingService.ts",
+    "ElectronicService",
+    "Automotive onboarding activation must not query retired electronic-service entities.",
   );
 
   console.log("Massar Auto user-facing content checks passed.");
