@@ -1,6 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { bankAccountService } from "@/lib/services/bankAccountService";
-import { assertBusinessDateOpenTx } from "@/lib/services/businessDateLockService";
+import {
+  assertBusinessDateOpenTx,
+  assertBusinessDatesOpenTx,
+  lockShopFinancialTx,
+} from "@/lib/services/businessDateLockService";
 import { cashDrawerService } from "@/lib/services/cashDrawerService";
 import {
   financialTransferService,
@@ -118,7 +122,7 @@ export async function applyIncomingMoneyTx(
     await tx.$executeRaw`
       UPDATE "CashDrawer"
       SET "currentBalance" = ${next}, "updatedAt" = NOW()
-      WHERE "id" = ${drawer.id}::uuid
+      WHERE "id" = ${drawer.id}::uuid AND "shopId" = ${shopId}::uuid
     `;
     await tx.$executeRaw`
       INSERT INTO "CashDrawerMovement" (
@@ -170,7 +174,7 @@ export async function applyIncomingMoneyTx(
   await tx.$executeRaw`
     UPDATE "FinancialWallet"
     SET "currentBalance" = ${wallet.currentBalance.add(amount)}, "updatedAt" = NOW()
-    WHERE "id" = ${wallet.id}::uuid
+    WHERE "id" = ${wallet.id}::uuid AND "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL
   `;
   await tx.$executeRaw`
     INSERT INTO "FinancialTransfer" (
@@ -226,7 +230,7 @@ export async function applyOutgoingMoneyTx(
     await tx.$executeRaw`
       UPDATE "CashDrawer"
       SET "currentBalance" = ${next}, "updatedAt" = NOW()
-      WHERE "id" = ${drawer.id}::uuid
+      WHERE "id" = ${drawer.id}::uuid AND "shopId" = ${shopId}::uuid
     `;
     await tx.$executeRaw`
       INSERT INTO "CashDrawerMovement" (
@@ -287,7 +291,7 @@ export async function applyOutgoingMoneyTx(
   await tx.$executeRaw`
     UPDATE "FinancialWallet"
     SET "currentBalance" = ${next}, "updatedAt" = NOW()
-    WHERE "id" = ${wallet.id}::uuid
+    WHERE "id" = ${wallet.id}::uuid AND "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL
   `;
   await tx.$executeRaw`
     INSERT INTO "FinancialTransfer" (
@@ -310,6 +314,31 @@ async function reverseTrackedMoneyTx(
   match: { drawerTypes: string[]; descriptionLike: string },
   voidedByUserId?: string | null,
 ) {
+  await lockShopFinancialTx(tx, shopId);
+  const [drawerDates, walletDates] = await Promise.all([
+    tx.$queryRaw<Array<{ createdAt: Date }>>(Prisma.sql`
+      SELECT "createdAt"
+      FROM "CashDrawerMovement"
+      WHERE "shopId" = ${shopId}::uuid
+        AND "status" = 'ACTIVE'
+        AND "type" IN (${Prisma.join(match.drawerTypes)})
+        AND "description" LIKE ${match.descriptionLike}
+    `),
+    tx.$queryRaw<Array<{ createdAt: Date }>>`
+      SELECT "createdAt"
+      FROM "FinancialTransfer"
+      WHERE "shopId" = ${shopId}::uuid
+        AND "status" = 'ACTIVE'
+        AND "deletedAt" IS NULL
+        AND "operationType" IN ('WALLET_TOPUP','WALLET_WITHDRAWAL')
+        AND "notes" LIKE ${match.descriptionLike}
+    `,
+  ]);
+  await assertBusinessDatesOpenTx(tx, shopId, [
+    ...drawerDates.map((row) => row.createdAt),
+    ...walletDates.map((row) => row.createdAt),
+  ]);
+
   const drawerMovements = await tx.$queryRaw<Array<{
     id: string;
     drawerId: string;
@@ -340,11 +369,11 @@ async function reverseTrackedMoneyTx(
     if (next.lt(0)) throw new Error("لا يمكن عكس العملية لأن رصيد الدرج الحالي غير كافٍ.");
     await tx.$executeRaw`
       UPDATE "CashDrawer" SET "currentBalance" = ${next}, "updatedAt" = NOW()
-      WHERE "id" = ${drawer.id}::uuid
+      WHERE "id" = ${drawer.id}::uuid AND "shopId" = ${shopId}::uuid
     `;
     await tx.$executeRaw`
       UPDATE "CashDrawerMovement" SET "status" = 'VOID', "voidedAt" = NOW()
-      WHERE "id" = ${movement.id}::uuid
+      WHERE "id" = ${movement.id}::uuid AND "shopId" = ${shopId}::uuid AND "status" = 'ACTIVE'
     `;
   }
 
@@ -381,12 +410,12 @@ async function reverseTrackedMoneyTx(
     if (next.lt(0)) throw new Error("لا يمكن عكس العملية لأن رصيد المحفظة الحالي غير كافٍ.");
     await tx.$executeRaw`
       UPDATE "FinancialWallet" SET "currentBalance" = ${next}, "updatedAt" = NOW()
-      WHERE "id" = ${wallet.id}::uuid
+      WHERE "id" = ${wallet.id}::uuid AND "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL
     `;
     await tx.$executeRaw`
       UPDATE "FinancialTransfer"
       SET "status" = 'VOID', "voidedByUserId"=${voidedByUserId ?? null}::uuid, "voidedAt" = NOW(), "updatedAt" = NOW()
-      WHERE "id" = ${movement.id}::uuid
+      WHERE "id" = ${movement.id}::uuid AND "shopId" = ${shopId}::uuid AND "status" = 'ACTIVE' AND "deletedAt" IS NULL
     `;
   }
 }
@@ -473,6 +502,41 @@ export async function reverseSourceMoneyTx(
   sourceId: string,
   voidedByUserId?: string | null,
 ) {
+  await lockShopFinancialTx(tx, shopId);
+  const [drawerDates, bankDates, walletDates] = await Promise.all([
+    tx.$queryRaw<Array<{ createdAt: Date }>>`
+      SELECT "createdAt"
+      FROM "CashDrawerMovement"
+      WHERE "shopId" = ${shopId}::uuid
+        AND "status" = 'ACTIVE'
+        AND "sourceType" = ${sourceType}
+        AND "sourceId" = ${sourceId}
+    `,
+    tx.$queryRaw<Array<{ occurredAt: Date }>>`
+      SELECT "occurredAt"
+      FROM "BankAccountMovement"
+      WHERE "shopId" = ${shopId}::uuid
+        AND "status" = 'ACTIVE'
+        AND "sourceType" = ${sourceType}
+        AND "sourceId" = ${sourceId}
+    `,
+    tx.$queryRaw<Array<{ createdAt: Date }>>`
+      SELECT "createdAt"
+      FROM "FinancialTransfer"
+      WHERE "shopId" = ${shopId}::uuid
+        AND "status" = 'ACTIVE'
+        AND "deletedAt" IS NULL
+        AND "sourceType" = ${sourceType}
+        AND "sourceId" = ${sourceId}
+        AND "operationType" IN ('WALLET_TOPUP','WALLET_WITHDRAWAL')
+    `,
+  ]);
+  await assertBusinessDatesOpenTx(tx, shopId, [
+    ...drawerDates.map((row) => row.createdAt),
+    ...bankDates.map((row) => row.occurredAt),
+    ...walletDates.map((row) => row.createdAt),
+  ]);
+
   await lockSourceMoneyEndpointsTx(tx, shopId, sourceType, sourceId);
   const drawerMovements = await tx.$queryRaw<Array<{ id: string; drawerId: string; direction: "IN" | "OUT"; amount: Prisma.Decimal }>>`
     SELECT "id", "drawerId", "direction", "amount"
@@ -494,8 +558,14 @@ export async function reverseSourceMoneyTx(
     if (!drawer) throw new Error("الدرج النقدي المرتبط بالحركة غير موجود.");
     const next = movement.direction === "IN" ? drawer.currentBalance.sub(movement.amount) : drawer.currentBalance.add(movement.amount);
     if (next.lt(0)) throw new Error("لا يمكن عكس العملية لأن رصيد الدرج الحالي غير كافٍ.");
-    await tx.$executeRaw`UPDATE "CashDrawer" SET "currentBalance" = ${next}, "updatedAt" = NOW() WHERE "id" = ${movement.drawerId}::uuid`;
-    await tx.$executeRaw`UPDATE "CashDrawerMovement" SET "status"='VOID', "voidedAt"=NOW() WHERE "id"=${movement.id}::uuid`;
+    await tx.$executeRaw`
+      UPDATE "CashDrawer" SET "currentBalance" = ${next}, "updatedAt" = NOW()
+      WHERE "id" = ${movement.drawerId}::uuid AND "shopId" = ${shopId}::uuid
+    `;
+    await tx.$executeRaw`
+      UPDATE "CashDrawerMovement" SET "status"='VOID', "voidedAt"=NOW()
+      WHERE "id"=${movement.id}::uuid AND "shopId"=${shopId}::uuid AND "status"='ACTIVE'
+    `;
   }
 
   await bankAccountService.reverseSourceMovementsTx(
@@ -528,8 +598,15 @@ export async function reverseSourceMoneyTx(
     if (!wallet) throw new Error("المحفظة المرتبطة بالحركة غير موجودة.");
     const next = movement.operationType === "WALLET_TOPUP" ? wallet.currentBalance.sub(movement.walletAmount) : wallet.currentBalance.add(movement.walletAmount);
     if (next.lt(0)) throw new Error("لا يمكن عكس العملية لأن رصيد المحفظة الحالي غير كافٍ.");
-    await tx.$executeRaw`UPDATE "FinancialWallet" SET "currentBalance"=${next}, "updatedAt"=NOW() WHERE "id"=${movement.walletId}::uuid`;
-    await tx.$executeRaw`UPDATE "FinancialTransfer" SET "status"='VOID', "voidedByUserId"=${voidedByUserId ?? null}::uuid, "voidedAt"=NOW(), "updatedAt"=NOW() WHERE "id"=${movement.id}::uuid`;
+    await tx.$executeRaw`
+      UPDATE "FinancialWallet" SET "currentBalance"=${next}, "updatedAt"=NOW()
+      WHERE "id"=${movement.walletId}::uuid AND "shopId"=${shopId}::uuid AND "deletedAt" IS NULL
+    `;
+    await tx.$executeRaw`
+      UPDATE "FinancialTransfer"
+      SET "status"='VOID', "voidedByUserId"=${voidedByUserId ?? null}::uuid, "voidedAt"=NOW(), "updatedAt"=NOW()
+      WHERE "id"=${movement.id}::uuid AND "shopId"=${shopId}::uuid AND "status"='ACTIVE' AND "deletedAt" IS NULL
+    `;
   }
 }
 
