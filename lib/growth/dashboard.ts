@@ -153,7 +153,6 @@ export function buildGrowthJobBreakdown(progress: readonly GrowthShopProgress[])
     "INVENTORY",
     "WALLETS",
     "DEBTS",
-    "ELECTRONIC_SERVICES",
     "UNSELECTED",
   ];
   return jobs.flatMap((job) => {
