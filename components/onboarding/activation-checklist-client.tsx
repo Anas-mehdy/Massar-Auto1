@@ -26,7 +26,7 @@ import { onboardingDestination } from "@/lib/onboarding/navigation";
 import type { OnboardingJob } from "@/lib/onboarding/jobs";
 
 const JOB_META: Record<OnboardingJob, { label: string; icon: LucideIcon; normalHref: string }> = {
-  REPAIRS: { label: "الصيانة", icon: Wrench, normalHref: "/repair-orders/new" },
+  REPAIRS: { label: "الصيانة", icon: Wrench, normalHref: "/service-orders/new" },
   SALES: { label: "المبيعات", icon: ShoppingCart, normalHref: "/point-of-sale?tab=sale" },
   INVENTORY: { label: "المخزون", icon: Boxes, normalHref: "/inventory/new" },
   WALLETS: { label: "المحافظ والتحويلات", icon: WalletCards, normalHref: "/transfers" },
