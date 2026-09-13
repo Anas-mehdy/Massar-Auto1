@@ -16,7 +16,7 @@ import {
   resolvePaymentSource,
   type PaymentSourceInput,
 } from "@/lib/services/paymentSourceService";
-import { dailyCashCloseService } from "@/lib/services/dailyCashCloseService";
+import { assertBusinessDateOpenTx } from "@/lib/services/businessDateLockService";
 
 export type AddInstallmentCollectionInput = PaymentSourceInput & {
   clientGeneratedId?: string;
@@ -81,10 +81,11 @@ export async function addPayment(
   }
 
   const actualPaidAt = paidDate(input.paidAt);
-  await dailyCashCloseService.assertBusinessDateOpen(shopId, actualPaidAt);
   await collectionMoneyService.prepareCollectionMoneyAccount(shopId, input.moneyDestination);
 
   await prisma.$transaction(async (tx) => {
+    await assertBusinessDateOpenTx(tx, shopId, actualPaidAt);
+
     await tx.$queryRaw`
       SELECT id FROM "InstallmentPlan"
       WHERE id = ${planId}::uuid AND "shopId" = ${shopId}::uuid
