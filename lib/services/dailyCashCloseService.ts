@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { cashDrawerService } from "@/lib/services/cashDrawerService";
+import { lockShopFinancialTx } from "@/lib/services/businessDateLockService";
 import { getShopTimeZone } from "@/lib/shop-timezone";
 import {
   dateInputEndUtcForTimeZone,
@@ -144,10 +145,17 @@ export async function closeBusinessDay(
   notes?: string | null,
 ) {
   if (!Number.isFinite(actualCash) || actualCash < 0) throw new Error("الرصيد النقدي الفعلي غير صالح.");
-  const totals = await calculateDailyCashClose(shopId, businessDateInput);
-  const variance = Math.round((actualCash - totals.expectedCash) * 100) / 100;
 
   return prisma.$transaction(async (tx) => {
+    // Serialize the close against all financial mutations that use the same
+    // shop lock, including the first close where no DailyCashClose row exists.
+    await lockShopFinancialTx(tx, shopId);
+
+    // Recalculate only after the lock is held, so the persisted snapshot cannot
+    // be stale relative to a cooperating concurrent collection/payment.
+    const totals = await calculateDailyCashClose(shopId, businessDateInput);
+    const variance = Math.round((actualCash - totals.expectedCash) * 100) / 100;
+
     const currentRows = await tx.$queryRaw<Array<{ id: string; status: string; closeVersion: number }>>`
       SELECT "id", "status", "closeVersion"
       FROM "DailyCashClose"
@@ -220,6 +228,8 @@ export async function reopenBusinessDay(
   if (!trimmedReason) throw new Error("سبب إعادة فتح اليوم مطلوب.");
 
   return prisma.$transaction(async (tx) => {
+    await lockShopFinancialTx(tx, shopId);
+
     const rows = await tx.$queryRaw<Array<{
       id: string;
       status: string;
