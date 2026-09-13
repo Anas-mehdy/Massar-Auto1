@@ -23,12 +23,12 @@ type EvidenceLoader = (shopId: string) => Promise<Partial<FeatureDiscoveryEviden
 
 const LOADERS: Record<OnboardingJob, EvidenceLoader> = {
   REPAIRS: async (shopId) => {
-    const repair = await prisma.repairOrder.findFirst({
+    const serviceOrder = await prisma.serviceOrder.findFirst({
       where: { shopId, deletedAt: null },
-      orderBy: { createdAt: "desc" },
+      orderBy: { receivedAt: "desc" },
       select: { id: true },
     });
-    return { repairHref: repair ? `/repair-orders/${repair.id}` : null };
+    return { serviceOrderHref: serviceOrder ? `/service-orders/${serviceOrder.id}` : null };
   },
 
   SALES: async (shopId) => {
