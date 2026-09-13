@@ -69,7 +69,6 @@ const createInventoryItemSchema = z.object({
   unitPrice: requiredMoneySchema,
   quantity: nonNegativeIntegerSchema,
   reorderLevel: nonNegativeIntegerSchema,
-  compatibilityGroupIds: z.array(postgresUuidSchema).max(5, "يمكن ربط القطعة بخمسة أجهزة كحد أقصى"),
 });
 
 const updateInventoryItemDetailsSchema = z.object({
@@ -82,7 +81,6 @@ const updateInventoryItemDetailsSchema = z.object({
   unitCost: optionalMoneySchema,
   unitPrice: requiredMoneySchema,
   reorderLevel: nonNegativeIntegerSchema,
-  compatibilityGroupIds: z.array(postgresUuidSchema).max(5, "يمكن ربط القطعة بخمسة أجهزة كحد أقصى"),
 });
 
 const addStockSchema = z.object({
@@ -120,10 +118,6 @@ function readString(formData: FormData, key: string) {
   return typeof value === "string" ? value : "";
 }
 
-function readStrings(formData: FormData, key: string) {
-  return formData.getAll(key).filter((value): value is string => typeof value === "string" && value.length > 0);
-}
-
 function errorMessage(error: unknown) {
   if (error instanceof z.ZodError) {
     return error.issues[0]?.message || "تحقق من البيانات وحاول مجدداً.";
@@ -143,7 +137,6 @@ export async function createInventoryItemAction(formData: FormData) {
     unitPrice: readString(formData, "unitPrice"),
     quantity: readString(formData, "quantity"),
     reorderLevel: readString(formData, "reorderLevel"),
-    compatibilityGroupIds: readStrings(formData, "compatibilityGroupIds"),
   });
 
   if (!parsed.success) {
@@ -169,7 +162,6 @@ export async function createInventoryItemAction(formData: FormData) {
     properties: {
       has_category: Boolean(parsed.data.categoryId || parsed.data.newCategoryName),
       has_opening_quantity: Number.parseInt(parsed.data.quantity || "0", 10) > 0,
-      compatibility_links: parsed.data.compatibilityGroupIds.length,
       source: onboardingMode ? "inventory_onboarding" : "inventory",
       onboarding_mode: onboardingMode,
     },
@@ -205,7 +197,6 @@ export async function updateInventoryItemDetailsAction(formData: FormData) {
     unitCost: readString(formData, "unitCost"),
     unitPrice: readString(formData, "unitPrice"),
     reorderLevel: readString(formData, "reorderLevel"),
-    compatibilityGroupIds: readStrings(formData, "compatibilityGroupIds"),
   });
 
   if (!parsed.success) {
@@ -319,7 +310,6 @@ export async function deleteInventoryItemAction(formData: FormData) {
     const auth = await requirePermission("inventory:manage");
     await inventoryService.softDeleteInventoryItem(auth.shop.id, input.inventoryItemId);
     revalidatePath("/inventory");
-    revalidatePath("/compatibility");
     redirect("/inventory?deleted=1");
   } catch (error) {
     if (error && typeof error === "object" && "digest" in error) throw error;
