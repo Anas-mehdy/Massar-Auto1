@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { PrintActions } from "@/components/print-actions";
 import { requirePermission } from "@/lib/auth/context";
 import { formatAutoDate, formatAutoMoney, SERVICE_ORDER_STATUS_LABELS } from "@/lib/auto/service-order-ui";
+import { buildAppUrl } from "@/lib/app-url";
 import type { ServiceOrderStatus } from "@/lib/services/autoServiceOrderService";
 import { autoPrintService } from "@/lib/services/autoPrintService";
 import { shopService } from "@/lib/services/shopService";
@@ -34,7 +35,8 @@ export default async function ServiceOrderPrintPage({ params }: PageProps) {
   const laborTotal = activeLabor.reduce((sum, line) => sum + Number(line.lineTotal), 0);
   const partsTotal = activeParts.reduce((sum, line) => sum + Number(line.lineTotal), 0);
   const currentTotal = laborTotal + partsTotal;
-  const qrCodeDataUrl = await QRCode.toDataURL(order.orderNumber || order.id, { margin: 0, width: 180 });
+  const trackingUrl = buildAppUrl(`/track/${order.id}`);
+  const qrCodeDataUrl = await QRCode.toDataURL(trackingUrl, { margin: 0, width: 180 });
   const status = order.status as ServiceOrderStatus;
 
   return (
@@ -59,7 +61,10 @@ export default async function ServiceOrderPrintPage({ params }: PageProps) {
               <div className="mt-1 text-xs font-bold text-slate-600">{SERVICE_ORDER_STATUS_LABELS[status] ?? order.status}</div>
               <div className="mt-1 text-[11px] text-slate-500">الاستلام: {formatAutoDate(order.receivedAt)}</div>
             </div>
-            <Image src={qrCodeDataUrl} alt={`QR ${order.orderNumber}`} width={86} height={86} unoptimized className="shrink-0" />
+            <div className="shrink-0 text-center">
+              <Image src={qrCodeDataUrl} alt={`QR تتبع ${order.orderNumber}`} width={86} height={86} unoptimized />
+              <div className="mt-1 text-[8px] font-bold text-slate-500">امسح لتتبع الصيانة</div>
+            </div>
           </div>
         </header>
 
