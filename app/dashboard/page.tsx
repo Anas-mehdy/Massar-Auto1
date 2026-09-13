@@ -56,11 +56,11 @@ export default async function DashboardPage() {
 
   try {
     shopContext = await getCurrentShopContext();
-    const { shopId } = shopContext;
-    const canReadReports = shopContext.permissions.includes("reports:read");
+    const { shopId, permissions } = shopContext;
+    const canReadReports = permissions.includes("reports:read");
     [metrics, activity, subscriptionOverview, dailySummary] = await Promise.all([
-      dashboardService.getDashboardMetrics(shopId),
-      dashboardService.getRecentActivity(shopId),
+      dashboardService.getDashboardMetrics(shopId, permissions),
+      dashboardService.getRecentActivity(shopId, permissions),
       shopContext.membershipRole === "OWNER"
         ? subscriptionService.getSubscriptionOverview(shopId).catch(() => null)
         : Promise.resolve(null),
@@ -72,6 +72,20 @@ export default async function DashboardPage() {
     if (isDatabaseConnectionError(error)) return <DatabaseUnavailable />;
     throw error;
   }
+
+  const { permissions } = shopContext;
+  const canReadServiceOrders = permissions.includes("service_orders:read");
+  const canCreateServiceOrders = permissions.includes("service_orders:create");
+  const canReadInventory = permissions.includes("inventory:read");
+  const canManageInventory = permissions.includes("inventory:manage");
+  const canReadSales = permissions.includes("sales:read");
+  const canCreateSales = permissions.includes("sales:create");
+  const canReadInvoices = permissions.includes("invoices:read");
+  const canReadCustomers = permissions.includes("customers:read");
+  const canExecuteElectronicServices = permissions.includes("electronic_services:execute");
+  const canUsePointOfSale = canCreateSales || canCreateServiceOrders || canExecuteElectronicServices || permissions.includes("finance:vouchers");
+  const hasActivity = canReadServiceOrders || canReadSales || canReadInvoices;
+  const hasQuickActions = canCreateServiceOrders || canCreateSales || canManageInventory || canReadInvoices || canReadCustomers;
 
   const currency = shopContext.currency || "SAR";
   const todayStr = new Intl.DateTimeFormat("ar-EG", {
@@ -104,15 +118,24 @@ export default async function DashboardPage() {
     icon: typeof Wrench;
     href: string;
     tone: DashboardTone;
-  }> = [
-    { label: "طلبات صيانة مفتوحة", helper: "أجهزة قيد العمل بالورشة", value: metrics.openRepairOrdersCount, icon: Wrench, href: "/repair-orders", tone: "brand" },
-    { label: "جاهزة للتسليم", helper: "تم إنجازها وبانتظار العميل", value: metrics.readyForDeliveryCount, icon: CheckCircle2, href: "/repair-orders", tone: "success" },
-    { label: "طلبات استلمت اليوم", helper: "تذاكر صيانة جديدة مسجلة", value: metrics.repairOrdersCreatedToday, icon: Plus, href: "/repair-orders", tone: "info" },
-    { label: "طلبات سلمت اليوم", helper: "أجهزة استلمها أصحابها", value: metrics.deliveredToday, icon: CheckCircle2, href: "/repair-orders", tone: "support" },
-    { label: "تنبيهات المخزون", helper: "قطع قاربت على النفاد", value: metrics.lowStockItemsCount, icon: Boxes, href: "/inventory?lowStockOnly=true", tone: "danger" },
-  ];
+  }> = [];
 
-  const hasAttentionItems = metrics.readyForDeliveryCount > 0 || metrics.lowStockItemsCount > 0 || metrics.unpaidInvoicesCount > 0;
+  if (canReadServiceOrders) {
+    metricCards.push(
+      { label: "أوامر صيانة مفتوحة", helper: "مركبات قيد الفحص أو الصيانة", value: metrics.openServiceOrdersCount, icon: Wrench, href: "/service-orders", tone: "brand" },
+      { label: "جاهزة للتسليم", helper: "مركبات مكتملة وبانتظار العميل", value: metrics.readyForDeliveryCount, icon: CheckCircle2, href: "/service-orders?status=READY_FOR_DELIVERY", tone: "success" },
+      { label: "استُقبلت اليوم", helper: "أوامر صيانة جديدة مسجلة اليوم", value: metrics.serviceOrdersCreatedToday, icon: Plus, href: "/service-orders", tone: "info" },
+      { label: "سُلّمت اليوم", helper: "مركبات تم تسليمها لأصحابها", value: metrics.deliveredToday, icon: CheckCircle2, href: "/service-orders?status=DELIVERED", tone: "support" },
+    );
+  }
+  if (canReadInventory) {
+    metricCards.push({ label: "تنبيهات المخزون", helper: "قطع قاربت على النفاد", value: metrics.lowStockItemsCount, icon: Boxes, href: "/inventory?lowStockOnly=true", tone: "danger" });
+  }
+
+  const hasAttentionItems =
+    (canReadServiceOrders && metrics.readyForDeliveryCount > 0) ||
+    (canReadInventory && metrics.lowStockItemsCount > 0) ||
+    (canReadInvoices && metrics.unpaidInvoicesCount > 0);
 
   return (
     <div className="masar-page">
@@ -145,33 +168,37 @@ export default async function DashboardPage() {
             <span>أهلاً بك، <strong className="font-black text-slate-700">{shopContext.userName}</strong></span>
             <span className="inline-flex items-center gap-1.5 font-numeric text-slate-400"><Clock className="h-3.5 w-3.5" />{todayStr}</span>
           </div>
-          <div className="flex flex-wrap gap-2.5">
-            <Link href="/repair-orders/new" className="masar-btn-primary"><Plus className="h-4.5 w-4.5" />طلب صيانة جديد</Link>
-            <Link href="/sales/new" className="masar-btn-secondary"><ShoppingCart className="h-4.5 w-4.5" />عملية بيع POS جديدة</Link>
-          </div>
+          {(canCreateServiceOrders || canCreateSales) ? (
+            <div className="flex flex-wrap gap-2.5">
+              {canCreateServiceOrders ? <Link href="/service-orders/new" className="masar-btn-primary"><Plus className="h-4.5 w-4.5" />أمر صيانة جديد</Link> : null}
+              {canCreateSales ? <Link href="/point-of-sale?tab=sale" className="masar-btn-secondary"><ShoppingCart className="h-4.5 w-4.5" />عملية بيع POS جديدة</Link> : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="relative mt-6 text-center">
           <div className="mx-auto flex justify-center"><Image src="/masar-logo.png" alt="مسار" width={220} height={198} priority className="h-24 w-auto object-contain drop-shadow-sm transition-transform duration-300 hover:scale-105 sm:h-28" /></div>
-          <p className="mt-2 text-[16px] font-black text-teal-700">رحلة الجهاز من الاستلام حتى التسليم</p>
+          <p className="mt-2 text-[16px] font-black text-teal-700">رحلة المركبة من الاستقبال حتى التسليم</p>
         </div>
         <MasarJourney />
-        <p className="relative mt-5 text-center text-[14px] font-semibold text-slate-400">من أول خطوة... حتى يعود الجهاز لصاحبه</p>
+        <p className="relative mt-5 text-center text-[14px] font-semibold text-slate-400">من أول خطوة... حتى تعود المركبة لصاحبها</p>
       </section>
 
-      <section className="dashboard-pos-launch-wrap" aria-label="اختصار نقطة البيع">
-        <Link href="/point-of-sale" className="dashboard-pos-launch-card">
-          <span className="dashboard-pos-launch-card__content">
-            <span className="dashboard-pos-launch-card__icon"><ShoppingCart className="h-6 w-6" /></span>
-            <span className="dashboard-pos-launch-card__copy">
-              <span className="dashboard-pos-launch-card__eyebrow"><Sparkles className="h-3.5 w-3.5" /> مركز العمليات اليومية</span>
-              <strong>نقطة البيع</strong>
-              <span>بيع مباشر، صيانة، سوفتوير، خدمات إلكترونية ومحافظ — من مكان واحد.</span>
+      {canUsePointOfSale ? (
+        <section className="dashboard-pos-launch-wrap" aria-label="اختصار نقطة البيع">
+          <Link href="/point-of-sale" className="dashboard-pos-launch-card">
+            <span className="dashboard-pos-launch-card__content">
+              <span className="dashboard-pos-launch-card__icon"><ShoppingCart className="h-6 w-6" /></span>
+              <span className="dashboard-pos-launch-card__copy">
+                <span className="dashboard-pos-launch-card__eyebrow"><Sparkles className="h-3.5 w-3.5" /> مركز العمليات اليومية</span>
+                <strong>نقطة البيع</strong>
+                <span>بيع مباشر، أوامر صيانة، سوفتوير، خدمات إلكترونية ومحافظ — من مكان واحد.</span>
+              </span>
+              <span className="dashboard-pos-launch-card__action">فتح نقطة البيع<ArrowRightLeft className="h-4 w-4" /></span>
             </span>
-            <span className="dashboard-pos-launch-card__action">فتح نقطة البيع<ArrowRightLeft className="h-4 w-4" /></span>
-          </span>
-        </Link>
-      </section>
+          </Link>
+        </section>
+      ) : null}
 
       {dailySummary ? (
         <section>
@@ -183,55 +210,69 @@ export default async function DashboardPage() {
         </section>
       ) : null}
 
-      <section>
-        <div className="mb-4 flex items-end justify-between gap-3">
-          <div><h2 className="masar-section-title">حالة الورشة الآن</h2><p className="masar-section-description">الطلبات والتسليمات والمخزون التي تحتاج متابعة تشغيلية.</p></div>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">{metricCards.map((card) => <DashboardStatCard key={card.label} {...card} />)}</div>
-      </section>
+      {metricCards.length > 0 ? (
+        <section>
+          <div className="mb-4 flex items-end justify-between gap-3">
+            <div><h2 className="masar-section-title">حالة الورشة الآن</h2><p className="masar-section-description">أوامر الصيانة والتسليمات والمخزون التي تحتاج متابعة تشغيلية.</p></div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">{metricCards.map((card) => <DashboardStatCard key={card.label} {...card} />)}</div>
+        </section>
+      ) : null}
 
       {hasAttentionItems ? (
         <DashboardSection title="يحتاج انتباهك اليوم" description="حالات تستحق المتابعة قبل نهاية يوم العمل." icon={AlertTriangle}>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {metrics.readyForDeliveryCount > 0 ? <DashboardAttentionCard title="أجهزة جاهزة للتسليم" tone="success" href="/repair-orders" action="عرض الأجهزة الجاهزة" description={<>يوجد <strong className="font-numeric font-black text-slate-900">{metrics.readyForDeliveryCount}</strong> جهاز مكتمل الصيانة بانتظار التواصل مع العميل والتسليم.</>} /> : null}
-            {metrics.lowStockItemsCount > 0 ? <DashboardAttentionCard title="نقص في المخزون" tone="danger" href="/inventory?lowStockOnly=true" action="مراجعة المخزون" description={<>يوجد <strong className="font-numeric font-black text-slate-900">{metrics.lowStockItemsCount}</strong> قطع بلغت أو تخطت حد إعادة الطلب.</>} /> : null}
-            {metrics.unpaidInvoicesCount > 0 ? <DashboardAttentionCard title="مستحقات غير محصلة" tone="warning" href="/invoices" action="متابعة التحصيل" description={<>توجد <strong className="font-numeric font-black text-slate-900">{metrics.unpaidInvoicesCount}</strong> فواتير معلقة بإجمالي <strong className="font-numeric font-black text-slate-900">{formatCurrency(metrics.unpaidBalanceTotal, currency)}</strong>.</>} /> : null}
+            {canReadServiceOrders && metrics.readyForDeliveryCount > 0 ? <DashboardAttentionCard title="مركبات جاهزة للتسليم" tone="success" href="/service-orders?status=READY_FOR_DELIVERY" action="عرض المركبات الجاهزة" description={<>يوجد <strong className="font-numeric font-black text-slate-900">{metrics.readyForDeliveryCount}</strong> مركبة مكتملة الصيانة بانتظار التواصل مع العميل والتسليم.</>} /> : null}
+            {canReadInventory && metrics.lowStockItemsCount > 0 ? <DashboardAttentionCard title="نقص في المخزون" tone="danger" href="/inventory?lowStockOnly=true" action="مراجعة المخزون" description={<>يوجد <strong className="font-numeric font-black text-slate-900">{metrics.lowStockItemsCount}</strong> قطع بلغت أو تخطت حد إعادة الطلب.</>} /> : null}
+            {canReadInvoices && metrics.unpaidInvoicesCount > 0 ? <DashboardAttentionCard title="مستحقات غير محصلة" tone="warning" href="/invoices" action="متابعة التحصيل" description={<>توجد <strong className="font-numeric font-black text-slate-900">{metrics.unpaidInvoicesCount}</strong> فواتير معلقة بإجمالي <strong className="font-numeric font-black text-slate-900">{formatCurrency(metrics.unpaidBalanceTotal, currency)}</strong>.</>} /> : null}
           </div>
         </DashboardSection>
       ) : null}
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
-          <DashboardActivityCard title="آخر تذاكر صيانة" icon={Wrench}>
-            {activity.repairOrders.length === 0 ? <DashboardEmptyActivity href="/repair-orders/new" label="طلب صيانة جديد" /> : activity.repairOrders.map((repairOrder) => (
-              <DashboardActivityItem key={repairOrder.id} href={`/repair-orders/${repairOrder.id}`} title={repairOrder.ticketNumber} description={`${repairOrder.customer?.name ?? "عميل سريع"} - ${repairOrder.deviceBrand ?? ""} ${repairOrder.deviceModel ?? ""}`} meta={formatDate(repairOrder.createdAt, shopContext.timeZone)} />
-            ))}
-          </DashboardActivityCard>
+      {(hasActivity || hasQuickActions) ? (
+        <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+          {hasActivity ? (
+            <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
+              {canReadServiceOrders ? (
+                <DashboardActivityCard title="آخر أوامر الصيانة" icon={Wrench}>
+                  {activity.serviceOrders.length === 0 ? <DashboardEmptyActivity href={canCreateServiceOrders ? "/service-orders/new" : "/service-orders"} label={canCreateServiceOrders ? "أمر صيانة جديد" : "عرض أوامر الصيانة"} /> : activity.serviceOrders.map((order) => (
+                    <DashboardActivityItem key={order.id} href={`/service-orders/${order.id}`} title={order.orderNumber} description={`${order.customer.name} - ${order.vehicle.make} ${order.vehicle.model}${order.vehicle.plateNumber ? ` - ${order.vehicle.plateNumber}` : ""}`} meta={formatDate(order.receivedAt, shopContext.timeZone)} />
+                  ))}
+                </DashboardActivityCard>
+              ) : null}
 
-          <DashboardActivityCard title="آخر عمليات البيع" icon={ShoppingCart}>
-            {activity.sales.length === 0 ? <DashboardEmptyActivity href="/sales/new" label="عملية بيع جديدة" /> : activity.sales.map((sale) => (
-              <DashboardActivityItem key={sale.id} href={`/sales/${sale.id}`} title={sale.receiptNumber ?? "إيصال بيع"} description={`${sale.customer?.name ?? "عميل نقدي"} - إجمالي: ${formatCurrency(sale.total, currency)}`} meta={formatDate(sale.soldAt, shopContext.timeZone)} />
-            ))}
-          </DashboardActivityCard>
+              {canReadSales ? (
+                <DashboardActivityCard title="آخر عمليات البيع" icon={ShoppingCart}>
+                  {activity.sales.length === 0 ? <DashboardEmptyActivity href={canCreateSales ? "/point-of-sale?tab=sale" : "/sales"} label={canCreateSales ? "عملية بيع جديدة" : "عرض المبيعات"} /> : activity.sales.map((sale) => (
+                    <DashboardActivityItem key={sale.id} href={`/sales/${sale.id}`} title={sale.receiptNumber ?? "إيصال بيع"} description={`${sale.customer?.name ?? "عميل نقدي"} - إجمالي: ${formatCurrency(sale.total, currency)}`} meta={formatDate(sale.soldAt, shopContext.timeZone)} />
+                  ))}
+                </DashboardActivityCard>
+              ) : null}
 
-          <DashboardActivityCard title="آخر الفواتير" icon={FileText}>
-            {activity.invoices.length === 0 ? <DashboardEmptyActivity href="/invoices" label="عرض الفواتير" /> : activity.invoices.map((invoice) => (
-              <DashboardActivityItem key={invoice.id} href={`/invoices/${invoice.id}`} title={invoice.invoiceNumber} description={`${invoice.customer?.name ?? "عميل سريع"} - متبقي: ${formatCurrency(invoice.balanceDue, currency)}`} meta={formatDate(invoice.issuedAt, shopContext.timeZone)} />
-            ))}
-          </DashboardActivityCard>
-        </div>
+              {canReadInvoices ? (
+                <DashboardActivityCard title="آخر الفواتير" icon={FileText}>
+                  {activity.invoices.length === 0 ? <DashboardEmptyActivity href="/invoices" label="عرض الفواتير" /> : activity.invoices.map((invoice) => (
+                    <DashboardActivityItem key={invoice.id} href={`/invoices/${invoice.id}`} title={invoice.invoiceNumber} description={`${invoice.customer?.name ?? "عميل سريع"} - متبقي: ${formatCurrency(invoice.balanceDue, currency)}`} meta={formatDate(invoice.issuedAt, shopContext.timeZone)} />
+                  ))}
+                </DashboardActivityCard>
+              ) : null}
+            </div>
+          ) : <div />}
 
-        <DashboardSection title="إجراءات سريعة" description="أكثر العمليات استخداماً في يوم العمل." icon={ArrowRightLeft} className="h-fit xl:sticky xl:top-24">
-          <div className="space-y-2.5">
-            <DashboardQuickAction href="/repair-orders/new" title="فتح تذكرة صيانة" description="تسجيل واستلام جهاز جديد" icon={Wrench} tone="brand" />
-            <DashboardQuickAction href="/sales/new" title="تسجيل عملية POS" description="بيع مباشر لقطع وإكسسوارات" icon={ShoppingCart} tone="warning" />
-            <DashboardQuickAction href="/software-services/new" title="بيع خدمة سوفتوير" description="تفليش، تحديث وخدمات رقمية" icon={Code2} tone="support" />
-            <DashboardQuickAction href="/inventory/new" title="إضافة للمستودع" description="إدخال صنف أو قطعة جديدة" icon={Boxes} tone="info" />
-            <DashboardQuickAction href="/invoices" title="مراجعة المقبوضات" description="متابعة الفواتير المعلقة" icon={Receipt} tone="danger" />
-            <DashboardQuickAction href="/customers" title="سجل العملاء" description="مراجعة حسابات وبيانات العملاء" icon={CheckCircle2} tone="neutral" />
-          </div>
-        </DashboardSection>
-      </section>
+          {hasQuickActions ? (
+            <DashboardSection title="إجراءات سريعة" description="أكثر العمليات استخداماً في يوم العمل." icon={ArrowRightLeft} className="h-fit xl:sticky xl:top-24">
+              <div className="space-y-2.5">
+                {canCreateServiceOrders ? <DashboardQuickAction href="/service-orders/new" title="فتح أمر صيانة" description="استقبال مركبة وتسجيل شكوى العميل" icon={Wrench} tone="brand" /> : null}
+                {canCreateSales ? <DashboardQuickAction href="/point-of-sale?tab=sale" title="تسجيل عملية POS" description="بيع مباشر لقطع الغيار والخدمات" icon={ShoppingCart} tone="warning" /> : null}
+                {canCreateSales ? <DashboardQuickAction href="/point-of-sale?tab=software" title="بيع خدمة سوفتوير" description="تسجيل خدمة سوفتوير من نقطة البيع" icon={Code2} tone="support" /> : null}
+                {canManageInventory ? <DashboardQuickAction href="/inventory/new" title="إضافة للمستودع" description="إدخال صنف أو قطعة جديدة" icon={Boxes} tone="info" /> : null}
+                {canReadInvoices ? <DashboardQuickAction href="/invoices" title="مراجعة المقبوضات" description="متابعة الفواتير المعلقة" icon={Receipt} tone="danger" /> : null}
+                {canReadCustomers ? <DashboardQuickAction href="/customers" title="سجل العملاء" description="مراجعة العملاء ومركباتهم" icon={CheckCircle2} tone="neutral" /> : null}
+              </div>
+            </DashboardSection>
+          ) : null}
+        </section>
+      ) : null}
     </div>
   );
 }
