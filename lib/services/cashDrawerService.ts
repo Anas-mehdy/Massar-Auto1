@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { assertBusinessDateOpenTx } from "@/lib/services/businessDateLockService";
 import { financialTransferService } from "@/lib/services/financialTransferService";
 import { dayUtcBoundsForTimeZone } from "@/lib/timezone";
 import { getShopTimeZone } from "@/lib/shop-timezone";
@@ -204,35 +205,41 @@ export async function getMovementById(shopId: string, movementId: string) {
 
 export async function setOpeningBalance(shopId: string, userId: string | null, value: string, notes?: string) {
   const amount = decimal(value); if (amount.lt(0)) throw new Error("الرصيد الافتتاحي لا يمكن أن يكون سالباً."); const drawer = await ensureDrawer(shopId);
+  const occurredAt = new Date();
   return prisma.$transaction(async (tx) => {
+    await assertBusinessDateOpenTx(tx, shopId, occurredAt);
     const rows = await tx.$queryRaw<Array<{ id: string; openingBalanceSetAt: Date | null }>>`SELECT "id", "openingBalanceSetAt" FROM "CashDrawer" WHERE "id" = ${drawer.id}::uuid AND "shopId" = ${shopId}::uuid FOR UPDATE`;
     if (!rows[0]) throw new Error("الدرج النقدي غير موجود."); if (rows[0].openingBalanceSetAt) throw new Error("تم تسجيل الرصيد الافتتاحي مسبقاً.");
-    await tx.$executeRaw`UPDATE "CashDrawer" SET "openingBalance" = ${amount}, "currentBalance" = ${amount}, "openingBalanceSetAt" = NOW(), "updatedAt" = NOW() WHERE "id" = ${drawer.id}::uuid AND "shopId" = ${shopId}::uuid`;
-    if (amount.gt(0)) await tx.$executeRaw`INSERT INTO "CashDrawerMovement" ("shopId", "drawerId", "createdByUserId", "type", "direction", "amount", "description", "sourceType", "sourceReference") VALUES (${shopId}::uuid, ${drawer.id}::uuid, ${userId}::uuid, 'OPENING_BALANCE', 'IN', ${amount}, ${nullableText(notes) || "الرصيد الافتتاحي للدرج"}, 'MANUAL', 'الرصيد الافتتاحي')`;
+    await tx.$executeRaw`UPDATE "CashDrawer" SET "openingBalance" = ${amount}, "currentBalance" = ${amount}, "openingBalanceSetAt" = ${occurredAt}, "updatedAt" = NOW() WHERE "id" = ${drawer.id}::uuid AND "shopId" = ${shopId}::uuid`;
+    if (amount.gt(0)) await tx.$executeRaw`INSERT INTO "CashDrawerMovement" ("shopId", "drawerId", "createdByUserId", "type", "direction", "amount", "description", "sourceType", "sourceReference", "createdAt") VALUES (${shopId}::uuid, ${drawer.id}::uuid, ${userId}::uuid, 'OPENING_BALANCE', 'IN', ${amount}, ${nullableText(notes) || "الرصيد الافتتاحي للدرج"}, 'MANUAL', 'الرصيد الافتتاحي', ${occurredAt})`;
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
 }
 
 export async function addManualMovement(shopId: string, userId: string | null, input: { direction: "IN" | "OUT"; amount: string; description: string; reference?: string }) {
   const amount = decimal(input.amount); if (amount.lte(0)) throw new Error("المبلغ يجب أن يكون أكبر من صفر."); const description = input.description.trim(); if (!description) throw new Error("سبب الحركة مطلوب."); const drawer = await ensureDrawer(shopId);
+  const occurredAt = new Date();
   return prisma.$transaction(async (tx) => {
+    await assertBusinessDateOpenTx(tx, shopId, occurredAt);
     const rows = await tx.$queryRaw<Array<{ id: string; currentBalance: Prisma.Decimal }>>`SELECT "id", "currentBalance" FROM "CashDrawer" WHERE "id" = ${drawer.id}::uuid AND "shopId" = ${shopId}::uuid FOR UPDATE`;
     const locked = rows[0]; if (!locked) throw new Error("الدرج النقدي غير موجود."); const next = input.direction === "IN" ? locked.currentBalance.add(amount) : locked.currentBalance.sub(amount); if (next.lt(0)) throw new Error("رصيد الدرج غير كافٍ.");
     await tx.$executeRaw`UPDATE "CashDrawer" SET "currentBalance" = ${next}, "updatedAt" = NOW() WHERE "id" = ${locked.id}::uuid`;
-    await tx.$executeRaw`INSERT INTO "CashDrawerMovement" ("shopId", "drawerId", "createdByUserId", "type", "direction", "amount", "description", "reference", "sourceType", "sourceReference") VALUES (${shopId}::uuid, ${locked.id}::uuid, ${userId}::uuid, ${input.direction === "IN" ? "MANUAL_IN" : "MANUAL_OUT"}, ${input.direction}, ${amount}, ${description}, ${nullableText(input.reference)}, 'MANUAL', ${nullableText(input.reference)})`;
+    await tx.$executeRaw`INSERT INTO "CashDrawerMovement" ("shopId", "drawerId", "createdByUserId", "type", "direction", "amount", "description", "reference", "sourceType", "sourceReference", "createdAt") VALUES (${shopId}::uuid, ${locked.id}::uuid, ${userId}::uuid, ${input.direction === "IN" ? "MANUAL_IN" : "MANUAL_OUT"}, ${input.direction}, ${amount}, ${description}, ${nullableText(input.reference)}, 'MANUAL', ${nullableText(input.reference)}, ${occurredAt})`;
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
 }
 
 export async function transferWithWallet(shopId: string, userId: string | null, input: { walletId: string; direction: "DRAWER_TO_WALLET" | "WALLET_TO_DRAWER"; amount: string; notes?: string }) {
   const amount = decimal(input.amount); if (amount.lte(0)) throw new Error("المبلغ يجب أن يكون أكبر من صفر."); await financialTransferService.listWallets(shopId); const drawer = await ensureDrawer(shopId);
+  const occurredAt = new Date();
   return prisma.$transaction(async (tx) => {
+    await assertBusinessDateOpenTx(tx, shopId, occurredAt);
     const drawerRows = await tx.$queryRaw<Array<{ id: string; currentBalance: Prisma.Decimal }>>`SELECT "id", "currentBalance" FROM "CashDrawer" WHERE "id" = ${drawer.id}::uuid AND "shopId" = ${shopId}::uuid FOR UPDATE`;
     const walletRows = await tx.$queryRaw<Array<{ id: string; name: string; currentBalance: Prisma.Decimal }>>`SELECT "id", "name", "currentBalance" FROM "FinancialWallet" WHERE "id" = ${input.walletId}::uuid AND "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL AND "isActive" = TRUE FOR UPDATE`;
     const lockedDrawer = drawerRows[0]; const wallet = walletRows[0]; if (!lockedDrawer || !wallet) throw new Error("الدرج أو المحفظة غير موجودة."); const drawerToWallet = input.direction === "DRAWER_TO_WALLET";
     const nextDrawer = drawerToWallet ? lockedDrawer.currentBalance.sub(amount) : lockedDrawer.currentBalance.add(amount); const nextWallet = drawerToWallet ? wallet.currentBalance.add(amount) : wallet.currentBalance.sub(amount); if (nextDrawer.lt(0)) throw new Error("رصيد الدرج غير كافٍ."); if (nextWallet.lt(0)) throw new Error("رصيد المحفظة غير كافٍ.");
     await tx.$executeRaw`UPDATE "CashDrawer" SET "currentBalance" = ${nextDrawer}, "updatedAt" = NOW() WHERE "id" = ${lockedDrawer.id}::uuid`; await tx.$executeRaw`UPDATE "FinancialWallet" SET "currentBalance" = ${nextWallet}, "updatedAt" = NOW() WHERE "id" = ${wallet.id}::uuid`;
-    const transferRows = await tx.$queryRaw<Array<{ id: string }>>`INSERT INTO "FinancialTransfer" ("shopId", "walletId", "createdByUserId", "operationType", "amount", "walletAmount", "commission", "commissionMode", "isDeferred", "notes", "sourceType", "sourceReference") VALUES (${shopId}::uuid, ${wallet.id}::uuid, ${userId}::uuid, ${drawerToWallet ? "WALLET_TOPUP" : "WALLET_WITHDRAWAL"}, ${amount}, ${amount}, 0, 'NONE', FALSE, ${nullableText(input.notes) || (drawerToWallet ? "تحويل من الدرج النقدي" : "تحويل إلى الدرج النقدي")}, 'CASH_DRAWER_TRANSFER', 'الدرج النقدي') RETURNING "id"`;
+    const transferRows = await tx.$queryRaw<Array<{ id: string }>>`INSERT INTO "FinancialTransfer" ("shopId", "walletId", "createdByUserId", "operationType", "amount", "walletAmount", "commission", "commissionMode", "isDeferred", "notes", "sourceType", "sourceReference", "createdAt") VALUES (${shopId}::uuid, ${wallet.id}::uuid, ${userId}::uuid, ${drawerToWallet ? "WALLET_TOPUP" : "WALLET_WITHDRAWAL"}, ${amount}, ${amount}, 0, 'NONE', FALSE, ${nullableText(input.notes) || (drawerToWallet ? "تحويل من الدرج النقدي" : "تحويل إلى الدرج النقدي")}, 'CASH_DRAWER_TRANSFER', 'الدرج النقدي', ${occurredAt}) RETURNING "id"`;
     const financialTransferId = transferRows[0]?.id ?? null;
-    await tx.$executeRaw`INSERT INTO "CashDrawerMovement" ("shopId", "drawerId", "createdByUserId", "type", "direction", "amount", "description", "walletId", "financialTransferId", "sourceType", "sourceId", "sourceReference") VALUES (${shopId}::uuid, ${lockedDrawer.id}::uuid, ${userId}::uuid, ${drawerToWallet ? "WALLET_TRANSFER_OUT" : "WALLET_TRANSFER_IN"}, ${drawerToWallet ? "OUT" : "IN"}, ${amount}, ${drawerToWallet ? `تحويل إلى ${wallet.name}` : `تحويل من ${wallet.name}`}, ${wallet.id}::uuid, ${financialTransferId}::uuid, 'CASH_DRAWER_TRANSFER', ${financialTransferId}, ${wallet.name})`;
+    await tx.$executeRaw`INSERT INTO "CashDrawerMovement" ("shopId", "drawerId", "createdByUserId", "type", "direction", "amount", "description", "walletId", "financialTransferId", "sourceType", "sourceId", "sourceReference", "createdAt") VALUES (${shopId}::uuid, ${lockedDrawer.id}::uuid, ${userId}::uuid, ${drawerToWallet ? "WALLET_TRANSFER_OUT" : "WALLET_TRANSFER_IN"}, ${drawerToWallet ? "OUT" : "IN"}, ${amount}, ${drawerToWallet ? `تحويل إلى ${wallet.name}` : `تحويل من ${wallet.name}`}, ${wallet.id}::uuid, ${financialTransferId}::uuid, 'CASH_DRAWER_TRANSFER', ${financialTransferId}, ${wallet.name}, ${occurredAt})`;
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
 }
 
