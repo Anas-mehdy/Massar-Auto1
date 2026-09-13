@@ -8,7 +8,6 @@ export const FEATURE_DISCOVERY_MAX_AGE_DAYS = 30 as const;
 export type FeatureDiscoveryId =
   | "service_order_workflow"
   | "sales_inventory"
-  | "inventory_compatibility"
   | "wallet_monthly_limit"
   | "debt_collection"
   | "electronic_templates";
@@ -26,7 +25,6 @@ export type FeatureDiscoveryEvidence = {
   serviceOrderHref?: string | null;
   salesHasActivity?: boolean;
   inventoryHasActivity?: boolean;
-  inventoryUnlinkedHref?: string | null;
   walletNeedsLimit?: boolean;
   debtCollectionHref?: string | null;
   electronicHasActivity?: boolean;
@@ -56,17 +54,6 @@ function candidateForJob(
       description: "لما تختار صنفاً من المخزون داخل نقطة البيع، مسار يسجل البيع ويخصم الكمية تلقائياً بدل تعديل الرصيد يدوياً.",
       actionHref: "/point-of-sale?tab=sale",
       actionLabel: "افتح نقطة البيع",
-    };
-  }
-
-  if (job === "INVENTORY" && evidence.inventoryUnlinkedHref) {
-    return {
-      id: "inventory_compatibility",
-      job,
-      title: "اربط القطعة بالمركبات أو الاستخدامات المناسبة إلها",
-      description: "استخدم بيانات التوافق المتاحة للصنف حتى يكون الوصول للقطعة المناسبة أسرع وأقل عرضة للخطأ أثناء العمل.",
-      actionHref: evidence.inventoryUnlinkedHref,
-      actionLabel: "راجع توافق القطعة",
     };
   }
 
