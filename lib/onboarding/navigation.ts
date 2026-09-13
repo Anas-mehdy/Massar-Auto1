@@ -21,7 +21,6 @@ const DESTINATION_BY_JOB: Record<OnboardingJob, string> = {
   INVENTORY: "/inventory/new?onboarding=1",
   WALLETS: "/transfers?onboarding=1",
   DEBTS: "/debts?onboarding=1",
-  ELECTRONIC_SERVICES: "/electronic-services?onboarding=1",
 };
 
 export function onboardingDestination(job: OnboardingJob) {
