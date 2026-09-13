@@ -13,8 +13,13 @@ export async function lockShopFinancialTx(
   tx: Prisma.TransactionClient,
   shopId: string,
 ) {
-  await tx.$queryRaw`
-    SELECT pg_advisory_xact_lock(hashtextextended(${shopId}::text, 0))
+  // Do not return PostgreSQL's `void` advisory-lock result to Prisma; return a
+  // normal scalar after executing the side-effect so all drivers can decode it.
+  await tx.$queryRaw<Array<{ locked: number }>>`
+    SELECT 1::integer AS "locked"
+    FROM (
+      SELECT pg_advisory_xact_lock(hashtextextended(${shopId}::text, 0))
+    ) AS financial_lock
   `;
 }
 
