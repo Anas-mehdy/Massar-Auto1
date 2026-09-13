@@ -54,11 +54,11 @@ type PointOfSaleTab = {
 };
 
 const tabs: PointOfSaleTab[] = [
-  { key: "sale", label: "بيع مباشر", description: "بيع قطعة أو إكسسوار من نظام المبيعات الحالي.", icon: ShoppingCart, permission: "sales:create", tone: "indigo" },
-  { key: "repair", label: "تذكرة صيانة", description: "استلام جهاز وفتح تذكرة صيانة جديدة.", icon: Wrench, permission: "repairs:create", tone: "cyan" },
+  { key: "sale", label: "بيع مباشر", description: "بيع قطعة أو خدمة سريعة من نظام المبيعات.", icon: ShoppingCart, permission: "sales:create", tone: "indigo" },
+  { key: "service", label: "أمر صيانة", description: "استقبال مركبة وفتح أمر صيانة جديد.", icon: Wrench, permission: "service_orders:create", tone: "cyan" },
   { key: "software", label: "خدمة سوفتوير", description: "تنفيذ خدمة سوفتوير باستخدام نفس المحرك الحالي.", icon: Code2, permission: "sales:create", tone: "violet" },
   { key: "electronic", label: "خدمة إلكترونية", description: "شحن وفواتير وخدمات مزودي الرصيد.", icon: Zap, permission: "electronic_services:execute", tone: "amber" },
-  { key: "wallet", label: "المحافظ", description: "إيداع وسحب وشحن أرصدة المحافظ.", icon: ArrowLeftRight, permission: "sales:create", tone: "emerald" },
+  { key: "wallet", label: "المحافظ", description: "إيداع وسحب أرصدة العملاء عبر المحافظ.", icon: ArrowLeftRight, permission: "sales:create", tone: "emerald" },
 ];
 
 const toneClasses = {
@@ -87,6 +87,7 @@ const toneClasses = {
 function operationRecordHref(tab: PointOfSaleTabKey, transaction?: string) {
   if (!transaction) return null;
   if (tab === "sale") return `/sales/${transaction}`;
+  if (tab === "service") return `/service-orders/${transaction}`;
   if (tab === "repair") return `/repair-orders/${transaction}`;
   if (tab === "software") return `/software-services/${transaction}`;
   if (tab === "wallet") return `/transfers/${transaction}`;
@@ -96,6 +97,7 @@ function operationRecordHref(tab: PointOfSaleTabKey, transaction?: string) {
 function operationRecordLabel(tab: PointOfSaleTabKey) {
   if (tab === "electronic") return "فتح سجل الخدمات";
   if (tab === "wallet") return "فتح تفاصيل التحويل";
+  if (tab === "service") return "فتح أمر الصيانة";
   return "فتح تفاصيل العملية";
 }
 
@@ -117,6 +119,20 @@ async function renderSaleForm(context: CurrentShopContext, key: string) {
       bankAccounts={bankAccounts.map((account) => ({ id: account.id, name: account.name, bankName: account.bankName, balance: Number(account.currentBalance) }))}
       returnTo={pointOfSaleReturnPath("sale")}
     />
+  );
+}
+
+function renderServiceForm() {
+  return (
+    <div className="mx-auto max-w-3xl rounded-[22px] border border-cyan-200 bg-gradient-to-br from-cyan-50 via-white to-teal-50 p-6 text-center dark:border-cyan-900/70 dark:from-cyan-950/25 dark:via-slate-950 dark:to-teal-950/20 sm:p-8">
+      <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-700 ring-1 ring-cyan-200 dark:bg-cyan-950/60 dark:text-cyan-300 dark:ring-cyan-900"><Wrench className="h-7 w-7" /></span>
+      <h3 className="mt-4 text-lg font-black text-slate-950 dark:text-slate-50">استقبال مركبة وفتح أمر صيانة</h3>
+      <p className="mx-auto mt-2 max-w-xl text-xs font-semibold leading-6 text-slate-500 dark:text-slate-400">أوامر صيانة المركبات لها مسار استقبال مخصص يحفظ المركبة والعداد وحالة الدخول وشكوى العميل وموعد التسليم المتوقع.</p>
+      <div className="mt-5 flex flex-col justify-center gap-2 sm:flex-row">
+        <Button asChild className="font-black"><Link href="/service-orders/new">استقبال مركبة</Link></Button>
+        <Button asChild variant="outline" className="font-black"><Link href="/service-orders">سجل أوامر الصيانة</Link></Button>
+      </div>
+    </div>
   );
 }
 
@@ -257,6 +273,7 @@ async function renderWalletForm(context: CurrentShopContext, key: string) {
 
 async function renderActiveForm(tab: PointOfSaleTabKey, context: CurrentShopContext, key: string) {
   if (tab === "sale") return renderSaleForm(context, key);
+  if (tab === "service") return renderServiceForm();
   if (tab === "repair") return renderRepairForm(context, key);
   if (tab === "software") return renderSoftwareForm(context, key);
   if (tab === "wallet") return renderWalletForm(context, key);
@@ -281,7 +298,7 @@ export default async function PointOfSalePage({ searchParams }: Props) {
           <section className="rounded-[24px] border border-amber-200 bg-amber-50 p-6 text-center dark:border-amber-900/70 dark:bg-amber-950/25">
             <h1 className="text-sm font-black text-amber-900 dark:text-amber-200">لا يوجد مستودع نشط للبيع</h1>
             <p className="mt-2 text-[11px] font-semibold leading-5 text-amber-700 dark:text-amber-300">أنشئ أو فعّل مستودعاً أولاً حتى نعرف من أين ستُخصم قطع المخزون ونحمي الكميات المحجوزة للصيانة.</p>
-            <Button asChild className="mt-4 font-black"><Link href="/inventory/warehouses">إدارة المستودعات</Link></Button>
+            <Button asChild className="mt-4 font-black"><Link href="/warehouses">إدارة المستودعات</Link></Button>
           </section>
         </div>
       );
@@ -311,10 +328,10 @@ export default async function PointOfSalePage({ searchParams }: Props) {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full border border-teal-200 bg-white/80 px-2.5 py-1 text-[10px] font-black text-teal-700 dark:border-teal-900 dark:bg-teal-950/50 dark:text-teal-300">مركز العمليات اليومية</span>
-              <span className="hidden items-center gap-1 text-[10px] font-bold text-slate-400 sm:inline-flex"><Sparkles className="h-3 w-3 text-cyan-500" /> نفس محركات مسار، في مكان واحد</span>
+              <span className="hidden items-center gap-1 text-[10px] font-bold text-slate-400 sm:inline-flex"><Sparkles className="h-3 w-3 text-cyan-500" /> عمليات مسار في مكان واحد</span>
             </div>
             <h1 className="mt-2 text-xl font-black tracking-tight text-slate-950 dark:text-slate-50 sm:text-[28px]">نقطة البيع</h1>
-            <p className="mt-1.5 max-w-3xl text-[11px] font-semibold leading-5 text-slate-500 dark:text-slate-400 sm:text-xs sm:leading-6">نفّذ البيع والصيانة والسوفتوير والخدمات الإلكترونية وتحويلات المحافظ من صفحة واحدة. بعد الحفظ تبقى هنا مباشرة لتبدأ العملية التالية.</p>
+            <p className="mt-1.5 max-w-3xl text-[11px] font-semibold leading-5 text-slate-500 dark:text-slate-400 sm:text-xs sm:leading-6">نفّذ البيع، واستقبل المركبات للصيانة، وسجّل خدمات السوفتوير والخدمات الإلكترونية وتحويلات العملاء من صفحة واحدة.</p>
           </div>
         </div>
       </section>
@@ -350,12 +367,8 @@ export default async function PointOfSalePage({ searchParams }: Props) {
         </section>
       ) : null}
 
-      {query.error ? (
-        <div aria-live="assertive" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-200">{query.error}</div>
-      ) : null}
-      {query.entitlement ? (
-        <div aria-live="assertive" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200">تعذر إنشاء العملية بسبب حدود الاشتراك الحالية. بياناتك محفوظة ويمكنك مراجعة الاشتراك أو التواصل مع الدعم.</div>
-      ) : null}
+      {query.error ? <div aria-live="assertive" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-200">{query.error}</div> : null}
+      {query.entitlement ? <div aria-live="assertive" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200">تعذر إنشاء العملية بسبب حدود الاشتراك الحالية. بياناتك محفوظة ويمكنك مراجعة الاشتراك أو التواصل مع الدعم.</div> : null}
 
       {activeTab ? (
         <section className="overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:rounded-[26px]">
@@ -366,7 +379,7 @@ export default async function PointOfSalePage({ searchParams }: Props) {
                 <div className="min-w-0"><h2 className="text-sm font-black text-slate-900 dark:text-slate-100">{activeTab.label}</h2><p className="mt-0.5 truncate text-[9px] font-semibold text-slate-400 sm:text-[10px]">{activeTab.description}</p></div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[9px] font-black text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-300">نفس النظام الحالي</span>
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[9px] font-black text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-300">مسار موحّد</span>
                 <Button asChild variant="ghost" className="h-8 rounded-lg px-2.5 text-[9px] font-black text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-900"><a href={pointOfSaleReturnPath(activeTab.key)}><RotateCcw className="ml-1 h-3.5 w-3.5" />تفريغ النموذج</a></Button>
               </div>
             </div>
