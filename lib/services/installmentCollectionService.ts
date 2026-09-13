@@ -204,7 +204,10 @@ export async function addPayment(
       }
 
       const invoicePaid = cents(invoice.amountPaid) + paymentCents;
-      const invoiceBalance = cents(invoice.total) - invoicePaid;
+      // balanceDue may already include credit notes or other approved reductions.
+      // Decrease the current collectible balance instead of reconstructing it
+      // from the immutable original invoice total.
+      const invoiceBalance = cents(invoice.balanceDue) - paymentCents;
       await tx.payment.create({
         data: {
           shopId,
