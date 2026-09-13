@@ -21,7 +21,6 @@ const JOB_LABELS: Record<OnboardingJob | "UNSELECTED", string> = {
   INVENTORY: "المخزون",
   WALLETS: "المحافظ",
   DEBTS: "الديون",
-  ELECTRONIC_SERVICES: "الخدمات الإلكترونية",
   UNSELECTED: "غير محدد",
 };
 
@@ -86,10 +85,10 @@ export function GrowthDashboardView({ data }: { data: GrowthDashboardData }) {
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(340px,.6fr)]">
         <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
           <div className="mb-5 flex items-center justify-between"><div><h2 className="text-sm font-black text-white">Activation Funnel</h2><p className="mt-1 text-[10px] font-semibold text-slate-500">المراحل Authoritative من قاعدة البيانات.</p></div><BarChart3 className="h-5 w-5 text-violet-400" /></div>
-          <div className="space-y-5"><FunnelBar label="التسجيل" value={f.signups} base={f.signups} helper="متاجر دخلت Cohort الجديد" /><FunnelBar label="إكمال Onboarding" value={f.onboardingCompleted} base={f.signups} helper="اختاروا طبيعة العمل ونقطة البداية" /><FunnelBar label="First Value" value={f.firstValue} base={f.signups} helper="عملية حقيقية واحدة على الأقل" /><FunnelBar label="Habit" value={f.habit} base={f.signups} helper="3 عمليات حقيقية على يومي عمل مختلفين" /><FunnelBar label="Paid" value={f.paid} base={f.signups} helper="اشتراك تم تفعيله في قاعدة البيانات" /></div>
+          <div className="space-y-5"><FunnelBar label="التسجيل" value={f.signups} base={f.signups} helper="مراكز دخلت Cohort الجديد" /><FunnelBar label="إكمال Onboarding" value={f.onboardingCompleted} base={f.signups} helper="اختاروا طبيعة العمل ونقطة البداية" /><FunnelBar label="First Value" value={f.firstValue} base={f.signups} helper="عملية حقيقية واحدة على الأقل" /><FunnelBar label="Habit" value={f.habit} base={f.signups} helper="3 عمليات حقيقية على يومي عمل مختلفين" /><FunnelBar label="Paid" value={f.paid} base={f.signups} helper="اشتراك تم تفعيله في قاعدة البيانات" /></div>
         </div>
         <div className="space-y-4">
-          <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5"><div className="flex items-center gap-2"><ArrowDown className="h-4 w-4 text-amber-400" /><h2 className="text-sm font-black text-white">أكبر Drop-off</h2></div>{data.biggestDropoff ? <><div className="mt-4 text-xl font-black text-amber-300">{data.biggestDropoff.lost} متجر</div><p className="mt-1 text-xs font-bold text-slate-300">{STEP_LABELS[data.biggestDropoff.from]} → {STEP_LABELS[data.biggestDropoff.to]}</p><p className="mt-1 text-[10px] font-semibold text-slate-500">نسبة العبور {pct(data.biggestDropoff.conversionRate)}</p></> : <p className="mt-4 text-xs text-slate-500">لا توجد بيانات كافية.</p>}</div>
+          <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5"><div className="flex items-center gap-2"><ArrowDown className="h-4 w-4 text-amber-400" /><h2 className="text-sm font-black text-white">أكبر Drop-off</h2></div>{data.biggestDropoff ? <><div className="mt-4 text-xl font-black text-amber-300">{data.biggestDropoff.lost} مركز</div><p className="mt-1 text-xs font-bold text-slate-300">{STEP_LABELS[data.biggestDropoff.from]} → {STEP_LABELS[data.biggestDropoff.to]}</p><p className="mt-1 text-[10px] font-semibold text-slate-500">نسبة العبور {pct(data.biggestDropoff.conversionRate)}</p></> : <p className="mt-4 text-xs text-slate-500">لا توجد بيانات كافية.</p>}</div>
           <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5"><div className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-cyan-400" /><h2 className="text-sm font-black text-white">سرعة الوصول للقيمة</h2></div><div className="mt-4 grid grid-cols-2 gap-3"><Timing label="Signup → Onboarding" value={duration(data.timing.medianSignupToOnboardingHours)} /><Timing label="Signup → First Value" value={duration(data.timing.medianSignupToFirstValueHours)} /><Timing label="Signup → Habit" value={duration(data.timing.medianSignupToHabitHours)} /><Timing label="First Value → Habit" value={duration(data.timing.medianFirstValueToHabitHours)} /></div></div>
         </div>
       </section>
