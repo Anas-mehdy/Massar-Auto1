@@ -1,14 +1,17 @@
 import { prisma } from "@/lib/prisma";
-import { reportService, type FinancialRange } from "@/lib/services/reportService";
+import {
+  autoBaseFinancialReportService,
+  type AutoFinancialRange,
+} from "@/lib/services/autoBaseFinancialReportService";
 import { autoServiceReportCostService } from "@/lib/services/autoServiceReportCostService";
 
 function money(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-export async function getAutoFinancialReport(shopId: string, range: FinancialRange) {
+export async function getAutoFinancialReport(shopId: string, range: AutoFinancialRange) {
   const [base, autoServiceCost, creditRows] = await Promise.all([
-    reportService.getFinancialReport(shopId, range),
+    autoBaseFinancialReportService.getFinancialReport(shopId, range),
     autoServiceReportCostService.getAutoServiceInventoryCostForInvoiceRange(shopId, range.start, range.end),
     prisma.$queryRaw<Array<{
       creditGross: number;
