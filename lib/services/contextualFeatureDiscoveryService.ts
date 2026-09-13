@@ -96,27 +96,6 @@ const LOADERS: Record<OnboardingJob, EvidenceLoader> = {
     `;
     return { debtCollectionHref: rows[0] ? `/debts/${rows[0].customerId}` : null };
   },
-
-  ELECTRONIC_SERVICES: async (shopId) => {
-    const [activityRows, templateRows] = await Promise.all([
-      prisma.$queryRaw<ExistsRow[]>`
-        SELECT EXISTS(
-          SELECT 1 FROM "ElectronicServiceTransaction"
-          WHERE "shopId" = ${shopId}::uuid AND "status" = 'ACTIVE'
-        ) AS "value"
-      `,
-      prisma.$queryRaw<ExistsRow[]>`
-        SELECT EXISTS(
-          SELECT 1 FROM "ElectronicServiceTemplate"
-          WHERE "shopId" = ${shopId}::uuid AND "isActive" = TRUE
-        ) AS "value"
-      `,
-    ]);
-    return {
-      electronicHasActivity: Boolean(activityRows[0]?.value),
-      electronicHasTemplates: Boolean(templateRows[0]?.value),
-    };
-  },
 };
 
 export async function getContextualFeatureDiscoveries(
