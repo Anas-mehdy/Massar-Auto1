@@ -1,50 +1,61 @@
 import type { Metadata } from "next";
-import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import {
-  Smartphone,
+  Car,
   CheckCircle2,
   Clock,
+  MapPin,
   MessageCircle,
   Phone,
-  MapPin,
   Search,
-  ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { RepairStatus } from "@prisma/client";
-import { formatCurrency, formatDateTime } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { formatDateTime } from "@/lib/format";
+import { prisma } from "@/lib/prisma";
+import type { ServiceOrderStatus } from "@/lib/services/autoServiceOrderService";
 import { normalizePhoneForWhatsApp } from "@/lib/services/whatsappService";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = {
-  robots: { index: false, follow: false },
-};
+export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 type TrackPageProps = {
   params: Promise<{ ticketNumber: string }>;
-  searchParams?: Promise<{ s?: string; shop?: string; phone?: string }>;
+  searchParams?: Promise<{ phone?: string }>;
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const statusDetails: Record<RepairStatus, { label: string; description: string; step: number; colorClass: string; bgClass: string; borderClass: string }> = {
-  PENDING: { label: "قيد الانتظار والاستلام", description: "تم تسجيل جهازك بنجاح وبانتظار بدء الفحص الفني من قبل المختص.", step: 1, colorClass: "text-amber-400", bgClass: "bg-amber-500/10", borderClass: "border-amber-500/30" },
-  DIAGNOSING: { label: "قيد الفحص والتشخيص", description: "يقوم الفني حالياً بفحص الجهاز وتحديد العطل وقطع الغيار المطلوبة.", step: 2, colorClass: "text-indigo-400", bgClass: "bg-indigo-500/10", borderClass: "border-indigo-500/30" },
-  WAITING_PARTS: { label: "بانتظار وصول قطع الغيار", description: "تم فحص الجهاز وتحديد القطعة وبانتظار توريدها للبدء بالتركيب فوراً.", step: 3, colorClass: "text-orange-400", bgClass: "bg-orange-500/10", borderClass: "border-orange-500/30" },
-  REPAIRING: { label: "قيد الصيانة والإصلاح", description: "جاري صيانة واستبدال القطع وفحص أداء الجهاز بدقة.", step: 3, colorClass: "text-teal-400", bgClass: "bg-teal-500/10", borderClass: "border-teal-500/30" },
-  DONE: { label: "مكتمل وجاهز للاستلام 🎉", description: "تمت صيانة جهازك بنجاح وبكفاءة، وهو جاهز للاستلام في المحل الآن!", step: 4, colorClass: "text-emerald-400", bgClass: "bg-emerald-500/15", borderClass: "border-emerald-500/40" },
-  DELIVERED: { label: "تم تسليم الجهاز بنجاح", description: "تم استلام الجهاز من قبل العميل. شكراً لثقتكم واختياركم لنا!", step: 5, colorClass: "text-sky-400", bgClass: "bg-sky-500/10", borderClass: "border-sky-500/30" },
-  CANCELLED: { label: "طلب صيانة ملغي", description: "تم إلغاء عملية الصيانة بناءً على طلب العميل أو تعذر الإصلاح.", step: 0, colorClass: "text-rose-400", bgClass: "bg-rose-500/10", borderClass: "border-rose-500/30" },
+type StatusDetails = {
+  label: string;
+  description: string;
+  step: number;
+  colorClass: string;
+  bgClass: string;
+  borderClass: string;
+};
+
+const statusDetails: Record<ServiceOrderStatus, StatusDetails> = {
+  RECEIVED: { label: "تم استلام المركبة", description: "تم تسجيل المركبة في مركز الصيانة وبانتظار بدء الفحص الفني.", step: 1, colorClass: "text-cyan-300", bgClass: "bg-cyan-500/10", borderClass: "border-cyan-500/30" },
+  INSPECTING: { label: "قيد الفحص والتشخيص", description: "يقوم الفريق الفني حالياً بفحص المركبة وتحديد الأعمال وقطع الغيار المطلوبة.", step: 2, colorClass: "text-indigo-300", bgClass: "bg-indigo-500/10", borderClass: "border-indigo-500/30" },
+  WAITING_CUSTOMER_APPROVAL: { label: "بانتظار موافقة العميل", description: "تم تجهيز تفاصيل الأعمال والتكلفة، وبانتظار اعتماد العميل قبل متابعة التنفيذ.", step: 3, colorClass: "text-amber-300", bgClass: "bg-amber-500/10", borderClass: "border-amber-500/30" },
+  APPROVED: { label: "تمت الموافقة", description: "تم اعتماد الأعمال المطلوبة وأمر الصيانة جاهز لبدء التنفيذ.", step: 3, colorClass: "text-emerald-300", bgClass: "bg-emerald-500/10", borderClass: "border-emerald-500/30" },
+  IN_SERVICE: { label: "قيد الصيانة", description: "يتم تنفيذ أعمال الصيانة المعتمدة على المركبة حالياً.", step: 4, colorClass: "text-teal-300", bgClass: "bg-teal-500/10", borderClass: "border-teal-500/30" },
+  WAITING_PARTS: { label: "بانتظار قطع الغيار", description: "أمر الصيانة متوقف مؤقتاً لحين توفر قطع الغيار المطلوبة.", step: 4, colorClass: "text-orange-300", bgClass: "bg-orange-500/10", borderClass: "border-orange-500/30" },
+  READY_FOR_DELIVERY: { label: "جاهزة للتسليم 🎉", description: "اكتملت أعمال الصيانة وأصبحت المركبة جاهزة للتسليم.", step: 5, colorClass: "text-emerald-300", bgClass: "bg-emerald-500/15", borderClass: "border-emerald-500/40" },
+  DELIVERED: { label: "تم تسليم المركبة", description: "تم تسجيل تسليم المركبة للعميل بنجاح.", step: 6, colorClass: "text-sky-300", bgClass: "bg-sky-500/10", borderClass: "border-sky-500/30" },
+  CLOSED: { label: "تم إغلاق أمر الصيانة", description: "اكتملت دورة أمر الصيانة وتم إغلاقه في النظام.", step: 6, colorClass: "text-slate-200", bgClass: "bg-slate-500/10", borderClass: "border-slate-500/30" },
+  REJECTED: { label: "لم تتم الموافقة على الصيانة", description: "تم إنهاء الإجراء بدون تنفيذ الأعمال المقترحة.", step: 0, colorClass: "text-rose-300", bgClass: "bg-rose-500/10", borderClass: "border-rose-500/30" },
+  CANCELLED: { label: "أمر الصيانة ملغي", description: "تم إلغاء أمر الصيانة.", step: 0, colorClass: "text-rose-300", bgClass: "bg-rose-500/10", borderClass: "border-rose-500/30" },
 };
 
 const steps = [
   { num: 1, label: "الاستلام" },
   { num: 2, label: "الفحص" },
-  { num: 3, label: "الصيانة" },
-  { num: 4, label: "جاهز" },
-  { num: 5, label: "التسليم" },
+  { num: 3, label: "الموافقة" },
+  { num: 4, label: "الصيانة" },
+  { num: 5, label: "جاهزة" },
+  { num: 6, label: "التسليم" },
 ];
 
 function phoneProof(value?: string) {
@@ -52,163 +63,82 @@ function phoneProof(value?: string) {
   return digits.length >= 8 ? digits.slice(-8) : null;
 }
 
-async function resolvePublicRepairOrderId(ticketOrId: string, phone?: string, shopRef?: string) {
-  if (UUID_PATTERN.test(ticketOrId)) {
-    const row = await prisma.repairOrder.findFirst({
-      where: { id: ticketOrId, deletedAt: null },
-      select: { id: true },
-    });
+async function resolvePublicServiceOrderId(orderOrId: string, phone?: string) {
+  if (UUID_PATTERN.test(orderOrId)) {
+    const row = await prisma.serviceOrder.findFirst({ where: { id: orderOrId, deletedAt: null }, select: { id: true } });
     return row?.id ?? null;
   }
 
   const proof = phoneProof(phone);
   if (!proof) return null;
-  const scopedShopId = shopRef && UUID_PATTERN.test(shopRef) ? shopRef : null;
 
-  // Ticket numbers are sequential and therefore are not authentication secrets.
-  // Require a second factor derived from the customer's phone for manual lookup.
-  const matches = await prisma.repairOrder.findMany({
+  const matches = await prisma.serviceOrder.findMany({
     where: {
       deletedAt: null,
-      ticketNumber: { equals: ticketOrId, mode: "insensitive" },
-      ...(scopedShopId ? { shopId: scopedShopId } : {}),
-      customer: {
-        OR: [
-          { phone: { endsWith: proof } },
-          { phoneNormalized: { endsWith: proof } },
-        ],
-      },
+      orderNumber: { equals: orderOrId, mode: "insensitive" },
+      customer: { OR: [{ phone: { endsWith: proof } }, { phoneNormalized: { endsWith: proof } }] },
     },
     select: { id: true },
-    orderBy: { createdAt: "desc" },
+    orderBy: { receivedAt: "desc" },
     take: 2,
   });
-
-  // Fail closed when the lookup is missing or ambiguous across shops.
   return matches.length === 1 ? matches[0].id : null;
 }
 
-function NotFoundCard({ ticketNumber, needsPhone }: { ticketNumber: string; needsPhone: boolean }) {
-  const href = needsPhone ? `/track?ticket=${encodeURIComponent(ticketNumber)}&verify=1` : "/track";
-  return (
-    <div className="min-h-screen w-full bg-slate-950 text-slate-100 flex flex-col justify-center items-center px-4 py-8 overflow-x-hidden">
-      <div className="w-full max-w-sm text-center space-y-5 bg-slate-900/90 p-6 rounded-3xl border border-slate-800 shadow-2xl">
-        <div className="flex h-12 w-12 mx-auto items-center justify-center rounded-2xl bg-rose-500/10 text-rose-400 border border-rose-500/20"><Search className="h-6 w-6" /></div>
-        <h2 className="text-lg font-black text-white">تعذر التحقق من التذكرة</h2>
-        <p className="text-xs text-slate-400 leading-relaxed font-medium">
-          {needsPhone ? "للبحث برقم التذكرة أدخل رقم جوال العميل المسجل معها. روابط QR الأصلية تفتح مباشرة." : "تأكد من رقم التذكرة ورقم الجوال ثم حاول مرة أخرى."}
-        </p>
-        <Button asChild className="w-full bg-teal-500 text-slate-950 font-bold hover:bg-teal-400 rounded-xl h-11"><Link href={href}>العودة للتحقق</Link></Button>
-      </div>
-    </div>
-  );
+function NotFoundCard({ orderNumber, needsPhone }: { orderNumber: string; needsPhone: boolean }) {
+  const href = needsPhone ? `/track?order=${encodeURIComponent(orderNumber)}&verify=1` : "/track";
+  return <div className="flex min-h-screen w-full flex-col items-center justify-center bg-slate-950 px-4 py-8 text-slate-100"><div className="w-full max-w-sm space-y-5 rounded-3xl border border-slate-800 bg-slate-900/90 p-6 text-center shadow-2xl"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-rose-500/20 bg-rose-500/10 text-rose-400"><Search className="h-6 w-6" /></div><h2 className="text-lg font-black text-white">تعذر التحقق من أمر الصيانة</h2><p className="text-xs font-medium leading-relaxed text-slate-400">{needsPhone ? "للبحث برقم أمر الصيانة أدخل رقم جوال العميل المسجل معه. روابط QR الأصلية تفتح مباشرة." : "تأكد من رقم أمر الصيانة ورقم الجوال ثم حاول مرة أخرى."}</p><Button asChild className="h-11 w-full rounded-xl bg-teal-500 font-bold text-slate-950 hover:bg-teal-400"><Link href={href}>العودة للتحقق</Link></Button></div></div>;
 }
 
-export default async function TrackTicketPage({ params, searchParams }: TrackPageProps) {
+export default async function TrackServiceOrderPage({ params, searchParams }: TrackPageProps) {
   const { ticketNumber } = await params;
-  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const query = searchParams ? await searchParams : {};
   const decodedParam = decodeURIComponent(ticketNumber).trim();
   const isQrBearerLink = UUID_PATTERN.test(decodedParam);
-  const phone = resolvedSearchParams.phone?.trim();
-  const shopRef = resolvedSearchParams.s || resolvedSearchParams.shop;
+  const phone = query.phone?.trim();
 
-  if (!isQrBearerLink && !phoneProof(phone)) {
-    return <NotFoundCard ticketNumber={decodedParam} needsPhone />;
-  }
+  if (!isQrBearerLink && !phoneProof(phone)) return <NotFoundCard orderNumber={decodedParam} needsPhone />;
 
-  const repairOrderId = await resolvePublicRepairOrderId(decodedParam, phone, shopRef);
-  if (!repairOrderId) {
-    return <NotFoundCard ticketNumber={decodedParam} needsPhone={false} />;
-  }
+  const serviceOrderId = await resolvePublicServiceOrderId(decodedParam, phone);
+  if (!serviceOrderId) return <NotFoundCard orderNumber={decodedParam} needsPhone={false} />;
 
-  const repairOrder = await prisma.repairOrder.findFirst({
-    where: { id: repairOrderId, deletedAt: null },
+  const order = await prisma.serviceOrder.findFirst({
+    where: { id: serviceOrderId, deletedAt: null },
     select: {
       id: true,
-      ticketNumber: true,
+      orderNumber: true,
       status: true,
-      deviceBrand: true,
-      deviceModel: true,
       reportedIssue: true,
-      diagnosis: true,
-      resolutionNotes: true,
-      estimatedTotal: true,
-      finalTotal: true,
-      createdAt: true,
-      shop: { select: { name: true, currency: true, phone: true, address: true, terms: true } },
-      statusHistory: {
-        select: { id: true, toStatus: true, note: true, createdAt: true },
-        orderBy: { createdAt: "desc" },
-      },
+      receivedAt: true,
+      promisedAt: true,
+      readyAt: true,
+      deliveredAt: true,
+      vehicle: { select: { make: true, model: true, year: true } },
+      shop: { select: { name: true, currency: true, phone: true, address: true } },
     },
   });
+  if (!order) return <NotFoundCard orderNumber={decodedParam} needsPhone={false} />;
 
-  if (!repairOrder) return <NotFoundCard ticketNumber={decodedParam} needsPhone={false} />;
+  const currentStatus = statusDetails[order.status as ServiceOrderStatus] ?? { label: "قيد المتابعة", description: "أمر الصيانة قيد المتابعة لدى المركز.", step: 1, colorClass: "text-teal-300", bgClass: "bg-teal-500/10", borderClass: "border-teal-500/30" };
+  const shop = order.shop;
+  const vehicleLabel = `${order.vehicle.make} ${order.vehicle.model}${order.vehicle.year ? ` ${order.vehicle.year}` : ""}`;
+  const whatsappPhone = normalizePhoneForWhatsApp(shop.phone, shop.currency || undefined);
+  const whatsappUrl = whatsappPhone ? `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(`مرحباً، أستفسر عن حالة أمر الصيانة رقم ${order.orderNumber} للمركبة ${vehicleLabel}.`)}` : null;
 
-  const shop = repairOrder.shop;
-  const currentStatus = statusDetails[repairOrder.status] || statusDetails.PENDING;
-  const currency = shop.currency || "SAR";
-  const latestStatusNote = repairOrder.statusHistory.find((history) => history.note?.trim())?.note;
-  const whatsappPhone = normalizePhoneForWhatsApp(shop.phone, currency);
-  const whatsappUrl = whatsappPhone
-    ? `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(`مرحباً، أستفسر عن حالة تذكرة الصيانة رقم: ${repairOrder.ticketNumber} الخاصة بجهاز ${[repairOrder.deviceBrand, repairOrder.deviceModel].filter(Boolean).join(" ")}`)}`
-    : null;
-  const previousNotes = repairOrder.statusHistory.filter((history) => history.note?.trim()).slice(1);
+  return <div className="flex min-h-screen w-full flex-col items-center justify-start overflow-x-hidden bg-slate-950 px-3 py-4 text-slate-100 sm:px-4"><div className="w-full max-w-md space-y-4">
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/95 p-4 text-center shadow-lg"><div className="mb-2 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-teal-500/20 bg-teal-500/10 text-teal-400"><Car className="h-5 w-5" /></div><h1 className="text-base font-black text-white">{shop.name}</h1><p className="mt-0.5 text-[11px] text-slate-400">متابعة حالة صيانة المركبة</p>{(shop.phone || shop.address) ? <div className="mt-3 flex flex-wrap items-center justify-center gap-3 border-t border-slate-800/80 pt-2.5 text-[11px] font-bold text-slate-400">{shop.phone ? <span className="flex items-center gap-1 font-numeric" dir="ltr"><Phone className="h-3 w-3 text-teal-400" />{whatsappPhone ? `+${whatsappPhone}` : shop.phone}</span> : null}{shop.address ? <span className="flex items-center gap-1"><MapPin className="h-3 w-3 text-teal-400" />{shop.address}</span> : null}</div> : null}</div>
 
-  return (
-    <div className="min-h-screen w-full bg-slate-950 text-slate-100 py-4 px-3 sm:px-4 flex flex-col items-center justify-start overflow-x-hidden">
-      <div className="w-full max-w-md space-y-4">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/95 p-4 text-center shadow-lg">
-          <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-teal-500/10 text-teal-400 border border-teal-500/20 mb-2"><Smartphone className="h-5 w-5" /></div>
-          <h1 className="text-base font-black text-white tracking-tight">{shop.name}</h1>
-          <p className="text-[11px] text-slate-400 mt-0.5">تتبع حالة صيانة الأجهزة المباشر</p>
-          {(shop.phone || shop.address) && <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-center gap-3 text-[11px] font-bold text-slate-400">
-            {shop.phone && <span className="flex items-center gap-1 font-numeric" dir="ltr"><Phone className="h-3 w-3 text-teal-400" />{whatsappPhone ? `+${whatsappPhone}` : shop.phone}</span>}
-            {shop.address && <span className="flex items-center gap-1"><MapPin className="h-3 w-3 text-teal-400" />{shop.address}</span>}
-          </div>}
-        </div>
-
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/95 p-4 sm:p-5 shadow-xl space-y-4">
-          <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-3">
-            <div><span className="text-[9px] font-extrabold text-slate-400 uppercase block">رقم التذكرة</span><span className="text-xl font-black text-teal-400 font-numeric tracking-tight">{repairOrder.ticketNumber}</span></div>
-            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-black border ${currentStatus.colorClass} ${currentStatus.bgClass} ${currentStatus.borderClass}`}><Sparkles className="h-3 w-3" />{currentStatus.label}</span>
-          </div>
-
-          <div className="bg-slate-950/70 rounded-xl p-3 border border-slate-800/80"><p className="text-xs text-slate-200 leading-relaxed font-medium">{currentStatus.description}</p></div>
-
-          {latestStatusNote && <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5 space-y-1.5 text-right shadow-sm"><div className="flex items-center gap-1.5 text-xs font-black text-amber-400"><MessageCircle className="h-4 w-4 shrink-0" /><span>ملاحظة وتحديث من الفني المشرف:</span></div><p className="text-xs text-amber-100 font-bold leading-relaxed pr-5 whitespace-pre-wrap">{latestStatusNote}</p></div>}
-
-          <div className="pt-1">
-            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-2.5">مراحل إنجاز جهازك:</span>
-            <div className="grid grid-cols-5 gap-1">{steps.map((step) => {
-              const isPassed = currentStatus.step >= step.num;
-              const isCurrent = currentStatus.step === step.num;
-              return <div key={step.num} className={`rounded-xl py-2 px-1 text-center border transition-all ${isCurrent ? "border-teal-500 bg-teal-500/20 text-teal-300 font-black shadow-sm shadow-teal-500/20" : isPassed ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400 font-bold" : "border-slate-800/80 bg-slate-950/40 text-slate-500 font-medium"}`}><div className="flex items-center justify-center text-[10px] mb-0.5">{isPassed ? <CheckCircle2 className="h-3 w-3 text-emerald-400" /> : <Clock className="h-3 w-3" />}</div><span className="text-[9.5px] block leading-tight">{step.label}</span></div>;
-            })}</div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-2 pt-1">
-            <PublicField label="الجهاز" value={[repairOrder.deviceBrand, repairOrder.deviceModel].filter(Boolean).join(" ") || "غير محدد"} />
-            <PublicField label="تاريخ الاستلام" value={formatDateTime(repairOrder.createdAt)} numeric />
-            <PublicField label="العطل المسجل" value={repairOrder.reportedIssue} accent />
-            {repairOrder.diagnosis && <PublicField label="التشخيص الفني" value={repairOrder.diagnosis} multiline />}
-            {repairOrder.resolutionNotes && <PublicField label="ملاحظات الإصلاح" value={repairOrder.resolutionNotes} multiline />}
-            {repairOrder.estimatedTotal !== null && <PublicField label="التكلفة التقديرية" value={formatCurrency(repairOrder.estimatedTotal, currency)} accent numeric />}
-            {repairOrder.finalTotal !== null && <PublicField label="التكلفة النهائية" value={formatCurrency(repairOrder.finalTotal, currency)} success numeric />}
-          </div>
-
-          {previousNotes.length > 0 && <div className="pt-2 border-t border-slate-800/80 space-y-2"><span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">سجل التحديثات والملاحظات السابقة:</span><div className="space-y-1.5">{previousNotes.map((history) => <div key={history.id} className="bg-slate-950/40 p-2.5 rounded-lg border border-slate-800/60 text-xs text-right"><div className="flex justify-between items-center text-[10px] text-slate-400 mb-1"><span className="font-bold text-teal-400">{statusDetails[history.toStatus]?.label ?? history.toStatus}</span><span className="font-numeric">{formatDateTime(history.createdAt)}</span></div><p className="text-slate-300 text-[11px] leading-relaxed font-medium">{history.note}</p></div>)}</div></div>}
-
-          {whatsappUrl && <div className="pt-2"><Button asChild className="w-full h-11 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 border-0"><a href={whatsappUrl} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2"><MessageCircle className="h-4 w-4" />مراسلة المحل عبر واتساب للاستفسار</a></Button></div>}
-        </div>
-
-        <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-center"><p className="text-[10px] text-slate-400 leading-normal font-medium flex items-center justify-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5 text-teal-400 shrink-0" />{shop.terms || "الضمان يشمل القطع المستبدلة فقط لمدة 30 يوماً. شكراً لثقتكم بنا."}</p></div>
-      </div>
+    <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/95 p-4 shadow-xl sm:p-5">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-3"><div><span className="block text-[9px] font-extrabold text-slate-400">رقم أمر الصيانة</span><span className="font-numeric text-lg font-black text-teal-400">{order.orderNumber}</span></div><span className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-black ${currentStatus.colorClass} ${currentStatus.bgClass} ${currentStatus.borderClass}`}><Sparkles className="h-3 w-3" />{currentStatus.label}</span></div>
+      <div className="rounded-xl border border-slate-800/80 bg-slate-950/70 p-3"><p className="text-xs font-medium leading-relaxed text-slate-200">{currentStatus.description}</p></div>
+      {currentStatus.step > 0 ? <div className="pt-1"><span className="mb-2.5 block text-[10px] font-extrabold text-slate-400">مراحل أمر الصيانة</span><div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">{steps.map((step) => { const passed = currentStatus.step >= step.num; const current = currentStatus.step === step.num; return <div key={step.num} className={`rounded-xl border px-1 py-2 text-center ${current ? "border-teal-500 bg-teal-500/20 font-black text-teal-300" : passed ? "border-emerald-500/40 bg-emerald-500/10 font-bold text-emerald-400" : "border-slate-800/80 bg-slate-950/40 text-slate-500"}`}><div className="mb-0.5 flex justify-center">{passed ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}</div><span className="block text-[9px]">{step.label}</span></div>; })}</div></div> : null}
+      <div className="grid gap-2"><PublicField label="المركبة" value={vehicleLabel} /><PublicField label="تاريخ الاستلام" value={formatDateTime(order.receivedAt)} numeric />{order.promisedAt ? <PublicField label="موعد التسليم المتوقع" value={formatDateTime(order.promisedAt)} numeric /> : null}{order.readyAt ? <PublicField label="تاريخ الجاهزية" value={formatDateTime(order.readyAt)} numeric /> : null}{order.deliveredAt ? <PublicField label="تاريخ التسليم" value={formatDateTime(order.deliveredAt)} numeric /> : null}<PublicField label="سبب دخول المركبة" value={order.reportedIssue} accent multiline /></div>
+      {whatsappUrl ? <Button asChild variant="outline" className="h-11 w-full rounded-xl border-emerald-500/30 bg-emerald-500/10 font-black text-emerald-300 hover:bg-emerald-500/20"><a href={whatsappUrl} target="_blank" rel="noreferrer"><MessageCircle className="ml-2 h-4 w-4" />التواصل مع المركز عبر واتساب</a></Button> : null}
     </div>
-  );
+    <p className="px-3 text-center text-[10px] font-semibold leading-5 text-slate-600">يعرض رابط التتبع حالة أمر الصيانة ومعلومات تشغيلية محدودة فقط. للاستفسارات التفصيلية تواصل مع مركز الصيانة.</p>
+  </div></div>;
 }
 
-function PublicField({ label, value, numeric = false, accent = false, success = false, multiline = false }: { label: string; value: string; numeric?: boolean; accent?: boolean; success?: boolean; multiline?: boolean }) {
-  const valueClass = success ? "text-emerald-400" : accent ? "text-teal-300" : "text-white";
-  return <div className={`bg-slate-950/50 p-3 rounded-xl border border-slate-800 flex justify-between ${multiline ? "items-start gap-3" : "items-center"}`}><span className="text-[11px] font-bold text-slate-400 shrink-0">{label}:</span><span className={`text-xs font-bold ${valueClass} ${numeric ? "font-numeric" : ""} ${multiline ? "text-left" : ""}`}>{value}</span></div>;
+function PublicField({ label, value, numeric = false, accent = false, multiline = false }: { label: string; value: string; numeric?: boolean; accent?: boolean; multiline?: boolean }) {
+  return <div className={`rounded-xl border p-3 ${accent ? "border-teal-500/20 bg-teal-500/5" : "border-slate-800 bg-slate-950/40"}`}><span className="block text-[9px] font-extrabold text-slate-500">{label}</span><span className={`mt-1 block text-xs font-bold leading-5 ${accent ? "text-teal-100" : "text-slate-200"} ${numeric ? "font-numeric" : ""} ${multiline ? "whitespace-pre-wrap" : ""}`}>{value}</span></div>;
 }
