@@ -1,6 +1,6 @@
 "use client";
 
-import { Boxes, BookOpenText, ShoppingCart, WalletCards, Wrench, Zap } from "lucide-react";
+import { Boxes, BookOpenText, ShoppingCart, WalletCards, Wrench } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,6 @@ const ICONS = {
   INVENTORY: Boxes,
   WALLETS: WalletCards,
   DEBTS: BookOpenText,
-  ELECTRONIC_SERVICES: Zap,
 } satisfies Record<OnboardingJob, typeof Wrench>;
 
 export function SmartEmptyStateCard({
@@ -61,7 +60,7 @@ export function SmartEmptyStateCard({
           {actionLabel}
         </Link>
       </Button>
-      <p className="mt-3 text-[10px] font-semibold text-slate-400">استخدم بيانات حقيقية فقط؛ ما في داعي لأي عملية تجريبية داخل حسابات متجرك.</p>
+      <p className="mt-3 text-[10px] font-semibold text-slate-400">استخدم بيانات حقيقية فقط؛ ما في داعي لأي عملية تجريبية داخل حسابات مركزك.</p>
     </div>
   );
 }
