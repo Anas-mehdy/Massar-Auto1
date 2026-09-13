@@ -29,17 +29,17 @@ function countValue(value: CountRow["count"]) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-async function loadRepairActivity(shopId: string, startAt: Date, timeZone: string) {
+async function loadServiceOrderActivity(shopId: string, startAt: Date, timeZone: string) {
   const [countRows, dayRows] = await Promise.all([
     prisma.$queryRaw<CountRow[]>`
-      SELECT COUNT(*)::bigint AS "count", MIN("createdAt") AS "firstAt"
-      FROM "RepairOrder"
-      WHERE "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL AND "createdAt" >= ${startAt}
+      SELECT COUNT(*)::bigint AS "count", MIN("receivedAt") AS "firstAt"
+      FROM "ServiceOrder"
+      WHERE "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL AND "receivedAt" >= ${startAt}
     `,
     prisma.$queryRaw<DayRow[]>`
-      SELECT DISTINCT ((("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE ${timeZone})::date)::text AS "day"
-      FROM "RepairOrder"
-      WHERE "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL AND "createdAt" >= ${startAt}
+      SELECT DISTINCT ((("receivedAt" AT TIME ZONE 'UTC') AT TIME ZONE ${timeZone})::date)::text AS "day"
+      FROM "ServiceOrder"
+      WHERE "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL AND "receivedAt" >= ${startAt}
       ORDER BY "day" ASC
       LIMIT 15
     `,
@@ -140,7 +140,7 @@ async function loadElectronicActivity(shopId: string, startAt: Date, timeZone: s
 }
 
 const LOADERS: Record<OnboardingJob, ActivityLoader> = {
-  REPAIRS: loadRepairActivity,
+  REPAIRS: loadServiceOrderActivity,
   SALES: loadSalesActivity,
   INVENTORY: loadInventoryActivity,
   WALLETS: loadWalletActivity,
