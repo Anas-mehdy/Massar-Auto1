@@ -52,24 +52,9 @@ const LOADERS: Record<OnboardingJob, EvidenceLoader> = {
     };
   },
 
-  INVENTORY: async (shopId) => {
-    const rows = await prisma.$queryRaw<IdRow[]>`
-      SELECT i."id"
-      FROM "InventoryItem" i
-      WHERE i."shopId" = ${shopId}::uuid
-        AND i."deletedAt" IS NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM "InventoryCompatibilityGroup" l
-          WHERE l."inventoryItemId" = i."id"
-        )
-      ORDER BY i."createdAt" DESC
-      LIMIT 1
-    `;
-    return {
-      inventoryHasActivity: Boolean(rows[0]),
-      inventoryUnlinkedHref: rows[0] ? `/inventory/${rows[0].id}#edit-inventory` : null,
-    };
-  },
+  // No automotive fitment discovery is exposed yet. Keep inventory onboarding neutral
+  // instead of querying the legacy phone compatibility directory.
+  INVENTORY: async () => ({}),
 
   WALLETS: async (shopId) => {
     const rows = await prisma.$queryRaw<IdRow[]>`
