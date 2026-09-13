@@ -1,6 +1,6 @@
 "use client";
 
-import { Boxes, BookOpenText, Lightbulb, ShoppingCart, WalletCards, Wrench, X, Zap } from "lucide-react";
+import { Boxes, BookOpenText, Lightbulb, ShoppingCart, WalletCards, Wrench, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { captureClientEvent } from "@/lib/analytics/client";
@@ -15,7 +15,6 @@ const ICONS = {
   INVENTORY: Boxes,
   WALLETS: WalletCards,
   DEBTS: BookOpenText,
-  ELECTRONIC_SERVICES: Zap,
 } satisfies Record<OnboardingJob, typeof Wrench>;
 
 function wasDismissed(id: string) {
