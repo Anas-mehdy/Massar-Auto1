@@ -2,6 +2,23 @@ import { Prisma } from "@prisma/client";
 import { localDateString, timeZoneForCountry } from "@/lib/timezone";
 
 /**
+ * Serialize financial mutations per shop inside the caller's transaction.
+ *
+ * DailyCashClose rows do not exist until the first close, so row locks alone
+ * cannot protect that first close from a concurrent financial mutation. A
+ * transaction-scoped advisory lock gives both paths a stable coordination key
+ * even before a DailyCashClose row exists.
+ */
+export async function lockShopFinancialTx(
+  tx: Prisma.TransactionClient,
+  shopId: string,
+) {
+  await tx.$queryRaw`
+    SELECT pg_advisory_xact_lock(hashtextextended(${shopId}::text, 0))
+  `;
+}
+
+/**
  * Transaction-scoped business-day lock check for Massar Auto.
  *
  * Use this inside the same transaction that posts a dated financial mutation so
@@ -13,6 +30,8 @@ export async function assertBusinessDateOpenTx(
   shopId: string,
   occurredAt: Date | string = new Date(),
 ) {
+  await lockShopFinancialTx(tx, shopId);
+
   const shop = await tx.shop.findFirst({
     where: { id: shopId, deletedAt: null },
     select: { countryCode: true },
@@ -39,4 +58,4 @@ export async function assertBusinessDateOpenTx(
   return businessDate;
 }
 
-export const businessDateLockService = { assertBusinessDateOpenTx };
+export const businessDateLockService = { lockShopFinancialTx, assertBusinessDateOpenTx };
