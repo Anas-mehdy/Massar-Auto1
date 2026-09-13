@@ -121,31 +121,12 @@ async function loadDebtActivity(shopId: string, startAt: Date, timeZone: string)
   return { count: countValue(countRows[0]?.count), firstAt: countRows[0]?.firstAt ?? null, days: dayRows.map((row) => row.day) };
 }
 
-async function loadElectronicActivity(shopId: string, startAt: Date, timeZone: string) {
-  const [countRows, dayRows] = await Promise.all([
-    prisma.$queryRaw<CountRow[]>`
-      SELECT COUNT(*)::bigint AS "count", MIN("createdAt") AS "firstAt"
-      FROM "ElectronicServiceTransaction"
-      WHERE "shopId" = ${shopId}::uuid AND "status" = 'ACTIVE' AND "createdAt" >= ${startAt}
-    `,
-    prisma.$queryRaw<DayRow[]>`
-      SELECT DISTINCT ((("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE ${timeZone})::date)::text AS "day"
-      FROM "ElectronicServiceTransaction"
-      WHERE "shopId" = ${shopId}::uuid AND "status" = 'ACTIVE' AND "createdAt" >= ${startAt}
-      ORDER BY "day" ASC
-      LIMIT 15
-    `,
-  ]);
-  return { count: countValue(countRows[0]?.count), firstAt: countRows[0]?.firstAt ?? null, days: dayRows.map((row) => row.day) };
-}
-
 const LOADERS: Record<OnboardingJob, ActivityLoader> = {
   REPAIRS: loadServiceOrderActivity,
   SALES: loadSalesActivity,
   INVENTORY: loadInventoryActivity,
   WALLETS: loadWalletActivity,
   DEBTS: loadDebtActivity,
-  ELECTRONIC_SERVICES: loadElectronicActivity,
 };
 
 async function loadSelectedJobActivity(shopId: string, startAt: Date, timeZone: string, selectedJobs: OnboardingJob[]) {
