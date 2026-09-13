@@ -38,6 +38,9 @@ jobs:
           npx prisma validate
           npx prisma generate
 
+      - name: Auto static regression checks
+        run: npm run auto:static-test
+
       - name: TypeScript
         run: npx tsc --noEmit
 
