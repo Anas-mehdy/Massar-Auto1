@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { assertBusinessDateOpenTx, assertBusinessDatesOpenTx, lockShopFinancialTx } from "@/lib/services/businessDateLockService";
 
 export type FinancialTransferType =
   | "CUSTOMER_DEPOSIT"
@@ -106,6 +107,7 @@ type LinkedSettlementTransfer = {
   operationType: FinancialTransferType;
   walletAmount: Prisma.Decimal;
   status: "ACTIVE" | "VOID";
+  createdAt: Date;
 };
 
 const TRANSFER_TYPES = new Set<FinancialTransferType>(["CUSTOMER_DEPOSIT", "CUSTOMER_WITHDRAWAL", "WALLET_TOPUP", "WALLET_WITHDRAWAL"]);
@@ -378,7 +380,7 @@ async function applyWalletDeltas(
   }
 }
 
-async function createLinkedDebt(tx: Prisma.TransactionClient, shopId: string, customerId: string, userId: string | null, amount: Prisma.Decimal, transferId: string) {
+async function createLinkedDebt(tx: Prisma.TransactionClient, shopId: string, customerId: string, userId: string | null, amount: Prisma.Decimal, transferId: string, occurredAt: Date) {
   const accounts = await tx.$queryRaw<Array<{ id: string }>>`
     INSERT INTO "DebtLedgerAccount" ("shopId", "customerId", "updatedAt") VALUES (${shopId}::uuid, ${customerId}::uuid, NOW())
     ON CONFLICT ("shopId", "customerId") DO UPDATE SET "updatedAt" = NOW() RETURNING "id"
@@ -387,7 +389,7 @@ async function createLinkedDebt(tx: Prisma.TransactionClient, shopId: string, cu
   if (!accountId) throw new Error("تعذر فتح حساب الدين للعميل.");
   const entries = await tx.$queryRaw<Array<{ id: string }>>`
     INSERT INTO "DebtLedgerEntry" ("shopId", "accountId", "customerId", "type", "amount", "occurredAt", "description", "reference", "createdByUserId")
-    VALUES (${shopId}::uuid, ${accountId}::uuid, ${customerId}::uuid, 'DEBT', ${amount}, NOW(), 'تحويل مالي آجل', ${`TRANSFER:${transferId}`}, ${userId}::uuid) RETURNING "id"
+    VALUES (${shopId}::uuid, ${accountId}::uuid, ${customerId}::uuid, 'DEBT', ${amount}, ${occurredAt}, 'تحويل مالي آجل', ${`TRANSFER:${transferId}`}, ${userId}::uuid) RETURNING "id"
   `;
   if (!entries[0]) throw new Error("تعذر تسجيل الدين المرتبط بالتحويل.");
   return entries[0].id;
@@ -407,9 +409,11 @@ export async function createTransfer(shopId: string, userId: string | null, inpu
   const settlementWalletId = settlementType === "WALLET" ? input.settlementWalletId?.trim() || null : null;
   if (settlementType === "WALLET" && settlementWalletId === input.walletId) throw new Error("محفظة التسوية يجب أن تختلف عم المحفظة الرئيسية.");
   if (settlementType === "WALLET" && !settlementWalletId) throw new Error("اختر المحفظة التي تم استلام أو تسليم المقابل مم خلالها.");
+  const occurredAt = new Date();
 
   return prisma.$transaction(async (tx) => {
-    // Cash-drawer operations elsewhere lock the drawer before the wallet. Keep the same ordering to avoid deadlocks.
+    // Always acquire the shop financial lock before drawer/wallet row locks.
+    await assertBusinessDateOpenTx(tx, shopId, occurredAt);
     const drawer = settlementType === "CASH_DRAWER" ? await lockCashDrawer(tx, shopId) : null;
     const walletIds = [input.walletId, ...(settlementWalletId ? [settlementWalletId] : [])];
     const wallets = await lockWallets(tx, shopId, walletIds);
@@ -454,25 +458,25 @@ export async function createTransfer(shopId: string, userId: string | null, inpu
       const drawerDelta = input.operationType === "CUSTOMER_DEPOSIT" ? settlementAmount : settlementAmount.negated();
       const nextDrawerBalance = decimal(drawer.currentBalance).plus(drawerDelta);
       if (nextDrawerBalance.lt(0)) throw new Error("رصيد الدرج النقدي غير كافٍ لتسليم المبلغ للعميل.");
-      await tx.$executeRaw`UPDATE "CashDrawer" SET "currentBalance" = ${nextDrawerBalance}, "updatedAt" = NOW() WHERE "id" = ${drawer.id}::uuid AND "shopId" = ${shopId}::uuid`;
+      await tx.$executeRaw`UPDATE "CashDrawer" SET "currentBalance" = ${nextDrawerBalance}, "updatedAt" = ${occurredAt} WHERE "id" = ${drawer.id}::uuid AND "shopId" = ${shopId}::uuid`;
     }
 
     const sourceType: FinancialTransferSourceType = isCustomerOperation ? "CUSTOMER_TRANSFER" : "MANUAL";
     const rows = await tx.$queryRaw<Array<{ id: string }>>`
       INSERT INTO "FinancialTransfer" (
         "shopId", "walletId", "customerId", "createdByUserId", "operationType", "amount", "walletAmount", "commission", "commissionMode",
-        "isDeferred", "customerName", "customerPhone", "notes", "sourceType", "settlementType", "settlementWalletId", "settlementAmount"
+        "isDeferred", "customerName", "customerPhone", "notes", "sourceType", "settlementType", "settlementWalletId", "settlementAmount", "createdAt"
       ) VALUES (
         ${shopId}::uuid, ${wallet.id}::uuid, ${customerId}::uuid, ${userId}::uuid, ${input.operationType}, ${amount}, ${walletAmount}, ${commission}, ${commissionMode},
-        ${Boolean(input.isDeferred)}, ${customerName}, ${customerPhone}, ${nullableText(input.notes)}, ${sourceType}, ${settlementType}, ${settlementWalletId}::uuid, ${settlementAmount}
+        ${Boolean(input.isDeferred)}, ${customerName}, ${customerPhone}, ${nullableText(input.notes)}, ${sourceType}, ${settlementType}, ${settlementWalletId}::uuid, ${settlementAmount}, ${occurredAt}
       ) RETURNING "id"
     `;
     const transfer = rows[0];
     if (!transfer) throw new Error("تعذر تسجيل العملية.");
 
     if (input.isDeferred && customerId && settlementAmount) {
-      const debtEntryId = await createLinkedDebt(tx, shopId, customerId, userId, settlementAmount, transfer.id);
-      await tx.$executeRaw`UPDATE "FinancialTransfer" SET "debtEntryId" = ${debtEntryId}::uuid, "updatedAt" = NOW() WHERE "id" = ${transfer.id}::uuid AND "shopId" = ${shopId}::uuid`;
+      const debtEntryId = await createLinkedDebt(tx, shopId, customerId, userId, settlementAmount, transfer.id, occurredAt);
+      await tx.$executeRaw`UPDATE "FinancialTransfer" SET "debtEntryId" = ${debtEntryId}::uuid, "updatedAt" = ${occurredAt} WHERE "id" = ${transfer.id}::uuid AND "shopId" = ${shopId}::uuid`;
     }
 
     if (settlementType === "CASH_DRAWER" && drawer && settlementAmount) {
@@ -480,16 +484,16 @@ export async function createTransfer(shopId: string, userId: string | null, inpu
       const movementRows = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO "CashDrawerMovement" (
           "shopId", "drawerId", "createdByUserId", "type", "direction", "amount", "description", "reference",
-          "walletId", "financialTransferId", "sourceType", "sourceId", "sourceReference", "customerId"
+          "walletId", "financialTransferId", "sourceType", "sourceId", "sourceReference", "customerId", "createdAt"
         ) VALUES (
           ${shopId}::uuid, ${drawer.id}::uuid, ${userId}::uuid, ${isDeposit ? "WALLET_TRANSFER_IN" : "WALLET_TRANSFER_OUT"}, ${isDeposit ? "IN" : "OUT"}, ${settlementAmount},
           ${isDeposit ? `تحصيل مقابل إيداع للعميل من ${wallet.name}` : `تسليم مقابل سحب للعميل عبر ${wallet.name}`}, ${transfer.id},
-          ${wallet.id}::uuid, ${transfer.id}::uuid, 'CASH_DRAWER_TRANSFER', ${transfer.id}, ${isDeposit ? "تسوية إيداع للعميل" : "تسوية سحب للعميل"}, ${customerId}::uuid
+          ${wallet.id}::uuid, ${transfer.id}::uuid, 'CASH_DRAWER_TRANSFER', ${transfer.id}, ${isDeposit ? "تسوية إيداع للعميل" : "تسوية سحب للعميل"}, ${customerId}::uuid, ${occurredAt}
         ) RETURNING "id"
       `;
       const movementId = movementRows[0]?.id;
       if (!movementId) throw new Error("تعذر ربط حركة الدرج بالعملية.");
-      await tx.$executeRaw`UPDATE "FinancialTransfer" SET "settlementCashMovementId" = ${movementId}::uuid, "updatedAt" = NOW() WHERE "id" = ${transfer.id}::uuid AND "shopId" = ${shopId}::uuid`;
+      await tx.$executeRaw`UPDATE "FinancialTransfer" SET "settlementCashMovementId" = ${movementId}::uuid, "updatedAt" = ${occurredAt} WHERE "id" = ${transfer.id}::uuid AND "shopId" = ${shopId}::uuid`;
     }
 
     if (settlementType === "WALLET" && settlementWallet && settlementAmount) {
@@ -498,16 +502,16 @@ export async function createTransfer(shopId: string, userId: string | null, inpu
       const settlementRows = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO "FinancialTransfer" (
           "shopId", "walletId", "customerId", "createdByUserId", "operationType", "amount", "walletAmount", "commission", "commissionMode", "isDeferred",
-          "customerName", "customerPhone", "notes", "sourceType", "sourceId", "sourceReference"
+          "customerName", "customerPhone", "notes", "sourceType", "sourceId", "sourceReference", "createdAt"
         ) VALUES (
           ${shopId}::uuid, ${settlementWallet.id}::uuid, ${customerId}::uuid, ${userId}::uuid, ${settlementOperation}, ${settlementAmount}, ${settlementAmount}, 0, 'NONE', FALSE,
           ${customerName}, ${customerPhone}, ${isDeposit ? `تحصيل مقابل إيداع للعميل من خلال ${settlementWallet.name}` : `تسليم مقابل سحب للعميل من خلال ${settlementWallet.name}`},
-          'CUSTOMER_TRANSFER_SETTLEMENT', ${transfer.id}, ${isDeposit ? "تسوية إيداع للعميل" : "تسوية سحب للعميل"}
+          'CUSTOMER_TRANSFER_SETTLEMENT', ${transfer.id}, ${isDeposit ? "تسوية إيداع للعميل" : "تسوية سحب للعميل"}, ${occurredAt}
         ) RETURNING "id"
       `;
       const settlementTransferId = settlementRows[0]?.id;
       if (!settlementTransferId) throw new Error("تعذر ربط حركة المحفظة المقابلة بالعملية.");
-      await tx.$executeRaw`UPDATE "FinancialTransfer" SET "settlementTransferId" = ${settlementTransferId}::uuid, "updatedAt" = NOW() WHERE "id" = ${transfer.id}::uuid AND "shopId" = ${shopId}::uuid`;
+      await tx.$executeRaw`UPDATE "FinancialTransfer" SET "settlementTransferId" = ${settlementTransferId}::uuid, "updatedAt" = ${occurredAt} WHERE "id" = ${transfer.id}::uuid AND "shopId" = ${shopId}::uuid`;
     }
 
     return transfer;
@@ -516,7 +520,9 @@ export async function createTransfer(shopId: string, userId: string | null, inpu
 
 export async function voidTransfer(shopId: string, id: string, userId: string | null) {
   await ensureTables();
+  const voidedAt = new Date();
   return prisma.$transaction(async (tx) => {
+    await lockShopFinancialTx(tx, shopId);
     const rows = await tx.$queryRaw<Array<{
       id: string;
       walletId: string;
@@ -530,9 +536,10 @@ export async function voidTransfer(shopId: string, id: string, userId: string | 
       settlementType: SettlementType | null;
       settlementTransferId: string | null;
       settlementCashMovementId: string | null;
+      createdAt: Date;
     }>>`
       SELECT "id", "walletId", "customerId", "operationType", "walletAmount", "status", "debtEntryId", "sourceType", "notes",
-        "settlementType", "settlementTransferId", "settlementCashMovementId"
+        "settlementType", "settlementTransferId", "settlementCashMovementId", "createdAt"
       FROM "FinancialTransfer"
       WHERE "id" = ${id}::uuid AND "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL FOR UPDATE
     `;
@@ -544,47 +551,59 @@ export async function voidTransfer(shopId: string, id: string, userId: string | 
       throw new Error("هذه الحركة مرتبطة بعملية أصلية. افتح تفاصيل الحركة ثم اعكسها من المبيعة أو الفاتورة أو القسط أو العملية الأصلية المرتبطة.");
     }
 
+    let debt: { id: string; amount: Prisma.Decimal; isReversed: boolean; occurredAt: Date } | null = null;
     if (transfer.debtEntryId && transfer.customerId) {
-      const debtRows = await tx.$queryRaw<Array<{ id: string; amount: Prisma.Decimal; isReversed: boolean }>>`
-        SELECT "id", "amount", "isReversed" FROM "DebtLedgerEntry" WHERE "id" = ${transfer.debtEntryId}::uuid AND "shopId" = ${shopId}::uuid AND "customerId" = ${transfer.customerId}::uuid FOR UPDATE
+      const debtRows = await tx.$queryRaw<Array<{ id: string; amount: Prisma.Decimal; isReversed: boolean; occurredAt: Date }>>`
+        SELECT "id", "amount", "isReversed", "occurredAt" FROM "DebtLedgerEntry" WHERE "id" = ${transfer.debtEntryId}::uuid AND "shopId" = ${shopId}::uuid AND "customerId" = ${transfer.customerId}::uuid FOR UPDATE
       `;
-      const debt = debtRows[0];
-      if (debt && !debt.isReversed) {
-        const balances = await tx.$queryRaw<Array<{ balance: Prisma.Decimal }>>`
-          SELECT COALESCE(SUM(CASE WHEN "isReversed" THEN 0 WHEN "type" IN ('DEBT','OPENING_BALANCE','ADJUSTMENT_DEBIT') THEN "amount" WHEN "type" IN ('PAYMENT','ADJUSTMENT_CREDIT') THEN -"amount" ELSE 0 END), 0) AS "balance"
-          FROM "DebtLedgerEntry" WHERE "shopId" = ${shopId}::uuid AND "customerId" = ${transfer.customerId}::uuid
-        `;
-        if (decimal(balances[0]?.balance ?? 0).plus(new Prisma.Decimal("0.005")).lt(debt.amount)) throw new Error("لا يمكن إلغاء العملية لأن الدين المرتبط بها تم تسديده جزئياً أو كلياً.");
-        await tx.$executeRaw`UPDATE "DebtLedgerEntry" SET "isReversed" = TRUE, "updatedAt" = NOW() WHERE "id" = ${debt.id}::uuid AND "shopId" = ${shopId}::uuid`;
-      }
+      debt = debtRows[0] ?? null;
     }
 
-    let cashMovement: { id: string; drawerId: string; direction: "IN" | "OUT"; amount: Prisma.Decimal; status: "ACTIVE" | "VOID" } | null = null;
-    let drawer: { id: string; currentBalance: Prisma.Decimal } | null = null;
+    let cashMovement: { id: string; drawerId: string; direction: "IN" | "OUT"; amount: Prisma.Decimal; status: "ACTIVE" | "VOID"; createdAt: Date } | null = null;
     if (transfer.settlementType === "CASH_DRAWER") {
       if (!transfer.settlementCashMovementId) throw new Error("بيانات تسوية الدرج ناقصة؛ لا يمكن إلغاء العملية بأمان.");
-      const movementRows = await tx.$queryRaw<Array<{ id: string; drawerId: string; direction: "IN" | "OUT"; amount: Prisma.Decimal; status: "ACTIVE" | "VOID" }>>`
-        SELECT "id", "drawerId", "direction", "amount", "status" FROM "CashDrawerMovement"
+      const movementRows = await tx.$queryRaw<Array<{ id: string; drawerId: string; direction: "IN" | "OUT"; amount: Prisma.Decimal; status: "ACTIVE" | "VOID"; createdAt: Date }>>`
+        SELECT "id", "drawerId", "direction", "amount", "status", "createdAt" FROM "CashDrawerMovement"
         WHERE "id" = ${transfer.settlementCashMovementId}::uuid AND "shopId" = ${shopId}::uuid FOR UPDATE
       `;
       cashMovement = movementRows[0] ?? null;
       if (!cashMovement || cashMovement.status !== "ACTIVE") throw new Error("حركة الدرج المرتبطة غير متاحة للعكس.");
-      const drawerRows = await tx.$queryRaw<Array<{ id: string; currentBalance: Prisma.Decimal }>>`
-        SELECT "id", "currentBalance" FROM "CashDrawer" WHERE "id" = ${cashMovement.drawerId}::uuid AND "shopId" = ${shopId}::uuid FOR UPDATE
-      `;
-      drawer = drawerRows[0] ?? null;
-      if (!drawer) throw new Error("الدرج النقدي المرتبط غير موجود.");
     }
 
     let settlementTransfer: LinkedSettlementTransfer | null = null;
     if (transfer.settlementType === "WALLET") {
       if (!transfer.settlementTransferId) throw new Error("بيانات تسوية المحفظة ناقصة؛ لا يمكن إلغاء العملية بأمان.");
       const settlementRows = await tx.$queryRaw<LinkedSettlementTransfer[]>`
-        SELECT "id", "walletId", "operationType", "walletAmount", "status" FROM "FinancialTransfer"
+        SELECT "id", "walletId", "operationType", "walletAmount", "status", "createdAt" FROM "FinancialTransfer"
         WHERE "id" = ${transfer.settlementTransferId}::uuid AND "shopId" = ${shopId}::uuid AND "deletedAt" IS NULL FOR UPDATE
       `;
       settlementTransfer = settlementRows[0] ?? null;
       if (!settlementTransfer || settlementTransfer.status !== "ACTIVE") throw new Error("حركة المحفظة المقابلة غير متاحة للعكس.");
+    }
+
+    await assertBusinessDatesOpenTx(tx, shopId, [
+      transfer.createdAt,
+      ...(debt ? [debt.occurredAt] : []),
+      ...(cashMovement ? [cashMovement.createdAt] : []),
+      ...(settlementTransfer ? [settlementTransfer.createdAt] : []),
+    ]);
+
+    if (debt && transfer.customerId && !debt.isReversed) {
+      const balances = await tx.$queryRaw<Array<{ balance: Prisma.Decimal }>>`
+        SELECT COALESCE(SUM(CASE WHEN "isReversed" THEN 0 WHEN "type" IN ('DEBT','OPENING_BALANCE','ADJUSTMENT_DEBIT') THEN "amount" WHEN "type" IN ('PAYMENT','ADJUSTMENT_CREDIT') THEN -"amount" ELSE 0 END), 0) AS "balance"
+        FROM "DebtLedgerEntry" WHERE "shopId" = ${shopId}::uuid AND "customerId" = ${transfer.customerId}::uuid
+      `;
+      if (decimal(balances[0]?.balance ?? 0).plus(new Prisma.Decimal("0.005")).lt(debt.amount)) throw new Error("لا يمكن إلغاء العملية لأن الدين المرتبط بها تم تسديده جزئياً أو كلياً.");
+      await tx.$executeRaw`UPDATE "DebtLedgerEntry" SET "isReversed" = TRUE, "updatedAt" = ${voidedAt} WHERE "id" = ${debt.id}::uuid AND "shopId" = ${shopId}::uuid`;
+    }
+
+    let drawer: { id: string; currentBalance: Prisma.Decimal } | null = null;
+    if (cashMovement) {
+      const drawerRows = await tx.$queryRaw<Array<{ id: string; currentBalance: Prisma.Decimal }>>`
+        SELECT "id", "currentBalance" FROM "CashDrawer" WHERE "id" = ${cashMovement.drawerId}::uuid AND "shopId" = ${shopId}::uuid FOR UPDATE
+      `;
+      drawer = drawerRows[0] ?? null;
+      if (!drawer) throw new Error("الدرج النقدي المرتبط غير موجود.");
     }
 
     const walletIds = [transfer.walletId, ...(settlementTransfer ? [settlementTransfer.walletId] : [])];
@@ -597,21 +616,21 @@ export async function voidTransfer(shopId: string, id: string, userId: string | 
     if (settlementTransfer) {
       addWalletDelta(reverseDeltas, settlementTransfer.walletId, balanceDelta(settlementTransfer.operationType, settlementTransfer.walletAmount).negated());
     }
-    await applyWalletDeltas(tx, shopId, wallets, reverseDeltas, "لا يمكن إلغاء العملية لأن رصيد إحدى المحافظ لم يعد يكفي للعكس التسوية.");
+    await applyWalletDeltas(tx, shopId, wallets, reverseDeltas, "لا يمكن إلغاء العملية لأن رصيد إحدى المحافظ لم يعد يكفي لعكس التسوية.");
 
     if (cashMovement && drawer) {
       const reverseDrawerDelta = cashMovement.direction === "IN" ? cashMovement.amount.negated() : cashMovement.amount;
       const nextDrawerBalance = decimal(drawer.currentBalance).plus(reverseDrawerDelta);
-      if (nextDrawerBalance.lt(0)) throw new Error("لا يمكن إلغياء العملية لأن رصيد الدرج الحالي لا يكفي لعكس التخصيل المرتبط.");
-      await tx.$executeRaw`UPDATE "CashDrawer" SET "currentBalance" = ${nextDrawerBalance}, "updatedAt" = NOW() WHERE "id" = ${drawer.id}::uuid AND "shopId" = ${shopId}::uuid`;
-      await tx.$executeRaw`UPDATE "CashDrawerMovement" SET "status" = 'VOID', "voidedAt" = NOW() WHERE "id" = ${cashMovement.id}::uuid AND "shopId" = ${shopId}::uuid`;
+      if (nextDrawerBalance.lt(0)) throw new Error("لا يمكن إلغاء العملية لأن رصيد الدرج الحالي لا يكفي لعكس التحصيل المرتبط.");
+      await tx.$executeRaw`UPDATE "CashDrawer" SET "currentBalance" = ${nextDrawerBalance}, "updatedAt" = ${voidedAt} WHERE "id" = ${drawer.id}::uuid AND "shopId" = ${shopId}::uuid`;
+      await tx.$executeRaw`UPDATE "CashDrawerMovement" SET "status" = 'VOID', "voidedAt" = ${voidedAt} WHERE "id" = ${cashMovement.id}::uuid AND "shopId" = ${shopId}::uuid`;
     }
 
     if (settlementTransfer) {
-      await tx.$executeRaw`UPDATE "FinancialTransfer" SET "status" = 'VOID', "voidedAt" = NOW(), "voidedByUserId" = ${userId}::uuid, "updatedAt" = NOW() WHERE "id" = ${settlementTransfer.id}::uuid AND "shopId" = ${shopId}::uuid`;
+      await tx.$executeRaw`UPDATE "FinancialTransfer" SET "status" = 'VOID', "voidedAt" = ${voidedAt}, "voidedByUserId" = ${userId}::uuid, "updatedAt" = ${voidedAt} WHERE "id" = ${settlementTransfer.id}::uuid AND "shopId" = ${shopId}::uuid`;
     }
 
-    await tx.$executeRaw`UPDATE "FinancialTransfer" SET "status" = 'VOID', "voidedAt" = NOW(), "voidedByUserId" = ${userId}::uuid, "updatedAt" = NOW() WHERE "id" = ${transfer.id}::uuid AND "shopId" = ${shopId}::uuid`;
+    await tx.$executeRaw`UPDATE "FinancialTransfer" SET "status" = 'VOID', "voidedAt" = ${voidedAt}, "voidedByUserId" = ${userId}::uuid, "updatedAt" = ${voidedAt} WHERE "id" = ${transfer.id}::uuid AND "shopId" = ${shopId}::uuid`;
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
 }
 
