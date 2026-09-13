@@ -40,6 +40,22 @@ jobs:
           echo "=== FULL AUDIT ==="
           npm audit --json || true
 
+      - name: Dependency fix preview
+        run: |
+          cp package-lock.json /tmp/package-lock.before.json
+          cp package.json /tmp/package.before.json
+          npm audit fix --package-lock-only --ignore-scripts || true
+          echo "=== PROPOSED PACKAGE VERSIONS ==="
+          npm ls next prisma @prisma/client postcss nanoid sharp deepmerge-ts browserslist brace-expansion js-yaml baseline-browser-mapping --all || true
+          echo "=== PROPOSED PRODUCTION AUDIT ==="
+          npm audit --omit=dev --json || true
+          echo "=== PROPOSED FULL AUDIT ==="
+          npm audit --json || true
+          echo "=== LOCKFILE DIFF STAT ==="
+          git diff --stat -- package.json package-lock.json || true
+          cp /tmp/package-lock.before.json package-lock.json
+          cp /tmp/package.before.json package.json
+
       - name: Prisma validate and generate
         run: |
           npx prisma validate
