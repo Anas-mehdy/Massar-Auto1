@@ -6,7 +6,7 @@ import {
 export const FEATURE_DISCOVERY_MAX_AGE_DAYS = 30 as const;
 
 export type FeatureDiscoveryId =
-  | "repair_tracking"
+  | "service_order_workflow"
   | "sales_inventory"
   | "inventory_compatibility"
   | "wallet_monthly_limit"
@@ -23,7 +23,7 @@ export type FeatureDiscoveryCandidate = {
 };
 
 export type FeatureDiscoveryEvidence = {
-  repairHref?: string | null;
+  serviceOrderHref?: string | null;
   salesHasActivity?: boolean;
   inventoryHasActivity?: boolean;
   inventoryUnlinkedHref?: string | null;
@@ -37,14 +37,14 @@ function candidateForJob(
   job: OnboardingJob,
   evidence: FeatureDiscoveryEvidence,
 ): FeatureDiscoveryCandidate | null {
-  if (job === "REPAIRS" && evidence.repairHref) {
+  if (job === "REPAIRS" && evidence.serviceOrderHref) {
     return {
-      id: "repair_tracking",
+      id: "service_order_workflow",
       job,
-      title: "خلّي العميل يتابع الجهاز بدل ما يسأل على واتساب",
-      description: "من طلب الصيانة نفسه عندك رابط تتبع وQR للعميل. شاركه معه ليشوف الحالة بدون اتصالات متكررة.",
-      actionHref: evidence.repairHref,
-      actionLabel: "افتح طلب الصيانة والتتبع",
+      title: "خلّي كل صيانة تمشي بمسار واضح من الاستقبال للتسليم",
+      description: "من أمر الصيانة نفسه تقدر تتابع الفحص والتشخيص، موافقة العميل، قطع الغيار والأجور، ثم التنفيذ والتسليم بدون تشتيت بين سجلات منفصلة.",
+      actionHref: evidence.serviceOrderHref,
+      actionLabel: "افتح أمر الصيانة",
     };
   }
 
@@ -63,10 +63,10 @@ function candidateForJob(
     return {
       id: "inventory_compatibility",
       job,
-      title: "خلّي الصنف يعرف الأجهزة المتوافقة معه",
-      description: "اربط قطعة المخزون بدليل التوافقات، وبعدها تقدر تعرف الموديلات المتوافقة معها من نفس الصنف بدل البحث اليدوي كل مرة.",
+      title: "اربط القطعة بالمركبات أو الاستخدامات المناسبة إلها",
+      description: "استخدم بيانات التوافق المتاحة للصنف حتى يكون الوصول للقطعة المناسبة أسرع وأقل عرضة للخطأ أثناء العمل.",
       actionHref: evidence.inventoryUnlinkedHref,
-      actionLabel: "اربط أول قطعة بالتوافقات",
+      actionLabel: "راجع توافق القطعة",
     };
   }
 
