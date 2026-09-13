@@ -29,6 +29,7 @@ function parseStatus(value?: string): ServiceOrderStatus | undefined {
 
 export default async function ServiceOrdersPage({ searchParams }: PageProps) {
   const auth = await requirePermission("service_orders:read");
+  const canCreate = auth.permissions.includes("service_orders:create");
   const params = await searchParams;
   const search = params.search?.trim() ?? "";
   const status = parseStatus(params.status);
@@ -44,7 +45,7 @@ export default async function ServiceOrdersPage({ searchParams }: PageProps) {
       <PageHeader
         title="أوامر الصيانة"
         description="من استقبال المركبة والفحص حتى الموافقة والتنفيذ والتسليم"
-        actions={<Button asChild className="font-black"><Link href="/service-orders/new"><Plus className="ml-1.5 h-4 w-4" />أمر صيانة جديد</Link></Button>}
+        actions={canCreate ? <Button asChild className="font-black"><Link href="/service-orders/new"><Plus className="ml-1.5 h-4 w-4" />أمر صيانة جديد</Link></Button> : undefined}
       />
 
       <form className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 xl:grid-cols-[1fr_230px_190px_auto]">
@@ -69,8 +70,8 @@ export default async function ServiceOrdersPage({ searchParams }: PageProps) {
         <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center">
           <Wrench className="mx-auto mb-4 h-10 w-10 text-slate-400" />
           <h2 className="font-black text-slate-950">لا توجد أوامر صيانة</h2>
-          <p className="mt-2 text-sm text-slate-500">ابدأ باستقبال مركبة جديدة أو غيّر التصفية الحالية.</p>
-          <Button asChild className="mt-5 font-black"><Link href="/service-orders/new">إنشاء أمر صيانة</Link></Button>
+          <p className="mt-2 text-sm text-slate-500">{canCreate ? "ابدأ باستقبال مركبة جديدة أو غيّر التصفية الحالية." : "لا توجد أوامر صيانة مطابقة للتصفية الحالية."}</p>
+          {canCreate ? <Button asChild className="mt-5 font-black"><Link href="/service-orders/new">إنشاء أمر صيانة</Link></Button> : null}
         </div>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
