@@ -33,33 +33,38 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Dependency audit details
+      - name: Build secure dependency candidate
         run: |
-          echo "=== PRODUCTION AUDIT ==="
-          npm audit --omit=dev --json || true
-          echo "=== FULL AUDIT ==="
-          npm audit --json || true
-
-      - name: Dependency fix preview
-        run: |
-          cp package-lock.json /tmp/package-lock.before.json
-          cp package.json /tmp/package.before.json
+          node <<'NODE'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.dependencies.next = '15.5.25';
+          pkg.devDependencies['eslint-config-next'] = '15.5.25';
+          pkg.devDependencies.postcss = '^8.5.28';
+          pkg.overrides = {
+            ...(pkg.overrides || {}),
+            postcss: '8.5.28',
+            'deepmerge-ts': '8.0.0'
+          };
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          NODE
+          npm install --package-lock-only --ignore-scripts
           npm audit fix --package-lock-only --ignore-scripts || true
-          cp package-lock.json /tmp/package-lock.proposed.json
-          echo "=== PROPOSED PRODUCTION AUDIT ==="
-          npm audit --omit=dev --json || true
-          echo "=== PROPOSED FULL AUDIT ==="
+          npm ci
+          echo "=== CANDIDATE PRODUCTION AUDIT ==="
+          npm audit --omit=dev --json
+          echo "=== CANDIDATE FULL AUDIT ==="
           npm audit --json || true
-          echo "=== LOCKFILE DIFF STAT ==="
-          git diff --stat -- package.json package-lock.json || true
-          cp /tmp/package-lock.before.json package-lock.json
-          cp /tmp/package.before.json package.json
+          echo "=== CANDIDATE KEY VERSIONS ==="
+          npm ls next eslint-config-next prisma @prisma/client @prisma/config deepmerge-ts postcss sharp nanoid --all
 
-      - name: Upload dependency fix preview
+      - name: Upload secure dependency candidate
         uses: actions/upload-artifact@v4
         with:
-          name: dependency-fix-preview
-          path: /tmp/package-lock.proposed.json
+          name: secure-dependency-candidate
+          path: |
+            package.json
+            package-lock.json
           if-no-files-found: error
           retention-days: 1
 
