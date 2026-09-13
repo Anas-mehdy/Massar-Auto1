@@ -68,24 +68,29 @@ jobs:
         run: |
           node <<'NODE'
           const fs = require('fs');
-          const repo = process.env.GITHUB_REPOSITORY;
-          const token = process.env.GITHUB_TOKEN;
-          const content = fs.readFileSync('package-lock.json').toString('base64');
-          const response = await fetch(`https://api.github.com/repos/${repo}/git/blobs`, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: 'application/vnd.github+json',
-              'X-GitHub-Api-Version': '2022-11-28',
-              'User-Agent': 'massar-auto-core-check'
-            },
-            body: JSON.stringify({ content, encoding: 'base64' })
+          (async () => {
+            const repo = process.env.GITHUB_REPOSITORY;
+            const token = process.env.GITHUB_TOKEN;
+            const content = fs.readFileSync('package-lock.json').toString('base64');
+            const response = await fetch(`https://api.github.com/repos/${repo}/git/blobs`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: 'application/vnd.github+json',
+                'X-GitHub-Api-Version': '2022-11-28',
+                'User-Agent': 'massar-auto-core-check'
+              },
+              body: JSON.stringify({ content, encoding: 'base64' })
+            });
+            const data = await response.json();
+            if (!response.ok || !data.sha) {
+              throw new Error(`Git blob upload failed: ${response.status} ${JSON.stringify(data)}`);
+            }
+            console.log(`DEPENDENCY_LOCK_BLOB_SHA=${data.sha}`);
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
           });
-          const data = await response.json();
-          if (!response.ok || !data.sha) {
-            throw new Error(`Git blob upload failed: ${response.status} ${JSON.stringify(data)}`);
-          }
-          console.log(`DEPENDENCY_LOCK_BLOB_SHA=${data.sha}`);
           NODE
 
       - name: Upload secure dependency candidate
