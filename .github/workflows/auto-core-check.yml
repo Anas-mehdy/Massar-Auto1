@@ -33,6 +33,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Dependency audit details
+        run: |
+          echo "=== PRODUCTION AUDIT ==="
+          npm audit --omit=dev --json || true
+          echo "=== FULL AUDIT ==="
+          npm audit --json || true
+
       - name: Prisma validate and generate
         run: |
           npx prisma validate
