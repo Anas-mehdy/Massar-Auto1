@@ -18,9 +18,14 @@ export async function consumeRegistrationAttempt(email: string, requestFingerpri
 
   await prisma.$transaction(async (tx) => {
     // Serialize registration attempts from the same fingerprint so concurrent
-    // requests cannot race past the hourly cap.
-    await tx.$queryRaw`
-      SELECT pg_advisory_xact_lock(hashtextextended(${requestFingerprint}, 0))
+    // requests cannot race past the hourly cap. PostgreSQL's advisory-lock
+    // function returns `void`, which Prisma cannot deserialize directly, so
+    // execute it in a subquery and return a normal scalar instead.
+    await tx.$queryRaw<Array<{ locked: number }>>`
+      SELECT 1::integer AS "locked"
+      FROM (
+        SELECT pg_advisory_xact_lock(hashtextextended(${requestFingerprint}, 0))
+      ) AS registration_lock
     `;
 
     const rows = await tx.$queryRaw<Array<{ pairCount: number; fingerprintCount: number }>>`
