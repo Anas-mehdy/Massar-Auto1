@@ -8,7 +8,6 @@ const JOB_LABELS: Record<OnboardingJob, string> = {
   INVENTORY: "المخزون",
   WALLETS: "المحافظ والتحويلات",
   DEBTS: "الديون والتحصيلات",
-  ELECTRONIC_SERVICES: "الخدمات الإلكترونية",
 };
 
 export type LifecycleEmailContent = {
