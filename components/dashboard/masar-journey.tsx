@@ -8,12 +8,12 @@ import {
 } from "lucide-react";
 
 const stages = [
-  { label: "استلام الجهاز", helper: "تسجيل واستلام", icon: PackageOpen },
-  { label: "الفحص والتشخيص", helper: "تحديد المشكلة", icon: SearchCheck },
-  { label: "موافقة العميل", helper: "اعتماد التكلفة", icon: ClipboardCheck },
-  { label: "الإصلاح", helper: "تنفيذ الصيانة", icon: Wrench },
+  { label: "استقبال المركبة", helper: "تسجيل الحالة والعداد", icon: PackageOpen },
+  { label: "الفحص والتشخيص", helper: "تحديد العطل", icon: SearchCheck },
+  { label: "موافقة العميل", helper: "اعتماد عرض السعر", icon: ClipboardCheck },
+  { label: "تنفيذ الصيانة", helper: "قطع الغيار والأجور", icon: Wrench },
   { label: "اختبار الجودة", helper: "فحص نهائي", icon: ShieldCheck },
-  { label: "تسليم الجهاز", helper: "إغلاق المسار", icon: PackageCheck },
+  { label: "تسليم المركبة", helper: "إغلاق أمر الصيانة", icon: PackageCheck },
 ];
 
 export function MasarJourney() {
@@ -21,7 +21,7 @@ export function MasarJourney() {
     <div
       className="masar-journey"
       role="img"
-      aria-label="مخطط توضيحي متحرك لرحلة الجهاز من الاستلام حتى التسليم"
+      aria-label="مخطط توضيحي متحرك لرحلة المركبة من الاستقبال حتى التسليم"
     >
       <div className="masar-path-track" aria-hidden="true">
         <span className="masar-path-beam" />
