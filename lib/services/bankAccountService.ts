@@ -1,6 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { cashDrawerService } from "@/lib/services/cashDrawerService";
+import {
+  assertBusinessDateOpenTx,
+  assertBusinessDatesOpenTx,
+} from "@/lib/services/businessDateLockService";
 import { financialTransferService } from "@/lib/services/financialTransferService";
 
 export type BankAccountRow = {
@@ -225,7 +229,8 @@ export async function createBankMovementTx(
   input: CreateBankMovementTxInput,
 ) {
   const amount = positiveAmount(input.amount);
-  const occurredAt = validDate(input.occurredAt) ?? null;
+  const occurredAt = validDate(input.occurredAt) ?? new Date();
+  await assertBusinessDateOpenTx(tx, shopId, occurredAt);
   const account = await lockBankAccountTx(tx, shopId, input.bankAccountId, input.requireActiveAccount !== false);
 
   const rows = await tx.$queryRaw<Array<{ id: string }>>`
@@ -239,7 +244,7 @@ export async function createBankMovementTx(
       ${nullableText(input.sourceType) ?? "MANUAL"}, ${nullableText(input.sourceId)},
       ${nullableText(input.sourceReference) ?? nullableText(input.reference)}, ${nullableText(input.counterpartyType)},
       ${nullableText(input.counterpartyId)}, ${nullableText(input.counterpartyName)}, ${input.transferGroupId ?? null}::uuid,
-      COALESCE(${occurredAt}::timestamp, NOW()::timestamp)
+      ${occurredAt}::timestamp
     )
     RETURNING "id"
   `;
@@ -255,20 +260,22 @@ export async function updateActiveMovementTx(
   movementId: string,
   input: UpdateBankMovementTxInput,
 ) {
-  // Resolve the account first without taking a movement lock, then lock the
-  // account before the movement. This matches create/rebuild/reversal lock
-  // order and prevents a movement->account vs account->movement deadlock.
-  const lookupRows = await tx.$queryRaw<Array<{ id: string; bankAccountId: string }>>`
-    SELECT "id", "bankAccountId"
+  const lookupRows = await tx.$queryRaw<Array<{ id: string; bankAccountId: string; occurredAt: Date }>>`
+    SELECT "id", "bankAccountId", "occurredAt"
     FROM "BankAccountMovement"
     WHERE "id" = ${movementId}::uuid AND "shopId" = ${shopId}::uuid AND "status" = 'ACTIVE'
     LIMIT 1
   `;
   const lookup = lookupRows[0];
   if (!lookup) throw new Error("الحركة البنكية غير موجودة أو ملغاة.");
+
+  const requestedOccurredAt = input.occurredAt === undefined ? undefined : validDate(input.occurredAt);
+  const nextOccurredAt = requestedOccurredAt ?? lookup.occurredAt;
+  await assertBusinessDatesOpenTx(tx, shopId, [lookup.occurredAt, nextOccurredAt]);
   await lockBankAccountTx(tx, shopId, lookup.bankAccountId, false);
-  const rows = await tx.$queryRaw<Array<{ id: string; bankAccountId: string }>>`
-    SELECT "id", "bankAccountId"
+
+  const rows = await tx.$queryRaw<Array<{ id: string; bankAccountId: string; occurredAt: Date }>>`
+    SELECT "id", "bankAccountId", "occurredAt"
     FROM "BankAccountMovement"
     WHERE "id" = ${movementId}::uuid AND "shopId" = ${shopId}::uuid AND "bankAccountId" = ${lookup.bankAccountId}::uuid AND "status" = 'ACTIVE'
     FOR UPDATE
@@ -277,11 +284,10 @@ export async function updateActiveMovementTx(
   if (!movement) throw new Error("الحركة البنكية غير موجودة أو ملغاة.");
 
   const amount = input.amount === undefined ? null : positiveAmount(input.amount);
-  const occurredAt = input.occurredAt === undefined ? null : validDate(input.occurredAt);
   await tx.$executeRaw`
     UPDATE "BankAccountMovement"
     SET "amount" = COALESCE(${amount}, "amount"),
-        "occurredAt" = COALESCE(${occurredAt}, "occurredAt"),
+        "occurredAt" = ${nextOccurredAt},
         "description" = CASE WHEN ${input.description === undefined} THEN "description" ELSE ${nullableText(input.description)} END,
         "reference" = CASE WHEN ${input.reference === undefined} THEN "reference" ELSE ${nullableText(input.reference)} END,
         "sourceReference" = CASE WHEN ${input.sourceReference === undefined} THEN "sourceReference" ELSE ${nullableText(input.sourceReference)} END,
@@ -298,8 +304,8 @@ export async function voidMovementTx(
   movementId: string,
   voidedByUserId: string | null,
 ) {
-  const lookupRows = await tx.$queryRaw<Array<{ id: string; bankAccountId: string; status: BankMovementStatus }>>`
-    SELECT "id", "bankAccountId", "status"
+  const lookupRows = await tx.$queryRaw<Array<{ id: string; bankAccountId: string; status: BankMovementStatus; occurredAt: Date }>>`
+    SELECT "id", "bankAccountId", "status", "occurredAt"
     FROM "BankAccountMovement"
     WHERE "id" = ${movementId}::uuid AND "shopId" = ${shopId}::uuid
     LIMIT 1
@@ -307,6 +313,8 @@ export async function voidMovementTx(
   const lookup = lookupRows[0];
   if (!lookup) throw new Error("الحركة البنكية غير موجودة.");
   if (lookup.status === "VOID") return { alreadyVoided: true, movementId: lookup.id, bankAccountId: lookup.bankAccountId };
+
+  await assertBusinessDateOpenTx(tx, shopId, lookup.occurredAt);
   await lockBankAccountTx(tx, shopId, lookup.bankAccountId, false);
   const rows = await tx.$queryRaw<Array<{ id: string; bankAccountId: string; status: BankMovementStatus }>>`
     SELECT "id", "bankAccountId", "status"
@@ -336,6 +344,15 @@ export async function reverseSourceMovementsTx(
   const source = nullableText(sourceType);
   const id = nullableText(sourceId);
   if (!source || !id) return { count: 0 };
+
+  const dateRows = await tx.$queryRaw<Array<{ occurredAt: Date }>>`
+    SELECT "occurredAt"
+    FROM "BankAccountMovement"
+    WHERE "shopId" = ${shopId}::uuid AND "sourceType" = ${source} AND "sourceId" = ${id} AND "status" = 'ACTIVE'
+    ORDER BY "occurredAt", "createdAt", "id"
+  `;
+  if (!dateRows.length) return { count: 0 };
+  await assertBusinessDatesOpenTx(tx, shopId, dateRows.map((row) => row.occurredAt));
 
   const accountRows = await tx.$queryRaw<Array<{ bankAccountId: string }>>`
     SELECT DISTINCT "bankAccountId"
@@ -606,6 +623,8 @@ export async function transferMoney(
     const occurredAt = requestedOccurredAt ?? groupRows[0]?.occurredAt;
     if (!groupId || !occurredAt) throw new Error("تعذر إنشاء مرجع أو وقت التحويل.");
 
+    await assertBusinessDateOpenTx(tx, shopId, occurredAt);
+
     // Stable lock order protects opposite concurrent transfers (A→B / B→A) from deadlocks.
     const descriptors = [
       { role: "from" as const, type: input.fromType, id: input.fromId ?? null, key: `${input.fromType}:${input.fromId ?? ""}` },
@@ -671,7 +690,7 @@ export async function getMovementById(shopId: string, movementId: string) {
     ${movementSelect()}
     WHERE m."shopId"=${shopId}::uuid AND m."id"=${movementId}::uuid
     LIMIT 1
-  `);
+  `;
   return rows[0] ?? null;
 }
 
