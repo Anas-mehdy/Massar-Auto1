@@ -134,13 +134,6 @@ export default async function DailySummaryPage({ searchParams }: { searchParams:
           <DebtCard label="صافي مستحق الموردين" value={summary.debts.supplierNetPayable} currency={currency} href="/suppliers" helper={`بعد خصم رصيد لنا لدى الموردين ${formatCurrency(summary.debts.supplierCredit, currency)}`} />
         </div>
       </section>
-
-      {summary.electronicCategories.length > 0 ? (
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-          <div className="mb-4"><h2 className="text-sm font-black text-slate-900 dark:text-slate-100">تفصيل الخدمات الإلكترونية في الفترة</h2><p className="mt-1 text-[10px] font-bold text-slate-400">تفصيل حسب التصنيفات الفعلية التي يستخدمها المتجر.</p></div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{summary.electronicCategories.map((category) => <div key={category.category} className="rounded-2xl border border-slate-100 p-4 dark:border-slate-800"><div className="flex items-center justify-between gap-2"><span className="text-xs font-black text-slate-800 dark:text-slate-200">{category.category}</span><span className="font-numeric text-[10px] font-bold text-slate-400">{category.count} عملية</span></div><div className="mt-3 grid grid-cols-3 gap-2 text-center"><SmallStat label="المبيعات" value={formatCurrency(category.revenue, currency)} /><SmallStat label="التكلفة" value={formatCurrency(category.cost, currency)} /><SmallStat label="الربح" value={formatCurrency(category.profit, currency)} /></div></div>)}</div>
-        </section>
-      ) : null}
     </div>
   );
 }
@@ -232,8 +225,4 @@ function MiniValue({ label, value, helper }: { label: string; value: string; hel
 
 function DebtCard({ label, value, currency, href, helper }: { label: string; value: number; currency: string; href: string; helper: string }) {
   return <Link href={href} className="rounded-2xl border border-slate-200 p-4 transition hover:border-primary/40 hover:bg-primary/5 dark:border-slate-800 dark:hover:bg-slate-900"><p className="text-[10px] font-black text-slate-500">{label}</p><p className="mt-2 font-numeric text-lg font-black text-slate-950 dark:text-white">{formatCurrency(value, currency)}</p><p className="mt-1 text-[9px] font-bold leading-5 text-slate-400">{helper}</p></Link>;
-}
-
-function SmallStat({ label, value }: { label: string; value: string }) {
-  return <div><p className="text-[8px] font-black text-slate-400">{label}</p><p className="mt-1 font-numeric text-[11px] font-black text-slate-800 dark:text-slate-200">{value}</p></div>;
 }
