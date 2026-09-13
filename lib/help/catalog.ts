@@ -267,7 +267,7 @@ function normalizeArabic(value: string) {
 }
 
 export function helpContextKeyForPath(pathname: string): HelpCategory {
-  if (pathname.startsWith("/service-orders") || pathname.startsWith("/vehicles") || pathname.startsWith("/repair-orders")) return "REPAIRS";
+  if (pathname.startsWith("/service-orders") || pathname.startsWith("/vehicles")) return "REPAIRS";
   if (pathname.startsWith("/sales") || pathname.startsWith("/point-of-sale")) return "SALES";
   if (pathname.startsWith("/inventory") || pathname.startsWith("/suppliers") || pathname.startsWith("/warehouses")) return "INVENTORY";
   if (pathname.startsWith("/transfers") || pathname.startsWith("/cash-drawer")) return "WALLETS";
