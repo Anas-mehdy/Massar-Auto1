@@ -10,9 +10,9 @@ export type SmartEmptyStateCopy = {
 
 const COPY_BY_JOB: Record<OnboardingJob, Omit<SmartEmptyStateCopy, "actionHref">> = {
   REPAIRS: {
-    title: "ابدأ بأول جهاز فعلي",
-    description: "سجّل اسم العميل والجهاز والمشكلة فقط. بعدها يريك مسار التتبع والـ QR وتغيير الحالة بدون ما تضيع بين كل إعدادات الصيانة.",
-    actionLabel: "سجّل أول جهاز",
+    title: "استقبل أول مركبة فعلية",
+    description: "اختر العميل ومركبته وسجّل سبب الدخول أو الشكوى. بعدها تتابع الفحص والتشخيص والموافقة وقطع الغيار والأجور حتى التسليم من أمر الصيانة نفسه.",
+    actionLabel: "استقبل أول مركبة",
   },
   SALES: {
     title: "سجّل أول عملية بيع حقيقية",
@@ -20,9 +20,9 @@ const COPY_BY_JOB: Record<OnboardingJob, Omit<SmartEmptyStateCopy, "actionHref">
     actionLabel: "نفّذ أول بيع",
   },
   INVENTORY: {
-    title: "أدخل أول صنف موجود عندك فعلياً",
-    description: "اكتب اسم الصنف والكمية الحالية. مسار يسجل الرصيد الافتتاحي كحركة مخزون حقيقية ويبدأ تاريخ الصنف من هناك.",
-    actionLabel: "أضف أول صنف",
+    title: "أدخل أول قطعة موجودة عندك فعلياً",
+    description: "اكتب اسم قطعة الغيار والكمية الحالية. مسار يسجل الرصيد الافتتاحي كحركة مخزون حقيقية ويبدأ تاريخ القطعة من هناك.",
+    actionLabel: "أضف أول قطعة",
   },
   WALLETS: {
     title: "ابدأ بمحفظة ثم أول حركة حقيقية",
@@ -33,11 +33,6 @@ const COPY_BY_JOB: Record<OnboardingJob, Omit<SmartEmptyStateCopy, "actionHref">
     title: "سجّل أول دين حقيقي",
     description: "اختر عميلاً ومبلغاً مستحقاً فعلياً. عند أول تحصيل لاحقاً سيخفض مسار الرصيد ويسجل مكان وصول المال.",
     actionLabel: "سجّل أول دين",
-  },
-  ELECTRONIC_SERVICES: {
-    title: "جهّز أول مزود ونفّذ خدمة حقيقية",
-    description: "ابدأ برصيد المزود الحالي ثم نفّذ أول خدمة. مسار يخصم التكلفة ويسجل التحصيل والربح في نفس العملية.",
-    actionLabel: "ابدأ الخدمات الإلكترونية",
   },
 };
 
