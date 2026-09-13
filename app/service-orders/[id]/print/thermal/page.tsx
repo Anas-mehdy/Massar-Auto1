@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { PrintActions } from "@/components/print-actions";
 import { requirePermission } from "@/lib/auth/context";
 import { formatAutoDate, formatAutoMoney, SERVICE_ORDER_STATUS_LABELS } from "@/lib/auto/service-order-ui";
+import { buildAppUrl } from "@/lib/app-url";
 import type { ServiceOrderStatus } from "@/lib/services/autoServiceOrderService";
 import { autoPrintService } from "@/lib/services/autoPrintService";
 import { shopService } from "@/lib/services/shopService";
@@ -26,7 +27,8 @@ export default async function ServiceOrderThermalPrintPage({ params }: PageProps
   const activeParts = order.partLines.filter((line) => !["CANCELLED", "RETURNED"].includes(line.status));
   const laborTotal = activeLabor.reduce((sum, line) => sum + Number(line.lineTotal), 0);
   const partsTotal = activeParts.reduce((sum, line) => sum + Number(line.lineTotal), 0);
-  const qrCodeDataUrl = await QRCode.toDataURL(order.orderNumber || order.id, { margin: 0, width: 140 });
+  const trackingUrl = buildAppUrl(`/track/${order.id}`);
+  const qrCodeDataUrl = await QRCode.toDataURL(trackingUrl, { margin: 0, width: 140 });
   const status = order.status as ServiceOrderStatus;
 
   return (
@@ -77,8 +79,9 @@ export default async function ServiceOrderThermalPrintPage({ params }: PageProps
         </section>
 
         <div className="py-3 text-center">
-          <Image src={qrCodeDataUrl} alt={`QR ${order.orderNumber}`} width={92} height={92} unoptimized className="mx-auto" />
-          <div className="mt-1 text-[9px] font-bold text-slate-500">{order.orderNumber}</div>
+          <Image src={qrCodeDataUrl} alt={`QR تتبع ${order.orderNumber}`} width={92} height={92} unoptimized className="mx-auto" />
+          <div className="mt-1 text-[9px] font-black text-slate-700">امسح لتتبع حالة الصيانة</div>
+          <div className="mt-0.5 font-numeric text-[8px] font-bold text-slate-500">{order.orderNumber}</div>
         </div>
 
         <footer className="grid grid-cols-2 gap-5 border-t border-slate-300 pt-7 text-center text-[9px] font-bold">
