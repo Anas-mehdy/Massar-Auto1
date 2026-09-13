@@ -9,8 +9,7 @@ export type FeatureDiscoveryId =
   | "service_order_workflow"
   | "sales_inventory"
   | "wallet_monthly_limit"
-  | "debt_collection"
-  | "electronic_templates";
+  | "debt_collection";
 
 export type FeatureDiscoveryCandidate = {
   id: FeatureDiscoveryId;
@@ -27,8 +26,6 @@ export type FeatureDiscoveryEvidence = {
   inventoryHasActivity?: boolean;
   walletNeedsLimit?: boolean;
   debtCollectionHref?: string | null;
-  electronicHasActivity?: boolean;
-  electronicHasTemplates?: boolean;
 };
 
 function candidateForJob(
@@ -76,17 +73,6 @@ function candidateForJob(
       description: "التحصيل ينقص الرصيد المستحق ويحدث الدرج أو المحفظة التي استلمت المال، بدون تسجيل الحركة مرتين.",
       actionHref: evidence.debtCollectionHref,
       actionLabel: "افتح دفتر العميل",
-    };
-  }
-
-  if (job === "ELECTRONIC_SERVICES" && evidence.electronicHasActivity && !evidence.electronicHasTemplates) {
-    return {
-      id: "electronic_templates",
-      job,
-      title: "إذا بتكرر نفس الخدمة، احفظها مرة واحدة",
-      description: "الخدمات المحفوظة تختصر اسم الخدمة والتكلفة والسعر والمزود، فتصير العملية اليومية أسرع وأقل عرضة للخطأ.",
-      actionHref: "/electronic-services/templates",
-      actionLabel: "أنشئ خدمة محفوظة",
     };
   }
 
