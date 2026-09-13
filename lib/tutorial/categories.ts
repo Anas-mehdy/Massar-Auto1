@@ -1,8 +1,8 @@
 export const TUTORIAL_VIDEO_CATEGORIES = [
   {
     key: "repair",
-    title: "الصيانة",
-    description: "إنشاء طلب الصيانة، متابعة الحالة، التسليم والتتبع للعميل.",
+    title: "أوامر صيانة المركبات",
+    description: "استقبال المركبة، الفحص والتشخيص، موافقة العميل، التنفيذ والتسليم والتتبع.",
     icon: "WRENCH",
   },
   {
@@ -25,8 +25,8 @@ export const TUTORIAL_VIDEO_CATEGORIES = [
   },
   {
     key: "inventory-compatibility",
-    title: "المخزون والتوافقات",
-    description: "إدارة القطع والكميات والحركات وربط الأصناف بدليل التوافقات.",
+    title: "المخزون وقطع الغيار",
+    description: "إدارة قطع الغيار والكميات وحركات المخزون وحد إعادة الطلب والتوريد والتوالف.",
     icon: "BOXES",
   },
   {
