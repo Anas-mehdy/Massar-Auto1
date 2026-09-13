@@ -1,7 +1,5 @@
-import type { ReactNode } from "react";
-import { requirePermission } from "@/lib/auth/context";
+import { redirect } from "next/navigation";
 
-export default async function CompatibilityLayout({ children }: { children: ReactNode }) {
-  await requirePermission("inventory:read");
-  return children;
+export default function CompatibilityLayout() {
+  redirect("/inventory");
 }
