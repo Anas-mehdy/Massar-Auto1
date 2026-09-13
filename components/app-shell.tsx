@@ -13,21 +13,18 @@ import { GlobalSubscriptionBanner } from "@/components/subscription/global-subsc
 import { TutorialOnboarding } from "@/components/tutorial-onboarding";
 import { ContextualHelp } from "@/components/help/contextual-help";
 import { clearAnalyticsSession } from "@/lib/analytics/client";
+import type { AppPermission } from "@/lib/auth/permissions";
 
 export function AppShell({
   children,
-  canSettings = false,
-  canReports = false,
+  permissions = [],
   canManageSubscription = false,
-  canManageDebts = false,
   subscriptionReadOnly = false,
   tutorialInitialShowBanner = false,
 }: {
   children: ReactNode;
-  canSettings?: boolean;
-  canReports?: boolean;
+  permissions?: AppPermission[];
   canManageSubscription?: boolean;
-  canManageDebts?: boolean;
   subscriptionReadOnly?: boolean;
   tutorialInitialShowBanner?: boolean;
 }) {
@@ -76,7 +73,7 @@ export function AppShell({
 
   if (isPublicPage) return <>{children}</>;
 
-  const navPermissions = { canSettings, canReports, canManageSubscription, canManageDebts };
+  const navPermissions = { permissions, canManageSubscription };
   const currentPageLabel = navigationLabelForPath(pathname);
   const readOnlyUiExempt =
     pathname.startsWith("/subscription") ||
