@@ -63,7 +63,7 @@ export const authService = {
           countryCode: validated.countryCode,
           currency: validated.currency.trim() || "SAR",
           address: validated.address?.trim() || null,
-          taxRate: 15,
+          taxRate: 0,
           subscription: {
             create: {
               plan: "PROFESSIONAL",
