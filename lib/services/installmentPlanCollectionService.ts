@@ -17,7 +17,7 @@ import {
   installmentService,
   type CreateInstallmentPlanInput,
 } from "@/lib/services/installmentService";
-import { dailyCashCloseService } from "@/lib/services/dailyCashCloseService";
+import { assertBusinessDateOpenTx } from "@/lib/services/businessDateLockService";
 
 export type CreateInstallmentPlanWithCollectionInput = CreateInstallmentPlanInput & {
   downPaymentDestination?: CollectionMoneyDestination;
@@ -70,6 +70,7 @@ export async function createPlan(
   const downCents = cents(input.downPayment || "0");
   let totalCents = cents(input.totalAmount);
   const downDestination = input.downPaymentDestination || "DRAWER";
+  const downPaidAt = new Date();
   if (downCents > 0 && downDestination === "WALLET" && !input.downPaymentWalletId) {
     throw new Error("اختر المحفظة التي استلمت الدفعة الأولى.");
   }
@@ -77,11 +78,14 @@ export async function createPlan(
     throw new Error("اختر الحساب البنكي الذي استلمت الدفعة الأولى.");
   }
   if (downCents > 0) {
-    await dailyCashCloseService.assertBusinessDateOpen(shopId, new Date());
     await collectionMoneyService.prepareCollectionMoneyAccount(shopId, downDestination);
   }
 
   const planId = await prisma.$transaction(async (tx) => {
+    if (downCents > 0) {
+      await assertBusinessDateOpenTx(tx, shopId, downPaidAt);
+    }
+
     let customerId = input.customerId?.trim() || "";
     let invoiceId: string | null = null;
     let source: InstallmentPlanSource = InstallmentPlanSource.MANUAL;
@@ -170,6 +174,7 @@ export async function createPlan(
           method: input.downPaymentMethod || PaymentMethod.CASH,
           isDownPayment: true,
           note: "الدفعة الأولى عند إنشاء الخطة",
+          paidAt: downPaidAt,
         },
       });
 
@@ -185,6 +190,7 @@ export async function createPlan(
           reference: generatedPlanNumber,
           description: `دفعة أولى لخطة ${generatedPlanNumber} [INSTALLMENT-DOWN:${payment.id}]`,
           movementType: "INSTALLMENT_DOWN_PAYMENT",
+          occurredAt: downPaidAt,
           sourceType: "INSTALLMENT_DOWN_PAYMENT",
           sourceId: plan.id,
           sourceReference: generatedPlanNumber,
