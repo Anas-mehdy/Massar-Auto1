@@ -46,6 +46,10 @@ export async function updateInvoiceDiscount(
       throw new Error("لا يمكن تعديل الخصم على فاتورة ملغاة.");
     }
 
+    if (invoice.serviceOrderId) {
+      throw new Error("لا يمكن تعديل خصم فاتورة صيانة المركبة مباشرةً. عدّل عرض السعر قبل إصدار الفاتورة، أو استخدم إشعاراً دائناً للتصحيح بعد الإصدار.");
+    }
+
     if (invoice.installmentPlan) {
       throw new Error("لا يمكن تعديل الخصم مباشرةً لأن الفاتورة مرتبطة بخطة أقساط.");
     }
