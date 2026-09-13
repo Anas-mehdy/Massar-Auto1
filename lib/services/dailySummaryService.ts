@@ -1,8 +1,9 @@
 import { InvoiceStatus, Prisma } from "@prisma/client";
 import { parseSourceDebtReference } from "@/lib/debt-source-reference";
 import { prisma } from "@/lib/prisma";
+import { autoFinancialReportService } from "@/lib/services/autoFinancialReportService";
 import { getInventoryDamageReportSummary } from "@/lib/services/inventoryDamageReportService";
-import { reportService, type FinancialRange } from "@/lib/services/reportService";
+import type { FinancialRange } from "@/lib/services/reportService";
 import { softwareServiceService } from "@/lib/services/softwareServiceService";
 import { getTransferCommissionReportSummary } from "@/lib/services/transferCommissionReportService";
 import { getShopTimeZone } from "@/lib/shop-timezone";
@@ -333,7 +334,7 @@ async function getDailyFinancialCore(shopId: string, requestedRange?: FinancialR
   const timeZone = await getShopTimeZone(shopId);
   const range = requestedRange ?? dayUtcBoundsForTimeZone(new Date(), timeZone);
   const [report, transferCommission] = await Promise.all([
-    reportService.getFinancialReport(shopId, range),
+    autoFinancialReportService.getFinancialReport(shopId, range),
     getTransferCommissionReportSummary(shopId, range.start, range.end).catch(() => ({ totalProfit: 0, operationCount: 0 })),
   ]);
   const grossProfit = money(report.metrics.grossProfit + transferCommission.totalProfit);
@@ -370,8 +371,8 @@ export async function getDailySummary(shopId: string, requestedRange?: Financial
     softwareRows,
     posRows,
     posCostRows,
-    repairRows,
-    repairCostRows,
+    serviceRows,
+    serviceCostRows,
     otherInvoiceRows,
     manualPlanRows,
     electronicCategoryRows,
@@ -421,80 +422,11 @@ export async function getDailySummary(shopId: string, requestedRange?: Financial
       WHERE i."shopId" = ${shopId}::uuid
         AND i."deletedAt" IS NULL
         AND i."status" <> 'VOID'
-        AND i."repairOrderId" IS NOT NULL
+        AND i."serviceOrderId" IS NOT NULL
         AND i."issuedAt" >= ${range.start}
         AND i."issuedAt" < ${range.end}
     `,
-    prisma.$queryRaw<Array<{ cost: Prisma.Decimal }>>`
-      SELECT
-        COALESCE((
-          SELECT SUM(CASE
-            WHEN m."type" = 'REPAIR_RETURN' THEN -ABS(m."quantityChange") * COALESCE(m."unitCostSnapshot", 0)
-            ELSE ABS(m."quantityChange") * COALESCE(m."unitCostSnapshot", 0)
-          END)
-          FROM "InventoryMovement" m
-          JOIN "RepairOrder" ro ON ro."id" = m."repairOrderId"
-          WHERE m."shopId" = ${shopId}::uuid
-            AND m."deletedAt" IS NULL
-            AND m."type" IN ('REPAIR_USAGE','REPAIR_RETURN')
-            AND m."createdAt" < ${range.end}
-            AND ro."deletedAt" IS NULL
-            AND ro."status" <> 'CANCELLED'
-            AND EXISTS (
-              SELECT 1 FROM "Invoice" i
-              WHERE i."repairOrderId" = ro."id"
-                AND i."shopId" = ${shopId}::uuid
-                AND i."deletedAt" IS NULL
-                AND i."status" <> 'VOID'
-                AND i."issuedAt" >= ${range.start}
-                AND i."issuedAt" < ${range.end}
-            )
-        ), 0)
-        + COALESCE((
-          SELECT SUM(roi."quantity" * COALESCE(roi."unitCost", 0))
-          FROM "RepairOrderItem" roi
-          JOIN "RepairOrder" ro ON ro."id" = roi."repairOrderId"
-          WHERE roi."shopId" = ${shopId}::uuid
-            AND roi."deletedAt" IS NULL
-            AND roi."inventoryItemId" IS NULL
-            AND roi."unitCost" IS NOT NULL
-            AND roi."createdAt" < ${range.end}
-            AND ro."deletedAt" IS NULL
-            AND ro."status" <> 'CANCELLED'
-            AND EXISTS (
-              SELECT 1 FROM "Invoice" i
-              WHERE i."repairOrderId" = ro."id"
-                AND i."shopId" = ${shopId}::uuid
-                AND i."deletedAt" IS NULL
-                AND i."status" <> 'VOID'
-                AND i."issuedAt" >= ${range.start}
-                AND i."issuedAt" < ${range.end}
-            )
-        ), 0)
-        + COALESCE((
-          SELECT SUM(COALESCE(ro."partCost", 0))
-          FROM "RepairOrder" ro
-          WHERE ro."shopId" = ${shopId}::uuid
-            AND ro."deletedAt" IS NULL
-            AND ro."status" <> 'CANCELLED'
-            AND ro."deductPartCost" = TRUE
-            AND ro."partCost" IS NOT NULL
-            AND ro."createdAt" < ${range.end}
-            AND NOT EXISTS (
-              SELECT 1 FROM "RepairOrderItem" roi
-              WHERE roi."repairOrderId" = ro."id" AND roi."deletedAt" IS NULL
-            )
-            AND EXISTS (
-              SELECT 1 FROM "Invoice" i
-              WHERE i."repairOrderId" = ro."id"
-                AND i."shopId" = ${shopId}::uuid
-                AND i."deletedAt" IS NULL
-                AND i."status" <> 'VOID'
-                AND i."issuedAt" >= ${range.start}
-                AND i."issuedAt" < ${range.end}
-            )
-        ), 0) AS cost
-    `,
+    Promise.resolve([{ cost: new Prisma.Decimal(report.metrics.autoServiceDirectCost) }]),
     prisma.$queryRaw<Array<{ revenue: Prisma.Decimal; count: bigint }>>`
       SELECT COALESCE(SUM(i."total"), 0) AS revenue, COUNT(*) AS count
       FROM "Invoice" i
@@ -505,6 +437,7 @@ export async function getDailySummary(shopId: string, requestedRange?: Financial
         AND i."status" <> 'VOID'
         AND i."saleId" IS NULL
         AND i."repairOrderId" IS NULL
+        AND i."serviceOrderId" IS NULL
         AND s."id" IS NULL
         AND i."issuedAt" >= ${range.start}
         AND i."issuedAt" < ${range.end}
@@ -681,8 +614,8 @@ export async function getDailySummary(shopId: string, requestedRange?: Financial
 
   const posRevenue = number(posRows[0]?.revenue);
   const posCost = number(posCostRows[0]?.cost);
-  const repairRevenue = number(repairRows[0]?.revenue);
-  const repairCost = number(repairCostRows[0]?.cost);
+  const serviceRevenue = number(serviceRows[0]?.revenue);
+  const serviceCost = number(serviceCostRows[0]?.cost);
   const softwareRevenue = softwareRows
     .filter((row) => row.invoiceStatus !== InvoiceStatus.VOID)
     .reduce((sum, row) => sum + number(row.invoiceTotal), 0);
@@ -709,14 +642,14 @@ export async function getDailySummary(shopId: string, requestedRange?: Financial
     }), { revenue: 0, cost: 0, profit: 0, count: 0 });
 
   const otherRevenue = number(otherInvoiceRows[0]?.revenue) + number(manualPlanRows[0]?.revenue);
-  const knownCosts = posCost + repairCost + softwareCost + report.metrics.electronicServiceCost;
+  const knownCosts = posCost + serviceCost + softwareCost + report.metrics.electronicServiceCost;
   const otherCost = money(Math.max(0, report.metrics.directCosts - knownCosts));
   const walletVolume = number(walletTransferRows[0]?.volume);
   const walletProfit = money(transferCommission.totalProfit || number(walletTransferRows[0]?.profit));
 
   const channels: DailySalesChannel[] = [
     { key: "POS", label: "الإكسسوار وبيع القطع (POS)", revenue: money(posRevenue), cost: money(posCost), profit: money(posRevenue - posCost), count: Number(posRows[0]?.count ?? 0), href: "/sales" },
-    { key: "REPAIR", label: "الصيانة المفوترة", revenue: money(repairRevenue), cost: money(repairCost), profit: money(repairRevenue - repairCost), count: Number(repairRows[0]?.count ?? 0), href: "/repair-orders" },
+    { key: "REPAIR", label: "صيانة المركبات المفوترة", revenue: money(serviceRevenue), cost: money(serviceCost), profit: money(serviceRevenue - serviceCost), count: Number(serviceRows[0]?.count ?? 0), href: "/service-orders" },
     { key: "SOFTWARE", label: "خدمات السوفتوير", revenue: money(softwareRevenue), cost: money(softwareCost), profit: money(softwareRevenue - softwareCost), count: softwareRows.filter((row) => row.invoiceStatus !== InvoiceStatus.VOID).length, href: "/software-services" },
     { key: "RECHARGE", label: "شحن الرصيد والباقات", revenue: money(recharge.revenue), cost: money(recharge.cost), profit: money(recharge.profit), count: recharge.count, href: "/electronic-services" },
     { key: "ELECTRONIC_OTHER", label: "خدمات إلكترونية أخرى", revenue: money(electronicOther.revenue), cost: money(electronicOther.cost), profit: money(electronicOther.profit), count: electronicOther.count, href: "/electronic-services" },
