@@ -690,7 +690,7 @@ export async function getMovementById(shopId: string, movementId: string) {
     ${movementSelect()}
     WHERE m."shopId"=${shopId}::uuid AND m."id"=${movementId}::uuid
     LIMIT 1
-  `;
+  `);
   return rows[0] ?? null;
 }
 
