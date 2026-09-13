@@ -114,8 +114,6 @@ export async function saveOnboardingPreferences(
       primaryJob: preferences.primaryJob,
       selectedJobs: preferences.selectedJobs,
       startedAt: existing?.startedAt ?? now,
-      // Selecting preferences is an explicit resume after a skip. A future flow
-      // version also starts fresh instead of inheriting terminal state blindly.
       skippedAt: null,
       ...(flowChanged ? { completedAt: null } : {}),
     },
@@ -160,8 +158,6 @@ export async function markOnboardingSkipped(shopId: string, now = new Date()) {
     update: {},
   });
 
-  // Once completed for the current flow, a later accidental "skip" cannot
-  // downgrade the onboarding state.
   if (profile.completedAt && profile.flowVersion === CURRENT_ONBOARDING_FLOW_VERSION) {
     return profile;
   }
@@ -182,15 +178,15 @@ export async function markOnboardingSkipped(shopId: string, now = new Date()) {
 }
 
 /**
- * Reads activation from business truth, never from onboarding checkboxes.
- * This means cancellation/deletion/reversal naturally changes the signal.
+ * Reads activation from automotive business truth, never from onboarding checkboxes.
+ * Cancellation/deletion naturally changes the signal.
  */
 export async function getJobActivationSignals(shopId: string): Promise<JobActivationSignals> {
-  const [repairs, sales, inventory, walletRows, transferRows, debtRows, providerRows, electronicRows] = await Promise.all([
-    prisma.repairOrder.aggregate({
+  const [serviceOrders, sales, inventory, walletRows, transferRows, debtRows] = await Promise.all([
+    prisma.serviceOrder.aggregate({
       where: { shopId, deletedAt: null },
       _count: { _all: true },
-      _min: { createdAt: true },
+      _min: { receivedAt: true },
     }),
     prisma.sale.aggregate({
       where: { shopId, deletedAt: null, status: SaleStatus.COMPLETED },
@@ -221,28 +217,16 @@ export async function getJobActivationSignals(shopId: string): Promise<JobActiva
         AND "isReversed" = FALSE
         AND "type" IN ('DEBT', 'OPENING_BALANCE')
     `,
-    prisma.$queryRaw<RawAggregateRow[]>`
-      SELECT COUNT(*)::bigint AS "count", MIN("createdAt") AS "firstAt"
-      FROM "ElectronicServiceProvider"
-      WHERE "shopId" = ${shopId}::uuid
-    `,
-    prisma.$queryRaw<RawAggregateRow[]>`
-      SELECT COUNT(*)::bigint AS "count", MIN("createdAt") AS "firstAt"
-      FROM "ElectronicServiceTransaction"
-      WHERE "shopId" = ${shopId}::uuid AND "status" = 'ACTIVE'
-    `,
   ]);
 
   const walletSetup = walletRows[0] ?? { count: 0, firstAt: null };
   const transfers = transferRows[0] ?? { count: 0, firstAt: null };
   const debts = debtRows[0] ?? { count: 0, firstAt: null };
-  const providers = providerRows[0] ?? { count: 0, firstAt: null };
-  const electronic = electronicRows[0] ?? { count: 0, firstAt: null };
 
   return {
     REPAIRS: signal({
-      coreActivityCount: repairs._count._all,
-      firstCoreActivityAt: repairs._min.createdAt,
+      coreActivityCount: serviceOrders._count._all,
+      firstCoreActivityAt: serviceOrders._min.receivedAt,
     }),
     SALES: signal({
       coreActivityCount: sales._count._all,
@@ -262,13 +246,6 @@ export async function getJobActivationSignals(shopId: string): Promise<JobActiva
     DEBTS: signal({
       coreActivityCount: countValue(debts.count),
       firstCoreActivityAt: debts.firstAt,
-    }),
-    ELECTRONIC_SERVICES: signal({
-      setupRequired: true,
-      setupCount: countValue(providers.count),
-      firstSetupAt: providers.firstAt,
-      coreActivityCount: countValue(electronic.count),
-      firstCoreActivityAt: electronic.firstAt,
     }),
   };
 }
