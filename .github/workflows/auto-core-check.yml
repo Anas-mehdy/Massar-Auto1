@@ -40,10 +40,10 @@ jobs:
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
           pkg.dependencies.next = '15.5.25';
           pkg.devDependencies['eslint-config-next'] = '15.5.25';
-          pkg.devDependencies.postcss = '^8.5.28';
+          pkg.devDependencies.postcss = '8.5.28';
           pkg.overrides = {
             ...(pkg.overrides || {}),
-            postcss: '8.5.28',
+            postcss: '$postcss',
             'deepmerge-ts': '8.0.0'
           };
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
