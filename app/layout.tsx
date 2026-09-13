@@ -10,6 +10,7 @@ import { LifetimeOfferBanner } from "@/components/lifetime-offer-banner";
 import { QuickOperationsLauncher } from "@/components/quick-operations";
 import { ThemeRouteSync } from "@/components/theme-route-sync";
 import { getAuthContext, can } from "@/lib/auth/context";
+import type { AppPermission } from "@/lib/auth/permissions";
 import { APP_URL } from "@/lib/app-url";
 import { getPostHogBrowserSnippet } from "@/lib/analytics/posthog-snippet";
 import { prisma } from "@/lib/prisma";
@@ -40,13 +41,15 @@ export const viewport: Viewport = { width: "device-width", initialScale: 1, maxi
 export const metadata: Metadata = { metadataBase: new URL(APP_URL), title: "مسار | إدارة مراكز صيانة المركبات", description: "مسار متكامل لإدارة مراكز صيانة المركبات من الاستقبال والفحص حتى الفاتورة والتسليم", applicationName: "مسار", manifest: "/manifest.webmanifest", icons: { icon: [{ url: "/massar-pwa-192.png", sizes: "192x192", type: "image/png" }, { url: "/massar-pwa-512.png", sizes: "512x512", type: "image/png" }], apple: [{ url: "/massar-apple-touch.png", sizes: "180x180", type: "image/png" }] }, appleWebApp: { capable: true, statusBarStyle: "default", title: "مسار" } };
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  let canSettings = false, canReports = false, canManageSubscription = false, canManageDebts = false, showTutorialBanner = false;
+  let navPermissions: AppPermission[] = [];
+  let canManageSubscription = false, canManageDebts = false, showTutorialBanner = false;
   let subscriptionReadOnly = false;
   let lifetimeBanner: { remaining: number; total: number } | null = null;
   let analyticsIdentity: AnalyticsIdentityData | null = null;
 
   try {
     const auth = await getAuthContext({ allowRedirect: false });
+    navPermissions = auth.permissions;
     analyticsIdentity = {
       userId: auth.user.id,
       shopId: auth.shop.id,
@@ -54,8 +57,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       currency: auth.shop.currency,
       membershipRole: auth.membership.role,
     };
-    canSettings = can(auth, "shop:settings");
-    canReports = can(auth, "reports:read");
     canManageDebts = can(auth, "debts:manage");
 
     try {
@@ -106,8 +107,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       }
     }
   } catch {
-    canSettings = false;
-    canReports = false;
+    navPermissions = [];
     canManageSubscription = false;
     canManageDebts = false;
     showTutorialBanner = false;
@@ -130,7 +130,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       <DashboardKpiNavigation />
       <PwaInstallPrompt />
       {lifetimeBanner ? <LifetimeOfferBanner remaining={lifetimeBanner.remaining} total={lifetimeBanner.total} /> : null}
-      <AppShell canSettings={canSettings} canReports={canReports} canManageSubscription={canManageSubscription} canManageDebts={canManageDebts} subscriptionReadOnly={subscriptionReadOnly} tutorialInitialShowBanner={showTutorialBanner}>{children}</AppShell>
+      <AppShell permissions={navPermissions} canManageSubscription={canManageSubscription} subscriptionReadOnly={subscriptionReadOnly} tutorialInitialShowBanner={showTutorialBanner}>{children}</AppShell>
       <AutoPrintShortcuts />
       <QuickOperationsLauncher canManageDebts={canManageDebts} readOnly={subscriptionReadOnly} />
     </body>
