@@ -5,8 +5,8 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requirePermission } from "@/lib/auth/context";
 import { pointOfSaleResultPath, readPointOfSaleReturn } from "@/lib/point-of-sale";
-import { prisma } from "@/lib/prisma";
 import { financialTransferService } from "@/lib/services/financialTransferService";
+import { walletMutationService } from "@/lib/services/walletMutationService";
 import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
 import { captureServerEvent } from "@/lib/analytics/server";
 
@@ -41,7 +41,7 @@ export async function createWalletAction(formData: FormData) {
       defaultWithdrawalCommission: readString(formData, "defaultWithdrawalCommission"),
     });
     const auth = await requirePermission("finance:vouchers");
-    await financialTransferService.createWallet(auth.shop.id, input);
+    await walletMutationService.createWallet(auth.shop.id, auth.user.id, input);
     await captureServerEvent({
       event: ANALYTICS_EVENTS.WALLET_CREATED,
       distinctId: auth.user.id,
@@ -96,30 +96,14 @@ export async function updateWalletAction(formData: FormData) {
     const withdrawalCommission = parseNumber(input.defaultWithdrawalCommission ?? "", "عمولة السحب") ?? 0;
 
     const auth = await requirePermission("finance:vouchers");
-    const duplicate = await prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT "id" FROM "FinancialWallet"
-      WHERE "shopId" = ${auth.shop.id}::uuid
-        AND "id" <> ${input.walletId}::uuid
-        AND "deletedAt" IS NULL
-        AND LOWER("name") = LOWER(${input.name})
-      LIMIT 1
-    `;
-    if (duplicate[0]) throw new Error("يوجد بالفعل محفظة أخرى بهذا الاسم.");
-
-    const updated = await prisma.$executeRaw`
-      UPDATE "FinancialWallet"
-      SET "name" = ${input.name},
-          "currentBalance" = ${balance},
-          "monthlyLimit" = ${monthlyLimit},
-          "defaultDepositCommission" = ${depositCommission},
-          "defaultWithdrawalCommission" = ${withdrawalCommission},
-          "updatedAt" = NOW()
-      WHERE "id" = ${input.walletId}::uuid
-        AND "shopId" = ${auth.shop.id}::uuid
-        AND "deletedAt" IS NULL
-        AND "isActive" = TRUE
-    `;
-    if (!updated) throw new Error("المحفظة غير موجودة.");
+    await walletMutationService.updateWallet(auth.shop.id, auth.user.id, {
+      walletId: input.walletId,
+      name: input.name,
+      balance,
+      monthlyLimit,
+      defaultDepositCommission: depositCommission,
+      defaultWithdrawalCommission: withdrawalCommission,
+    });
     revalidatePath("/transfers");
     redirectTo = "/transfers?walletUpdated=1";
   } catch (error) {
