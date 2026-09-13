@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { bankAccountService } from "@/lib/services/bankAccountService";
+import { assertBusinessDateOpenTx } from "@/lib/services/businessDateLockService";
 import { cashDrawerService } from "@/lib/services/cashDrawerService";
 import {
   financialTransferService,
@@ -102,6 +103,7 @@ export async function applyIncomingMoneyTx(
   if (amount.lte(0) || input.destination === "OTHER") {
     return input.destination === "OTHER" ? null : undefined;
   }
+  await assertBusinessDateOpenTx(tx, shopId, occurredAt);
 
   if (input.destination === "DRAWER") {
     const rows = await tx.$queryRaw<Array<{ id: string; currentBalance: Prisma.Decimal }>>`
@@ -208,6 +210,7 @@ export async function applyOutgoingMoneyTx(
   const movementType = input.movementType ?? "CHANGE_RETURN";
   const contextLabel = input.contextLabel?.trim();
   const occurredAt = input.occurredAt ?? new Date();
+  await assertBusinessDateOpenTx(tx, shopId, occurredAt);
 
   if (input.destination === "DRAWER") {
     const rows = await tx.$queryRaw<Array<{ id: string; currentBalance: Prisma.Decimal }>>`
