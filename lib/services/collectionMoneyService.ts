@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { bankAccountService } from "@/lib/services/bankAccountService";
+import { assertBusinessDateOpenTx } from "@/lib/services/businessDateLockService";
 import { cashDrawerService } from "@/lib/services/cashDrawerService";
 import {
   financialTransferService,
@@ -60,6 +61,7 @@ export async function applyCollectionIncomingTx(
   if (amount.lte(0)) throw new Error("قيمة التحصيل يجب أن تكون أكبر من صفر.");
   if (input.destination === "OTHER") return null;
   const occurredAt = input.occurredAt ?? new Date();
+  await assertBusinessDateOpenTx(tx, shopId, occurredAt);
 
   const sourceType = input.sourceType ?? sourceTypeFromMovement(input.movementType);
   let sourceId = input.sourceId ?? null;
