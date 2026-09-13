@@ -45,8 +45,7 @@ jobs:
           cp package-lock.json /tmp/package-lock.before.json
           cp package.json /tmp/package.before.json
           npm audit fix --package-lock-only --ignore-scripts || true
-          echo "=== PROPOSED PACKAGE VERSIONS ==="
-          npm ls next prisma @prisma/client postcss nanoid sharp deepmerge-ts browserslist brace-expansion js-yaml baseline-browser-mapping --all || true
+          cp package-lock.json /tmp/package-lock.proposed.json
           echo "=== PROPOSED PRODUCTION AUDIT ==="
           npm audit --omit=dev --json || true
           echo "=== PROPOSED FULL AUDIT ==="
@@ -55,6 +54,14 @@ jobs:
           git diff --stat -- package.json package-lock.json || true
           cp /tmp/package-lock.before.json package-lock.json
           cp /tmp/package.before.json package.json
+
+      - name: Upload dependency fix preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-fix-preview
+          path: /tmp/package-lock.proposed.json
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Prisma validate and generate
         run: |
