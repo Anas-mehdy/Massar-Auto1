@@ -175,7 +175,7 @@ export default async function SettingsPage() {
                   name="taxRate"
                   step="0.01"
                   min="0"
-                  defaultValue={Number(shop.taxRate) || 15}
+                  defaultValue={Number(shop.taxRate ?? 0)}
                   className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-900 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-xs font-numeric"
                 />
               </div>
@@ -189,7 +189,7 @@ export default async function SettingsPage() {
                   rows={3}
                   defaultValue={
                     shop.terms ||
-                    "الضمان يشمل القطع المستبدلة فقط لمدة 30 يوماً. المحل غير مسؤول عن الأجهزة المتروكة لأكثر من 60 يوماً."
+                    "الضمان يشمل القطع المستبدلة فقط لمدة 30 يوماً. المركز غير مسؤول عن المركبات المتروكة لأكثر من 60 يوماً."
                   }
                   className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-medium text-slate-900 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-xs"
                 />
