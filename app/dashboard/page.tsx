@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Clock,
-  Code2,
   Crown,
   FileText,
   Plus,
@@ -82,8 +81,7 @@ export default async function DashboardPage() {
   const canCreateSales = permissions.includes("sales:create");
   const canReadInvoices = permissions.includes("invoices:read");
   const canReadCustomers = permissions.includes("customers:read");
-  const canExecuteElectronicServices = permissions.includes("electronic_services:execute");
-  const canUsePointOfSale = canCreateSales || canCreateServiceOrders || canExecuteElectronicServices || permissions.includes("finance:vouchers");
+  const canUsePointOfSale = canCreateSales || canCreateServiceOrders || permissions.includes("finance:vouchers");
   const hasActivity = canReadServiceOrders || canReadSales || canReadInvoices;
   const hasQuickActions = canCreateServiceOrders || canCreateSales || canManageInventory || canReadInvoices || canReadCustomers;
 
@@ -192,7 +190,7 @@ export default async function DashboardPage() {
               <span className="dashboard-pos-launch-card__copy">
                 <span className="dashboard-pos-launch-card__eyebrow"><Sparkles className="h-3.5 w-3.5" /> مركز العمليات اليومية</span>
                 <strong>نقطة البيع</strong>
-                <span>بيع مباشر، أوامر صيانة، سوفتوير، خدمات إلكترونية ومحافظ — من مكان واحد.</span>
+                <span>بيع مباشر، أوامر صيانة، ومحافظ — من مكان واحد.</span>
               </span>
               <span className="dashboard-pos-launch-card__action">فتح نقطة البيع<ArrowRightLeft className="h-4 w-4" /></span>
             </span>
@@ -264,7 +262,6 @@ export default async function DashboardPage() {
               <div className="space-y-2.5">
                 {canCreateServiceOrders ? <DashboardQuickAction href="/service-orders/new" title="فتح أمر صيانة" description="استقبال مركبة وتسجيل شكوى العميل" icon={Wrench} tone="brand" /> : null}
                 {canCreateSales ? <DashboardQuickAction href="/point-of-sale?tab=sale" title="تسجيل عملية POS" description="بيع مباشر لقطع الغيار والخدمات" icon={ShoppingCart} tone="warning" /> : null}
-                {canCreateSales ? <DashboardQuickAction href="/point-of-sale?tab=software" title="بيع خدمة سوفتوير" description="تسجيل خدمة سوفتوير من نقطة البيع" icon={Code2} tone="support" /> : null}
                 {canManageInventory ? <DashboardQuickAction href="/inventory/new" title="إضافة للمستودع" description="إدخال صنف أو قطعة جديدة" icon={Boxes} tone="info" /> : null}
                 {canReadInvoices ? <DashboardQuickAction href="/invoices" title="مراجعة المقبوضات" description="متابعة الفواتير المعلقة" icon={Receipt} tone="danger" /> : null}
                 {canReadCustomers ? <DashboardQuickAction href="/customers" title="سجل العملاء" description="مراجعة العملاء ومركباتهم" icon={CheckCircle2} tone="neutral" /> : null}
