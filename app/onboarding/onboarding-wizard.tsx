@@ -7,12 +7,10 @@ import {
   ArrowRight,
   Boxes,
   Check,
-  CreditCard,
   HandCoins,
   ShoppingCart,
   WalletCards,
   Wrench,
-  Zap,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -39,7 +37,7 @@ const JOBS: JobCard[] = [
   {
     job: "REPAIRS",
     title: "الصيانة",
-    description: "استلام الأجهزة، متابعة الحالة والتسليم للعميل.",
+    description: "استقبال المركبات، الفحص والتشخيص والصيانة حتى التسليم.",
     icon: Wrench,
     iconClass: "text-teal-700 dark:text-teal-300",
     surfaceClass: "bg-teal-50 border-teal-100 dark:bg-teal-950/35 dark:border-teal-900/70",
@@ -47,7 +45,7 @@ const JOBS: JobCard[] = [
   {
     job: "SALES",
     title: "المبيعات ونقطة البيع",
-    description: "بيع القطع والإكسسوارات وتسجيل عمليات البيع اليومية.",
+    description: "بيع قطع الغيار والخدمات المباشرة وتسجيل عمليات البيع اليومية.",
     icon: ShoppingCart,
     iconClass: "text-indigo-700 dark:text-indigo-300",
     surfaceClass: "bg-indigo-50 border-indigo-100 dark:bg-indigo-950/35 dark:border-indigo-900/70",
@@ -55,7 +53,7 @@ const JOBS: JobCard[] = [
   {
     job: "INVENTORY",
     title: "المخزون",
-    description: "إدارة القطع والكميات والتكلفة والتنبيه عند النقص.",
+    description: "إدارة قطع الغيار والكميات والتكلفة والتنبيه عند النقص.",
     icon: Boxes,
     iconClass: "text-amber-700 dark:text-amber-300",
     surfaceClass: "bg-amber-50 border-amber-100 dark:bg-amber-950/35 dark:border-amber-900/70",
@@ -75,14 +73,6 @@ const JOBS: JobCard[] = [
     icon: HandCoins,
     iconClass: "text-rose-700 dark:text-rose-300",
     surfaceClass: "bg-rose-50 border-rose-100 dark:bg-rose-950/35 dark:border-rose-900/70",
-  },
-  {
-    job: "ELECTRONIC_SERVICES",
-    title: "الخدمات الإلكترونية",
-    description: "الشحن والفواتير وخدمات مزودي الرصيد والخدمات الرقمية.",
-    icon: Zap,
-    iconClass: "text-violet-700 dark:text-violet-300",
-    surfaceClass: "bg-violet-50 border-violet-100 dark:bg-violet-950/35 dark:border-violet-900/70",
   },
 ];
 
@@ -204,7 +194,7 @@ export function OnboardingWizard({
               <div>
                 <div className="mb-5">
                   <span className="inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1 text-[10px] font-black text-teal-700 dark:bg-teal-950/50 dark:text-teal-300">1 من 2</span>
-                  <h2 className="mt-3 text-[18px] font-black text-slate-950 dark:text-slate-50">{valueFocusedCopy ? "شو الأقسام اللي بتستخدمها فعلياً؟" : "ما طبيعة عمل متجرك؟"}</h2>
+                  <h2 className="mt-3 text-[18px] font-black text-slate-950 dark:text-slate-50">{valueFocusedCopy ? "شو الأقسام اللي بتستخدمها فعلياً؟" : "ما طبيعة عمل مركزك؟"}</h2>
                   <p className="mt-1 text-[12px] font-semibold text-slate-500 dark:text-slate-400">{valueFocusedCopy ? "حدد شغلك الحقيقي اليومي حتى نختصر لك أول خطوة." : "اختر كل الأقسام التي تستخدمها في عملك. يمكنك اختيار أكثر من قسم."}</p>
                 </div>
 
