@@ -111,7 +111,7 @@ export async function decideWarrantyClaimAction(formData: FormData) {
       customerCharge: readString(formData, "customerCharge"),
     });
     serviceOrderId = input.serviceOrderId;
-    const auth = await requirePermission("service_orders:update");
+    const auth = await requirePermission("quotes:manage");
     await serviceWarrantyClaimService.decideWarrantyClaim(auth.shop.id, input.claimId, auth.user.id, {
       decision: input.decision,
       coverageDecision: input.coverageDecision,
