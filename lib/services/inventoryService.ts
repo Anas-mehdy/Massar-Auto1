@@ -1,9 +1,4 @@
-import {
-  CompatibilityCandidateStatus,
-  CompatibilityImportStatus,
-  InventoryMovementType,
-  Prisma,
-} from "@prisma/client";
+import { InventoryMovementType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { inventoryCategoryService } from "./inventoryCategoryService";
 
@@ -24,7 +19,6 @@ export type CreateInventoryItemInput = {
   unitPrice: string;
   quantity?: string;
   reorderLevel?: string;
-  compatibilityGroupIds?: string[];
 };
 
 export type UpdateInventoryItemDetailsInput = {
@@ -36,7 +30,6 @@ export type UpdateInventoryItemDetailsInput = {
   unitCost?: string;
   unitPrice: string;
   reorderLevel?: string;
-  compatibilityGroupIds?: string[];
 };
 
 export type AddStockInput = {
@@ -99,9 +92,6 @@ export async function listInventoryItems(
         : {}),
     },
     orderBy: { updatedAt: "desc" },
-    include: {
-      _count: { select: { compatibilityGroupLinks: true } },
-    },
     take: 100,
   });
 
@@ -116,21 +106,6 @@ export async function getInventoryItemById(
 ) {
   const item = await prisma.inventoryItem.findFirst({
     where: { id: inventoryItemId, shopId, deletedAt: null },
-    include: {
-      compatibilityGroupLinks: {
-        include: {
-          candidateGroup: {
-            include: {
-              batch: { select: { categoryName: true } },
-              members: {
-                orderBy: { position: "asc" },
-                select: { id: true, rawModelName: true },
-              },
-            },
-          },
-        },
-      },
-    },
   });
 
   if (!item) return null;
@@ -145,47 +120,9 @@ export async function getInventoryItemById(
   return { ...item, categoryId: categoryLink[0]?.categoryId ?? null };
 }
 
-function uniqueGroupIds(ids?: string[]) {
-  return [...new Set((ids || []).filter(Boolean))];
-}
-
-async function validateCompatibilityGroups(
-  tx: Prisma.TransactionClient,
-  ids?: string[],
-) {
-  const groupIds = uniqueGroupIds(ids);
-  if (groupIds.length === 0) return groupIds;
-
-  const validGroups = await tx.compatibilityCandidateGroup.count({
-    where: {
-      id: { in: groupIds },
-      status: {
-        in: [
-          CompatibilityCandidateStatus.READY_FOR_CORROBORATION,
-          CompatibilityCandidateStatus.APPROVED,
-        ],
-      },
-      batch: {
-        status: {
-          in: [CompatibilityImportStatus.READY_FOR_REVIEW, CompatibilityImportStatus.IMPORTED],
-        },
-      },
-    },
-  });
-
-  if (validGroups !== groupIds.length) {
-    throw new Error("مجموعة التوافق المحددة غير متاحة أو لم تعد صالحة.");
-  }
-
-  return groupIds;
-}
-
 export async function getInventoryMovements(shopId: string, inventoryItemId: string) {
   const movements = await prisma.inventoryMovement.findMany({
     where: { shopId, inventoryItemId, deletedAt: null },
-    include: {
-      repairOrder: { select: { id: true, ticketNumber: true } },
-    },
     orderBy: { createdAt: "desc" },
     take: 25,
   });
@@ -233,7 +170,6 @@ export async function createInventoryItem(
   const category = await inventoryCategoryService.resolveInventoryCategory(shopId, input);
 
   return prisma.$transaction(async (tx) => {
-    const compatibilityGroupIds = await validateCompatibilityGroups(tx, input.compatibilityGroupIds);
     const item = await tx.inventoryItem.create({
       data: {
         shopId,
@@ -254,12 +190,6 @@ export async function createInventoryItem(
         SET "categoryId" = ${category.id}::uuid
         WHERE "id" = ${item.id}::uuid AND "shopId" = ${shopId}::uuid
       `;
-    }
-
-    if (compatibilityGroupIds.length > 0) {
-      await tx.inventoryCompatibilityGroup.createMany({
-        data: compatibilityGroupIds.map((candidateGroupId) => ({ inventoryItemId: item.id, candidateGroupId })),
-      });
     }
 
     if (initialQuantity > 0) {
@@ -291,7 +221,6 @@ export async function updateInventoryItemDetails(
   const category = await inventoryCategoryService.resolveInventoryCategory(shopId, input);
 
   return prisma.$transaction(async (tx) => {
-    const compatibilityGroupIds = await validateCompatibilityGroups(tx, input.compatibilityGroupIds);
     const item = await tx.inventoryItem.update({
       where: { id: inventoryItemId },
       data: {
@@ -314,17 +243,6 @@ export async function updateInventoryItemDetails(
       SET "categoryId" = ${category?.id ?? null}::uuid
       WHERE "id" = ${inventoryItemId}::uuid AND "shopId" = ${shopId}::uuid
     `;
-
-    await tx.inventoryCompatibilityGroup.deleteMany({ where: { inventoryItemId } });
-    if (compatibilityGroupIds.length > 0) {
-      await tx.inventoryCompatibilityGroup.createMany({
-        data: compatibilityGroupIds.map((candidateGroupId) => ({ inventoryItemId, candidateGroupId })),
-      });
-      await tx.inventoryItem.update({
-        where: { id: inventoryItemId },
-        data: { compatibilityReviewNeeded: false },
-      });
-    }
 
     return item;
   });
