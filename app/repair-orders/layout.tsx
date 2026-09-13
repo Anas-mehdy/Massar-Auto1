@@ -1,6 +1,5 @@
-import type { ReactNode } from "react";
-import "./repair-orders-ui.css";
+import { redirect } from "next/navigation";
 
-export default function RepairOrdersLayout({ children }: { children: ReactNode }) {
-  return <div className="masar-repair-orders">{children}</div>;
+export default function RepairOrdersLayout() {
+  redirect("/service-orders");
 }
