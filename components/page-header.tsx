@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ServiceOrderTrackingActions } from "@/components/service-order-tracking-actions";
 
 type PageHeaderProps = {
   title: string;
@@ -30,12 +31,10 @@ export function PageHeader({
           </p>
         ) : null}
       </div>
-      {actions ? (
-        <div className="flex flex-wrap gap-2.5 shrink-0">
-          {actions}
-        </div>
-      ) : null}
+      <div className="flex flex-wrap gap-2.5 shrink-0">
+        <ServiceOrderTrackingActions />
+        {actions}
+      </div>
     </header>
   );
 }
-
