@@ -30,7 +30,10 @@ export const SERVICE_ORDER_STATUS_CLASSES: Record<ServiceOrderStatus, string> = 
 
 export const SERVICE_ORDER_ALLOWED_TRANSITIONS: Record<ServiceOrderStatus, readonly ServiceOrderStatus[]> = {
   RECEIVED: ["INSPECTING", "CANCELLED"],
-  INSPECTING: ["WAITING_CUSTOMER_APPROVAL", "APPROVED", "IN_SERVICE", "CANCELLED"],
+  // WAITING_CUSTOMER_APPROVAL and APPROVED are quotation/customer-decision states.
+  // They are intentionally not manual status choices: sending a quotation and recording
+  // the customer's decision transition the order automatically.
+  INSPECTING: ["IN_SERVICE", "CANCELLED"],
   WAITING_CUSTOMER_APPROVAL: ["CANCELLED"],
   APPROVED: ["IN_SERVICE", "WAITING_PARTS", "CANCELLED"],
   IN_SERVICE: ["WAITING_PARTS", "READY_FOR_DELIVERY", "CANCELLED"],
