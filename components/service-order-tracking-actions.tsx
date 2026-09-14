@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Check, Copy, QrCode } from "lucide-react";
+import { Check, Copy, Printer, QrCode, Truck } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -26,9 +26,17 @@ async function copyText(value: string) {
   if (!copied) throw new Error("تعذر نسخ الرابط.");
 }
 
+function findReadyDeliverySection() {
+  return Array.from(document.querySelectorAll<HTMLElement>("section")).find((section) => {
+    const heading = section.querySelector("h2");
+    return heading?.textContent?.includes("تسليم المركبة") ?? false;
+  }) ?? null;
+}
+
 export function ServiceOrderTrackingActions() {
   const pathname = usePathname();
   const [copied, setCopied] = useState(false);
+  const [deliveryReady, setDeliveryReady] = useState(false);
   const match = pathname.match(SERVICE_ORDER_DETAIL_PATH);
   const serviceOrderId = match?.[1] ?? null;
 
@@ -38,10 +46,25 @@ export function ServiceOrderTrackingActions() {
     return () => window.clearTimeout(timeout);
   }, [copied]);
 
+  useEffect(() => {
+    if (!serviceOrderId) {
+      setDeliveryReady(false);
+      return;
+    }
+
+    const refresh = () => setDeliveryReady(Boolean(findReadyDeliverySection()));
+    refresh();
+
+    const observer = new MutationObserver(refresh);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [serviceOrderId]);
+
   if (!serviceOrderId) return null;
 
   const publicPath = `/track/${serviceOrderId}`;
   const trackingManagerPath = `/service-orders/${serviceOrderId}/tracking`;
+  const keyLabelPath = `/service-orders/${serviceOrderId}/print/key-label`;
 
   async function handleCopy() {
     try {
@@ -52,8 +75,24 @@ export function ServiceOrderTrackingActions() {
     }
   }
 
+  function handleDeliveryShortcut() {
+    findReadyDeliverySection()?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   return (
     <>
+      {deliveryReady ? (
+        <Button type="button" className="font-bold" onClick={handleDeliveryShortcut}>
+          <Truck className="ml-1.5 h-4 w-4" />
+          تسليم المركبة
+        </Button>
+      ) : null}
+      <Button asChild variant="outline" className="font-bold">
+        <Link href={keyLabelPath} target="_blank" rel="noreferrer">
+          <Printer className="ml-1.5 h-4 w-4" />
+          ستيكر المفتاح
+        </Link>
+      </Button>
       <Button type="button" variant="outline" className="font-bold" onClick={handleCopy}>
         {copied ? <Check className="ml-1.5 h-4 w-4 text-emerald-600" /> : <Copy className="ml-1.5 h-4 w-4" />}
         {copied ? "تم نسخ الرابط" : "نسخ رابط التتبع"}
