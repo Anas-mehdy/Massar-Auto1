@@ -90,6 +90,15 @@ export const authService = {
         },
       });
 
+      await tx.membership.create({
+        data: {
+          shopId: shop.id,
+          userId: user.id,
+          role: "OWNER",
+          status: "ACTIVE",
+        },
+      });
+
       await tx.$executeRaw`
         UPDATE "User"
         SET "lastLoginAt" = ${trialStartedAt}
